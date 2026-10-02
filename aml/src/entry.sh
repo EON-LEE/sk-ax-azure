@@ -90,6 +90,12 @@ if ! python3 "$SRC/apply_overlay.py" --report "$OUT/overlay.json" > "$OUT/overla
 fi
 report "node$RANK.overlay" --file "$OUT/overlay.json"
 
+# vLLM 0.23 no longer ships Ray; its multi-node guide installs it explicitly. Install before any vLLM
+# process starts so no process ever imports a half-installed package.
+(python3 -c "import ray" 2>/dev/null || uv pip install --system -q "ray[cgraph]" \
+   || python3 -m pip install -q --no-cache-dir "ray[cgraph]") > "$OUT/ray-install.log" 2>&1 &
+RAY_INSTALL_PID=$!
+
 if [ -n "$FULL_SOURCE" ]; then
   (
     began=$(date +%s)
@@ -121,6 +127,10 @@ if [[ "$MODEL_IN" == hf:* || "$MODEL_IN" == hf-smoke:* ]]; then
   report "node$RANK.hub_download" --text "{\"seconds\": $(( $(date +%s) - began ))}"
 fi
 python3 "$SRC/make_dense_dir.py" "$MODEL_IN" "$MODEL_DIR" --report "$OUT/dense.json" || exit 11
+wait "$RAY_INSTALL_PID"
+RAY_VERSION=$(python3 -c "import ray; print(ray.__version__)" 2>/dev/null) || { tail -n 20 "$OUT/ray-install.log"; exit 29; }
+log "ray $RAY_VERSION installed"
+report "node$RANK.ray_install" --text "{\"ray\": \"$RAY_VERSION\"}"
 
 export VLLM_HOST_IP="$NODE_IP" NCCL_SOCKET_IFNAME="$IFACE" GLOO_SOCKET_IFNAME="$IFACE"
 export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}" NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
@@ -224,6 +234,22 @@ fail_server() {
   exit "$code"
 }
 
+# serve <tag> <timeout> <exit code> <start_server args...>: start and wait; if torch.compile/CUDA
+# graphs fail on this GPU, keep the evidence and fall back to eager mode for the rest of the job.
+serve() {
+  local tag=$1 limit=$2 code=$3; shift 3
+  start_server "$tag" "$@"
+  wait_healthy "$tag" "$limit" && return 0
+  [ "$EAGER" = "1" ] && fail_server "$tag" "$code"
+  report "node0.$tag.compiled_failure" --text "$(tail -c 7600 "$OUT/vllm-$tag.log")"
+  stop_server
+  cp "$OUT/vllm-$tag.log" "$OUT/vllm-$tag-compiled.log"
+  EAGER=1
+  log "[$tag] retrying with --enforce-eager"
+  start_server "$tag" "$@"
+  wait_healthy "$tag" "$limit" || fail_server "$tag" "$code"
+}
+
 series() {
   python3 - "$1" > "$2" <<'EOF'
 import json, sys
@@ -234,9 +260,8 @@ EOF
 
 export VLLM_ENGINE_READY_TIMEOUT_S="$HEALTH_TIMEOUT"
 if [ "$SUITE" = "smoke" ]; then
-  start_server pp1 "$MODEL_DIR" "$MAX_MODEL_LEN" "$MAX_NUM_SEQS" "$GPU_MEM_UTIL" \
+  serve pp1 "$HEALTH_TIMEOUT" 20 "$MODEL_DIR" "$MAX_MODEL_LEN" "$MAX_NUM_SEQS" "$GPU_MEM_UTIL" \
     --tensor-parallel-size "$TP" --pipeline-parallel-size 1
-  wait_healthy pp1 "$HEALTH_TIMEOUT" || fail_server pp1 20
   report "node0.pp1.facts" --text "$(server_facts pp1 | tail -c 7600)"
   python3 "$SRC/client_tests.py" smoke --tag "tp${TP}-pp1-single-node" --prompts "$MODEL_DIR/smoke_prompts.json" \
     --out "$OUT/smoke-pp1.json" || fail_server pp1 21
@@ -267,9 +292,8 @@ log "Ray cluster: $(cat "$OUT/ray-nodes.json")"
 report "node0.ray" --file "$OUT/ray-nodes.json"
 
 TAG="tp${TP}-pp${PP}"
-start_server "$TAG" "$MODEL_DIR" "$MAX_MODEL_LEN" "$MAX_NUM_SEQS" "$GPU_MEM_UTIL" \
+serve "$TAG" "$HEALTH_TIMEOUT" 40 "$MODEL_DIR" "$MAX_MODEL_LEN" "$MAX_NUM_SEQS" "$GPU_MEM_UTIL" \
   --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP" --distributed-executor-backend ray
-wait_healthy "$TAG" "$HEALTH_TIMEOUT" || fail_server "$TAG" 40
 report "node0.$TAG.facts" --text "$(server_facts "$TAG" | tail -c 7600)"
 report "node0.$TAG.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$TAG.seconds")}"
 
@@ -318,9 +342,8 @@ EOF
   report "node0.full_download" --file "$OUT/full-download-status.json"
   FTAG="full-tp${TP}-pp${PP}"
   export VLLM_ENGINE_READY_TIMEOUT_S="$FULL_HEALTH_TIMEOUT"
-  start_server "$FTAG" "$FULL_DIR" "$FULL_MAX_MODEL_LEN" "$FULL_MAX_NUM_SEQS" "$FULL_GPU_MEM_UTIL" \
+  serve "$FTAG" "$FULL_HEALTH_TIMEOUT" 80 "$FULL_DIR" "$FULL_MAX_MODEL_LEN" "$FULL_MAX_NUM_SEQS" "$FULL_GPU_MEM_UTIL" \
     --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP" --distributed-executor-backend ray
-  wait_healthy "$FTAG" "$FULL_HEALTH_TIMEOUT" || fail_server "$FTAG" 80
   report "node0.$FTAG.facts" --text "$(server_facts "$FTAG" | tail -c 7600)"
   report "node0.$FTAG.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$FTAG.seconds")}"
   python3 "$SRC/client_tests.py" full --tag "$FTAG" --tokenizer "$FULL_DIR" --out "$OUT/full-$FTAG.json" || status=90

@@ -37,24 +37,9 @@ def send_json(key, text):
 
 
 def send_series(prefix, series):
-    mlflow = mlflow_or_none()
-    if mlflow is None:
-        return
-    from mlflow.entities import Metric
-    from mlflow.tracking import MlflowClient
-    client = MlflowClient()
-    run_id = os.environ.get("MLFLOW_RUN_ID") or mlflow.active_run().info.run_id
-    batch = []
-    for name, values in series.items():
-        for step, value in enumerate(values):
-            if value is None:
-                continue
-            batch.append(Metric(f"{prefix}.{name}", float(value), 0, step))
-            if len(batch) == 1000:
-                client.log_batch(run_id, metrics=batch)
-                batch = []
-    if batch:
-        client.log_batch(run_id, metrics=batch)
+    # AML's MLflow metric store truncates/duplicates long step histories, so per-position series
+    # travel as compact chunked JSON tags like every other report.
+    send_json(f"{prefix}.series", json.dumps(series, separators=(",", ":")))
 
 
 def main():
@@ -70,7 +55,6 @@ def main():
     try:
         if args.series:
             send_series(args.key, json.loads(text))
-            print(f"AXK2_REPORT {args.key} series:{list(json.loads(text))}", flush=True)
         else:
             send_json(args.key, text)
     except Exception as exc:

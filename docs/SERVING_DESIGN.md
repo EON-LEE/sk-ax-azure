@@ -101,6 +101,20 @@ bakes the same step into an image for production registries. The CUDA 12.9
 image variant is used because CUDA 12 minor-version compatibility runs on
 older host drivers; the default 0.23.0 image targets CUDA 13.
 
+Two A100-specific changes came out of the first real run:
+
+- **Ray is optional in vLLM 0.23** and absent from the image; the launcher
+  installs `ray[cgraph]` (the documented step) before any vLLM process starts.
+- **Ampere FP8 bug in MLA chunked-context prefill (upstream v0.23.0 too).**
+  On SM80 the FP8 weights run through Marlin, which repacks
+  `kv_b_proj.weight` into int32 tiles. The dtype guard in
+  `_compute_prefill_context` then casts the BF16 activations to int32, and
+  `marlin_gemm` fails with ``unsupported `a` scalar_type`` on the first prefill
+  that continues from cached context (a chunked long prompt or a prefix-cache
+  hit). Hopper is unaffected because its weights stay FP8. `apply_overlay.py`
+  skips the cast for non-floating weight dtypes at both sites, after checking
+  each anchor appears exactly once; FP8/BF16 behaviour on other GPUs is unchanged.
+
 ## 5. Dense mode: running DSA checkpoints without DSA kernels
 
 The fork's DeepSeek-style sparse attention (DSA) indexer and sparse MLA
@@ -143,21 +157,86 @@ The design works within it and does not bypass it:
 | --- | --- | --- |
 | A. CPU tiny AXK2 (`experiments/validate_dense_equivalence.py`) | Dense == sparse within `index_topk` for prefill and cached decode; divergence beyond it | none |
 | B1. 2-layer real-weight cut, official Transformers FP32 sparse on CPU | Reference log-probabilities from SKT's own model definition | CPU minutes |
-| B2. Same cut on 2 x NC24ads_A100_v4, vLLM dense, Ray, TP1 x PP2 across nodes vs TP1 single GPU | The exact launch path, overlay and SM80 kernels on real weights, plus multi-node PP parity | ~USD 2 |
-| C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2 | Load and serve all 61 layers; functional, accuracy, determinism, long-context and load tests | ~USD 21/hour |
+| B2. Same cut on the target nodes: vLLM dense, single-node TP8, then Ray TP8 x PP2 across both nodes | The exact launch path, overlay and SM80 kernels on real weights, multi-node parity, agreement with B1 | minutes of the C allocation |
+| C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2, same Ray cluster as B2 | Load and serve all 61 layers; functional, reasoning, accuracy, determinism, long-context and load tests | ~USD 26/hour |
 
-## 8. Results
+`aml/jobs/rehearse-then-serve-nd96-hub.yml` runs B2 and C in one allocation:
+both nodes download the full checkpoint from the Hub in the background
+while B2 runs, and C starts only if B2 passes. Because Spot capacity was
+scarce, the same job was queued in several regions, and
+`aml/first_capacity_wins.sh` cancelled every other region once one region
+had both nodes.
 
-Filled in from `evidence/` after each stage; see the README status table.
+## 8. Results (2026-10-02, italynorth)
+
+All stages passed. Evidence: `evidence/axk2-dense-equivalence-cpu.json`,
+`evidence/a100-2layer-vs-official.json`,
+`evidence/a100-full-model-tp8-pp2-results.json` and
+`evidence/a100-deployment-attempts.json` (every failure and fix).
+
+**B: real weights, vLLM on A100 vs official Transformers (FP32, sparse DSA).**
+Chosen-token log-probability over ~3,300 prompt positions:
+
+| vLLM configuration | Pearson | Mean abs diff | Top-1 agreement |
+| --- | --- | --- | --- |
+| Single node, TP8 | 0.99995-0.999996 | 0.008-0.013 | 97-100% |
+| Two nodes, TP8 x PP2 | 0.99998-0.999996 | 0.008-0.013 | 93-100% |
+
+This is the expected agreement between BF16 activations and an FP32
+reference. Two-node and single-node greedy tokens were identical, and 8
+concurrent requests all completed.
+
+**C: full 688B model, one endpoint on 16 x A100 80GB (2 x ND96amsr, TP8 x PP2).**
+
+- Kernels selected by vLLM on SM80: `MarlinFP8ScaledMMLinearKernel` for
+  linears, the MARLIN FP8 MoE backend, TRITON_MLA decode and FLASH_ATTN MLA
+  prefill; ranks 0-7 on node 0 and 8-15 on node 1.
+- Weights: 41.7 GiB per GPU, loaded in ~78 s from page cache (the 694 GB
+  download took ~640 s per node at ~1.1 GB/s from the Hub, overlapped with B2).
+  The server was healthy 181 s after launch: engine initialisation took
+  50 s, including torch.compile and CUDA graphs.
+- KV cache: 27.6 GiB per GPU, 843,920 tokens, which is 103 concurrent
+  8K-token requests.
+
+| Test | Result |
+| --- | --- |
+| Korean/English functional chat, translation, code | 6/6 correct |
+| Reasoning mode (`<think>`) | Correct, with reasoning trace |
+| Needle at 1,380 tokens (exact DSA region) / 5,469 tokens (dense approximation) | Found / found |
+| Short no-thinking arithmetic, 24-token cap | 14/20 (individual answers not recorded) |
+| Two identical greedy requests | Not bitwise identical (default kernels are not batch-invariant) |
+| Single stream | TTFT 72 ms, ~75 tokens/s |
+
+Synthetic load, 1024-token prompts, 128 output tokens:
+
+| Concurrency | Output tok/s | Total tok/s | Median TTFT | Median TPOT |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 65 | 581 | 198 ms | 14.0 ms |
+| 8 | 228 | 2,052 | 917 ms | 26.1 ms |
+| 32 | 472 | 4,245 | 984 ms | 57.1 ms |
+
+Spend was about USD 34: 61 minutes of the winning 2-node cluster, 6
+minutes of a duplicate allocation that was cancelled, and CPU jobs.
+Everything was deleted afterwards.
 
 ## 9. Known limits and next steps
 
-- Low-priority/Spot capacity can be preempted; it is for validation, not an SLA.
-- Dense mode beyond 2048 context tokens needs a quality evaluation before
+- Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
+  could not be allocated in four of six regions on the test day. Production
+  needs on-demand or reserved capacity in the customer subscription. Run the
+  same image and command there, on AKS + KubeRay/LWS or CycleCloud Slurm.
+- Dense mode beyond 2048 context tokens is only probed by one needle test
+  here; it needs a quality evaluation (for example AA-LCR, RULER) before
   long-context production use. A native SM80 DSA backend (a Triton indexer
-  plus sparse MLA over the selected indices) removes the approximation.
+  plus sparse MLA over the selected indices) would remove the approximation.
+- The arithmetic probe (14/20) did not record individual answers; repeat it
+  with thinking enabled and per-item logging before drawing conclusions.
+- Output is not bitwise reproducible across identical requests with the
+  default kernels; use vLLM's batch-invariant mode if exact reproducibility
+  is required.
 - The PoC disables InfiniBand for NCCL (`NCCL_IB_DISABLE=1`); pipeline-parallel
   traffic between the two stages is one hidden-state tensor per step. Enable
-  IB in production once the container's RDMA userland is verified.
-- Throughput tuning (expert parallelism, more nodes as data-parallel
-  replicas, speculative decoding) is out of scope for this proof.
+  IB in production once the container's RDMA userland is verified; the
+  `/dev/infiniband` devices were visible inside the job containers.
+- Throughput tuning (expert parallelism, data-parallel replicas, speculative
+  decoding, `fastsafetensors` loading) is out of scope for this proof.

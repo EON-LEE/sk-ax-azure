@@ -6,7 +6,8 @@ usage:
   python aml/fetch_results.py show <job_name>
   python aml/fetch_results.py compare <smoke_job> <oracle_job> --out evidence/...json
 
-Set AXK2_MLFLOW_URI to the workspace `mlflow_tracking_uri` (az ml workspace show).
+Set AXK2_MLFLOW_URI to the workspace `mlflow_tracking_uri` (az ml workspace show), and
+AXK2_ORACLE_MLFLOW_URI when the reference job ran in a different workspace.
 """
 import argparse
 import json
@@ -38,14 +39,8 @@ def tags_json(mlflow_client, run_id):
 
 
 def series(mlflow_client, run_id, prefix):
-    run = mlflow_client.get_run(run_id)
-    result = {}
-    for name in run.data.metrics:
-        if not name.startswith(prefix + "."):
-            continue
-        values = {m.step: m.value for m in mlflow_client.get_metric_history(run_id, name)}
-        result[name[len(prefix) + 1:]] = [values.get(i) for i in range(max(values) + 1)] if values else []
-    return result
+    _, data = tags_json(mlflow_client, run_id)
+    return data.get(f"{prefix}.series", {})
 
 
 def stats(left, right):
@@ -86,8 +81,8 @@ def compare(reference, candidate):
 
 
 def pp_prefix(mlflow_client, run_id):
-    names = mlflow_client.get_run(run_id).data.metrics
-    tags = sorted({n.split(".")[1] for n in names if n.startswith("node0.tp") and "-pp" in n.split(".")[1]})
+    _, data = tags_json(mlflow_client, run_id)
+    tags = sorted({k.split(".")[1] for k in data if k.startswith("node0.tp") and k.endswith(".series")})
     if len(tags) != 1:
         raise SystemExit(f"expected one multi-node series in {run_id}, found {tags}")
     return f"node0.{tags[0]}"
@@ -105,7 +100,8 @@ def main():
         status, data = tags_json(mlflow_client, args.job)
         result = {"job": args.job, "status": status, "reports": data}
     else:
-        oracle = series(mlflow_client, args.oracle_job, "oracle")
+        oracle_client = MlflowClient(tracking_uri=os.environ.get("AXK2_ORACLE_MLFLOW_URI", os.environ["AXK2_MLFLOW_URI"]))
+        oracle = series(oracle_client, args.oracle_job, "oracle")
         single = series(mlflow_client, args.job, "node0.pp1")
         prefix = pp_prefix(mlflow_client, args.job)
         multi = series(mlflow_client, args.job, prefix)

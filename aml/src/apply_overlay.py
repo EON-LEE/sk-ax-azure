@@ -16,6 +16,19 @@ from importlib.metadata import version
 from pathlib import Path
 
 RAW = "https://raw.githubusercontent.com/SKT-AI/vllm/{sha}/{path}"
+MLA = "vllm/model_executor/layers/attention/mla_attention.py"
+# Ampere fix, also needed for upstream v0.23.0: on SM80 the FP8 weights run through Marlin, which
+# repacks kv_b_proj.weight into int32 tiles. The dtype guard in the chunked-context prefill path then
+# casts the BF16 activations to int32 and marlin_gemm fails with "unsupported `a` scalar_type" on the
+# first prefill that continues from cached context (chunked prefill or a prefix-cache hit). Skip the
+# cast when the weight dtype is not a floating type; Hopper/Blackwell FP8 and BF16 paths are unchanged.
+PATCHES = [
+    (MLA, "            ) and _kv_b_proj_w_dtype != torch.uint8:\n",
+     "            ) and _kv_b_proj_w_dtype != torch.uint8 and _kv_b_proj_w_dtype.is_floating_point:\n"),
+    (MLA, "            if use_fp8_prefill or _kv_b_proj_w_dtype != current_platform.fp8_dtype():\n",
+     "            if (use_fp8_prefill or _kv_b_proj_w_dtype != current_platform.fp8_dtype()) and "
+     "_kv_b_proj_w_dtype.is_floating_point:\n"),
+]
 
 
 def sha256(data):
@@ -64,6 +77,14 @@ def main():
         temporary.write_bytes(data)
         temporary.replace(target)
         result["written"] += 1
+    result["patches"] = []
+    for path, old, new in PATCHES:
+        target = site / path
+        text = target.read_text()
+        if text.count(old) != 1:
+            raise SystemExit(f"patch anchor not found exactly once in {path}")
+        target.write_text(text.replace(old, new))
+        result["patches"].append({"path": path, "sha256_after": sha256(target.read_bytes())})
     probe = ("from vllm.model_executor.models.registry import ModelRegistry;"
              "from vllm.transformers_utils.configs import AXK2Config;"
              "print('AXK2ForCausalLM' in ModelRegistry.get_supported_archs())")

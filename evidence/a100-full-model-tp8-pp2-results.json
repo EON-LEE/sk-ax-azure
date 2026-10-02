@@ -1,0 +1,289 @@
+{
+  "scope": "Full 61-layer skt/A.X-K2 (688B total / 33B active, FP8, revision 2287ca45) served as ONE OpenAI-compatible endpoint by vLLM 0.23.0 + the pinned SKT fork overlay in dense mode, on a Ray cluster of 2 x Standard_ND96amsr_A100_v4 (16 x A100-SXM4-80GB): tensor parallel 8 over NVLink inside each node, pipeline parallel 2 across the nodes over NCCL/TCP (InfiniBand disabled for the PoC). Azure ML low-priority (Spot) cluster in italynorth. Short functional/accuracy probes and synthetic load, not a full quality benchmark.",
+  "run": {
+    "job": "brave_jicama_k0v2dz2txp",
+    "region": "italynorth",
+    "date_utc": "2026-10-02",
+    "allocation": "2 nodes allocated 17:23Z after jobs were queued in six regions; cluster deleted 18:24Z",
+    "suite": "rehearsal (2-layer real-weight cut: single-node TP8, then TP8 x PP2) followed by the full model on the same Ray cluster"
+  },
+  "environment": {
+    "gpus_per_node": 8,
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "driver": "580.95.05",
+    "torch": "2.11.0+cu129",
+    "torch_cuda": "12.9",
+    "capability": [
+      8,
+      0
+    ],
+    "image": "docker.io/vllm/vllm-openai:v0.23.0-cu129",
+    "packages": {
+      "vllm": "0.23.0+cu129",
+      "ray": "2.59.0",
+      "transformers": "5.12.0",
+      "triton": "3.6.0",
+      "flashinfer-python": "0.6.12",
+      "nvidia-nccl-cu12": "2.28.9",
+      "huggingface-hub": "1.19.0",
+      "hf-xet": "1.5.1"
+    },
+    "infiniband_devices_visible": 25,
+    "host_memory_gb": 1771.7,
+    "shm_gb": 256.0,
+    "ray_nodes": [
+      {
+        "ip": "10.8.0.6",
+        "gpus": 8.0
+      },
+      {
+        "ip": "10.8.0.7",
+        "gpus": 8.0
+      }
+    ]
+  },
+  "overlay": {
+    "vllm": "0.23.0+cu129",
+    "site": "/usr/local/lib/python3.12/dist-packages",
+    "fork_sha": "023bc76025459d6356c5885f271b9b95c50f93b6",
+    "base_checked": 21,
+    "already_applied": 0,
+    "written": 25,
+    "patches": [
+      {
+        "path": "vllm/model_executor/layers/attention/mla_attention.py",
+        "sha256_after": "ac2786e89a134c459351a8eb9d563ec4b18b3331a27e7a1fdabb38b40534a0b7"
+      },
+      {
+        "path": "vllm/model_executor/layers/attention/mla_attention.py",
+        "sha256_after": "b6a83f3eb2729c66854f74ca45d5b97b68edfe94abce3c4eab0474815d66925b"
+      }
+    ],
+    "axk2_registered": true,
+    "probe_stderr_tail": ""
+  },
+  "full_checkpoint_download_per_node_seconds": [
+    634,
+    643
+  ],
+  "kernels_and_memory_from_vllm_log": [
+    "INFO [parallel_state.py:1568] world_size=16 rank=0 local_rank=0 distributed_init_method=tcp://10.8.0.6:52277 backend=nccl",
+    "INFO [parallel_state.py:1568] world_size=16 rank=8 local_rank=0 distributed_init_method=tcp://10.8.0.6:52277 backend=nccl",
+    "INFO [cuda_communicator.py:237] Using ['CUSTOM', 'PYNCCL'] all-reduce backends (in dispatch order) for group 'tp:0' out of potential backends: ['NCCL_SYMM_MEM', 'QUICK_REDUCE', 'FLASHINFER', 'CUSTOM', 'SYMM_MEM', 'PYNCCL'].",
+    "INFO [cuda_communicator.py:237] Using ['PYNCCL'] all-reduce backends (in dispatch order) for group 'pp:0' out of potential backends: ['NCCL_SYMM_MEM', 'QUICK_REDUCE', 'FLASHINFER', 'CUSTOM', 'SYMM_MEM', 'PYNCCL'].",
+    "INFO [cuda_communicator.py:237] Using ['PYNCCL'] all-reduce backends (in dispatch order) for group 'ep:0' out of potential backends: ['NCCL_SYMM_MEM', 'QUICK_REDUCE', 'FLASHINFER', 'CUSTOM', 'SYMM_MEM', 'PYNCCL'].",
+    "INFO [__init__.py:546] Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod",
+    "INFO [cuda.py:470] Using TRITON_MLA attention backend out of potential backends: ['TRITON_MLA'].",
+    "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+    "INFO [fp8.py:406] Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU'].",
+    "INFO [default_loader.py:397] Loading weights took 61.29 seconds",
+    "WARNING [marlin_utils_fp8.py:97] Your GPU does not have native support for FP8 computation but FP8 quantization is being used. Weight-only FP8 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.",
+    "INFO [default_loader.py:397] Loading weights took 64.43 seconds",
+    "INFO [gpu_model_runner.py:5202] Model loading took 41.76 GiB memory and 78.371135 seconds",
+    "INFO [gpu_model_runner.py:5202] Model loading took 41.68 GiB memory and 77.408950 seconds",
+    "INFO [monitor.py:53] torch.compile took 30.25 s in total",
+    "INFO [monitor.py:53] torch.compile took 34.05 s in total",
+    "INFO [gpu_worker.py:480] Available KV cache memory: 27.62 GiB",
+    "INFO [kv_cache_utils.py:1744] GPU KV cache size: 843,920 tokens",
+    "INFO [kv_cache_utils.py:1745] Maximum concurrency for 8,192 tokens per request: 103.02x",
+    "INFO [gpu_worker.py:480] Available KV cache memory: 28.07 GiB",
+    "INFO [gpu_model_runner.py:6610] Graph capturing finished in 8 secs, took 0.43 GiB",
+    "INFO [gpu_model_runner.py:6610] Graph capturing finished in 8 secs, took 0.42 GiB",
+    "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 49.98 s (compilation: 34.12 s)"
+  ],
+  "startup_seconds_to_healthy": {
+    "rehearsal_tp8_pp2": 100,
+    "full_tp8_pp2": 181
+  },
+  "full_model_tests": {
+    "functional": [
+      {
+        "name": "ko_capital",
+        "passed": true,
+        "content": "서울",
+        "seconds": 0.43,
+        "finish_reason": "stop"
+      },
+      {
+        "name": "en_multiply",
+        "passed": true,
+        "content": "391",
+        "seconds": 0.11,
+        "finish_reason": "stop"
+      },
+      {
+        "name": "ko_fruit",
+        "passed": true,
+        "content": "6",
+        "seconds": 0.08,
+        "finish_reason": "stop"
+      },
+      {
+        "name": "en_red_planet",
+        "passed": true,
+        "content": "Mars",
+        "seconds": 0.07,
+        "finish_reason": "stop"
+      },
+      {
+        "name": "ko_translate",
+        "passed": true,
+        "content": "I drank coffee this morning.",
+        "seconds": 0.13,
+        "finish_reason": "stop"
+      },
+      {
+        "name": "code_is_prime",
+        "passed": true,
+        "content": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+        "seconds": 1.41,
+        "finish_reason": "stop"
+      }
+    ],
+    "reasoning_mode": {
+      "passed": true,
+      "content": "The average speed is calculated by dividing the total distance traveled by the total time taken.\n\nDistance = 120 km  \nTime = 1.5 hours  \n\nAverage speed = 120 km / 1.5 h = 80 km/h\n\n80",
+      "reasoning_chars": 256,
+      "reasoning_head": "We are asked: \"A train travels 120 km in 1.5 hours. What is its average speed in km/h? Give the final answer as a number.\"\n\nWe need to compute average speed = total distance / total time = 120 km / 1.5 h = 80 km/h.\n\nThe final answer should be a number: 80.",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 41,
+        "total_tokens": 181,
+        "completion_tokens": 140,
+        "prompt_tokens_details": null
+      },
+      "seconds": 1.91
+    },
+    "arithmetic": {
+      "correct": 14,
+      "total": 20
+    },
+    "determinism": {
+      "identical": false,
+      "sample": "The Han River cuts through the heart of Seoul, serving as both a vital water source and a central recreational artery for the sprawling metropolis. Its banks are lined with parks, walking paths, and bridges that come alive with city lights at night, offering a striking contrast between natural calm "
+    },
+    "needle": [
+      {
+        "label": "within_index_topk",
+        "prompt_tokens": 1380,
+        "found": true,
+        "content": "BLUE-9486"
+      },
+      {
+        "label": "beyond_index_topk",
+        "prompt_tokens": 5469,
+        "found": true,
+        "content": "BLUE-5975"
+      }
+    ],
+    "streaming_single_user": {
+      "ttft_seconds": 0.072,
+      "chunks": 256,
+      "total_seconds": 3.47,
+      "decode_chunks_per_second": 75.05
+    },
+    "benchmarks": [
+      {
+        "concurrency": 1,
+        "num_prompts": 6,
+        "input_len": 1024,
+        "output_len": 128,
+        "returncode": 0,
+        "wall_seconds": 23.5,
+        "completed": 6,
+        "request_throughput": 0.504332418510841,
+        "output_throughput": 64.55454956938765,
+        "total_token_throughput": 580.9909461244888,
+        "mean_ttft_ms": 205.09229183342845,
+        "median_ttft_ms": 198.28474800010554,
+        "p99_ttft_ms": 235.48021245014752,
+        "mean_tpot_ms": 13.995785162729813,
+        "median_tpot_ms": 13.976559732284619,
+        "p99_tpot_ms": 14.090639328345766,
+        "median_itl_ms": 13.990238999895155,
+        "median_e2el_ms": 1972.9865795002297
+      },
+      {
+        "concurrency": 8,
+        "num_prompts": 32,
+        "input_len": 1024,
+        "output_len": 128,
+        "returncode": 0,
+        "wall_seconds": 29.8,
+        "completed": 32,
+        "request_throughput": 1.781287159100932,
+        "output_throughput": 228.0047563649193,
+        "total_token_throughput": 2052.0428072842737,
+        "mean_ttft_ms": 1039.4601480312672,
+        "median_ttft_ms": 917.0319744998778,
+        "p99_ttft_ms": 2078.0141352900728,
+        "mean_tpot_ms": 27.091954244832753,
+        "median_tpot_ms": 26.128026106300787,
+        "p99_tpot_ms": 36.54203055574827,
+        "median_itl_ms": 23.259742499931235,
+        "median_e2el_ms": 4375.587560499753
+      },
+      {
+        "concurrency": 32,
+        "num_prompts": 96,
+        "input_len": 1024,
+        "output_len": 128,
+        "returncode": 0,
+        "wall_seconds": 38.3,
+        "completed": 96,
+        "request_throughput": 3.6847449655639157,
+        "output_throughput": 471.6473555921812,
+        "total_token_throughput": 4244.82620032963,
+        "mean_ttft_ms": 1445.357844052097,
+        "median_ttft_ms": 983.9364540000588,
+        "p99_ttft_ms": 5235.528245400042,
+        "mean_tpot_ms": 56.38493480798875,
+        "median_tpot_ms": 57.10279392126107,
+        "p99_tpot_ms": 75.45660673306966,
+        "median_itl_ms": 40.61976349998986,
+        "median_e2el_ms": 8403.336812499901
+      }
+    ],
+    "summary": {
+      "functional_passed": 6,
+      "functional_total": 6,
+      "reasoning_passed": true,
+      "arithmetic": "14/20",
+      "deterministic": false,
+      "needle": {
+        "within_index_topk": true,
+        "beyond_index_topk": true
+      }
+    }
+  },
+  "gpu_peak_memory_used_mib": {
+    "node0": {
+      "0": 81137,
+      "1": 75359,
+      "2": 81141,
+      "3": 81141,
+      "4": 81141,
+      "5": 81117,
+      "6": 81141,
+      "7": 81117
+    },
+    "node1": {
+      "0": 81139,
+      "1": 81135,
+      "2": 81135,
+      "3": 81135,
+      "4": 81135,
+      "5": 81149,
+      "6": 75607,
+      "7": 81135
+    },
+    "note": "vLLM pre-allocates KV cache up to --gpu-memory-utilization 0.90; peaks include the rehearsal phase."
+  },
+  "interpretation": [
+    "The full model loaded (41.7 GiB weights per GPU) and served Korean/English chat, code and reasoning-mode requests correctly.",
+    "Needle retrieval succeeded at 1,380 prompt tokens (inside index_topk, exact DSA semantics) and at 5,469 tokens (dense-mode approximation); this is one probe, not a long-context quality evaluation.",
+    "Arithmetic: 14/20 short no-thinking answers with a 24-token cap; individual answers were not recorded, so failures cannot be attributed (model, format or truncation).",
+    "Two identical greedy requests produced different text: vLLM's default kernels (Marlin MoE reductions, CUDA graphs) are not bitwise batch-invariant; repeated rehearsal requests differed by at most 1.8e-4 in log-probability.",
+    "Throughput is for synthetic random 1024-token prompts with 128 output tokens and ignore_eos, over TCP between the stages."
+  ]
+}

@@ -1,0 +1,311 @@
+{
+  "scope": "2-layer real-weight cut of skt/A.X-K2 (embedding, layer 0 dense, layer 1 with 256 FP8 experts, final norm, lm_head; byte-identical to the published shards). vLLM on A100 in dense mode (BF16 activations, FP8 Marlin weights) compared with the official Transformers AXK2 implementation in FP32 with sparse DSA (index_topk 2048), position by position over ~3,300 prompt tokens. Chosen-token log-probability and top-1 token per position.",
+  "jobs": {
+    "vllm": "brave_jicama_k0v2dz2txp (italynorth, series via collect job heroic_spider_3sg4hgldrc)",
+    "official_reference": "amusing_celery_qyfjkvwjq9 (swedencentral CPU)"
+  },
+  "official_reference_summary": {
+    "scope": "Official Transformers AXK2, FP32 CPU, sparse DSA (index_topk=2048), real weights of layers 0-1.",
+    "transformers": "5.19.0.dev0",
+    "torch": "2.11.0+cpu",
+    "index_topk": 2048,
+    "load_seconds": 0.8,
+    "prompts": {
+      "ko_short": {
+        "tokens": 13,
+        "seconds": 3.8,
+        "finite": true
+      },
+      "en_short": {
+        "tokens": 15,
+        "seconds": 4.7,
+        "finite": true
+      },
+      "code": {
+        "tokens": 16,
+        "seconds": 4.2,
+        "finite": true
+      },
+      "mixed_1500": {
+        "tokens": 1172,
+        "seconds": 14.5,
+        "finite": true
+      },
+      "mixed_2600": {
+        "tokens": 2077,
+        "seconds": 17.9,
+        "finite": true
+      }
+    }
+  },
+  "vllm_rehearsal_on_node": {
+    "multi_node_vs_single_node": {
+      "a": "tp8-pp1-single-node",
+      "b": "tp8-pp2",
+      "per_prompt": {
+        "ko_short": {
+          "positions": 12,
+          "max_abs_diff": 0.023879999999999235,
+          "mean_abs_diff": 0.008125000000000085,
+          "top1_agreement": 1.0,
+          "generated_equal": true
+        },
+        "en_short": {
+          "positions": 14,
+          "max_abs_diff": 0.04021000000000008,
+          "mean_abs_diff": 0.017607857142857064,
+          "top1_agreement": 1.0,
+          "generated_equal": true
+        },
+        "code": {
+          "positions": 15,
+          "max_abs_diff": 0.04425999999999952,
+          "mean_abs_diff": 0.013700666666666332,
+          "top1_agreement": 0.9333333333333333,
+          "generated_equal": true
+        },
+        "mixed_1500": {
+          "positions": 1171,
+          "max_abs_diff": 0.14860000000000007,
+          "mean_abs_diff": 0.009630008539709665,
+          "top1_agreement": 0.9837745516652434,
+          "generated_equal": true
+        },
+        "mixed_2600": {
+          "positions": 2076,
+          "max_abs_diff": 0.1306599999999989,
+          "mean_abs_diff": 0.009841888246628112,
+          "top1_agreement": 0.9908477842003853,
+          "generated_equal": true
+        }
+      }
+    },
+    "determinism_and_concurrency": {
+      "determinism": {
+        "ko_short": {
+          "max_abs_diff": 0.00017999999999851468,
+          "generated_equal": true
+        },
+        "mixed_2600": {
+          "max_abs_diff": 9.999999999621423e-06,
+          "generated_equal": true
+        }
+      },
+      "concurrency": {
+        "requests": 8,
+        "completed": 8,
+        "max_seconds": 0.63
+      }
+    }
+  },
+  "comparison": {
+    "smoke_job": "heroic_spider_3sg4hgldrc",
+    "oracle_job": "amusing_celery_qyfjkvwjq9",
+    "index_topk": 2048,
+    "reference": "official Transformers AXK2, FP32 CPU, sparse DSA",
+    "multi_node_series": "node0.tp8-pp2",
+    "vllm_single_node_vs_official": {
+      "code": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 15,
+            "max_abs_diff": 0.04688,
+            "mean_abs_diff": 0.01329,
+            "pearson": 0.999983
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "en_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 14,
+            "max_abs_diff": 0.05311,
+            "mean_abs_diff": 0.013003,
+            "pearson": 0.999948
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "ko_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 12,
+            "max_abs_diff": 0.03468,
+            "mean_abs_diff": 0.008018,
+            "pearson": 0.999996
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "mixed_1500": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 1171,
+            "max_abs_diff": 0.10678,
+            "mean_abs_diff": 0.012436,
+            "pearson": 0.999987
+          },
+          "top1_agreement": 0.9693
+        }
+      },
+      "mixed_2600": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.1126,
+            "mean_abs_diff": 0.012755,
+            "pearson": 0.999989
+          },
+          "top1_agreement": 0.9775
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 28,
+            "max_abs_diff": 0.03931,
+            "mean_abs_diff": 0.008557,
+            "pearson": 0.999993
+          },
+          "top1_agreement": 0.9643
+        }
+      }
+    },
+    "vllm_multi_node_vs_official": {
+      "code": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 15,
+            "max_abs_diff": 0.02768,
+            "mean_abs_diff": 0.012439,
+            "pearson": 0.999989
+          },
+          "top1_agreement": 0.9333
+        }
+      },
+      "en_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 14,
+            "max_abs_diff": 0.04131,
+            "mean_abs_diff": 0.012011,
+            "pearson": 0.999984
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "ko_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 12,
+            "max_abs_diff": 0.02688,
+            "mean_abs_diff": 0.007905,
+            "pearson": 0.999996
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "mixed_1500": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 1171,
+            "max_abs_diff": 0.11112,
+            "mean_abs_diff": 0.012999,
+            "pearson": 0.999986
+          },
+          "top1_agreement": 0.9752
+        }
+      },
+      "mixed_2600": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.10122,
+            "mean_abs_diff": 0.013111,
+            "pearson": 0.999989
+          },
+          "top1_agreement": 0.981
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 28,
+            "max_abs_diff": 0.02935,
+            "mean_abs_diff": 0.009385,
+            "pearson": 0.999993
+          },
+          "top1_agreement": 0.9643
+        }
+      }
+    },
+    "vllm_multi_node_vs_single_node": {
+      "code": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 15,
+            "max_abs_diff": 0.04426,
+            "mean_abs_diff": 0.013701,
+            "pearson": 0.999987
+          },
+          "top1_agreement": 0.9333
+        }
+      },
+      "en_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 14,
+            "max_abs_diff": 0.04021,
+            "mean_abs_diff": 0.017608,
+            "pearson": 0.999948
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "ko_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 12,
+            "max_abs_diff": 0.02388,
+            "mean_abs_diff": 0.008125,
+            "pearson": 0.999996
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "mixed_1500": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 1171,
+            "max_abs_diff": 0.1486,
+            "mean_abs_diff": 0.00963,
+            "pearson": 0.999988
+          },
+          "top1_agreement": 0.9838
+        }
+      },
+      "mixed_2600": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.13066,
+            "mean_abs_diff": 0.009802,
+            "pearson": 0.99999
+          },
+          "top1_agreement": 0.9907
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 28,
+            "max_abs_diff": 0.06866,
+            "mean_abs_diff": 0.012752,
+            "pearson": 0.999982
+          },
+          "top1_agreement": 1.0
+        }
+      }
+    }
+  },
+  "interpretation": [
+    "vLLM single-node TP8 and two-node TP8 x PP2 both track the official FP32 sparse model with Pearson >= 0.99995 and mean absolute log-probability difference about 0.01, the expected level for BF16 activations against an FP32 reference.",
+    "Top-1 agreement 93-100%; disagreements occur at near-ties.",
+    "Only 28 positions of the longest prompt lie beyond index_topk, so this does not measure the dense-mode approximation at long context."
+  ]
+}

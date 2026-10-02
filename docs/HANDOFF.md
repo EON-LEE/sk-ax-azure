@@ -2,6 +2,37 @@
 
 Snapshot: 2026-10-02. Read this before allocating any GPU.
 
+## 2026-10-03 update: standard-stack redesign
+
+The method changed. See [SERVING_DESIGN.md](SERVING_DESIGN.md). The
+hand-written block runtime below is superseded as a serving approach and kept
+only as a numerical oracle. The target is SKT's own practice, `vllm serve` on
+the SKT fork, scaled out the standard way: Ray cluster, TP8 inside each
+8xA100 node, PP2 across two nodes, one endpoint. Capacity comes from the
+separate Azure ML low-priority quota of 300 vCPU per region, not VM quota.
+
+Result: the full model was served on 2 x ND96amsr_A100_v4 in italynorth
+(TP8 x PP2, one endpoint) and passed the functional, reasoning, needle and
+load tests. A 2-layer real-weight cut matched the official Transformers
+implementation. See SERVING_DESIGN.md section 8 and `evidence/a100-*.json`.
+
+Azure state: **everything was deleted** after the run (resource group
+`rg-axk2-aml-208d24c1`: 12 policy-compliant workspaces, storage including
+the 694 GB staged copy, Key Vaults, private endpoints, clusters). No
+paid resource or queued job remains. To repeat, follow the README section
+"Run the A100 deployment". Expect Spot capacity hunting: on 2026-10-02,
+2 x ND96amsr could not be allocated in swedencentral, westus2,
+francecentral or polandcentral; italynorth and uksouth allocated.
+
+Fixes the run required, all now in `aml/`:
+
+- Storage policy forces private, key-less storage. Use a managed VNet,
+  identity datastores, compute identities, an env-var script payload and
+  MLflow-tag results.
+- vLLM 0.23 images do not ship Ray; install `ray[cgraph]` first.
+- Ampere FP8 Marlin bug in MLA chunked-context prefill (int32 cast), patched
+  by `apply_overlay.py`.
+
 ## Goal and non-negotiable distinction
 
 Run the **entire real A.X-K2 checkpoint**, not a smaller replacement, below H100.
@@ -17,7 +48,9 @@ Required final evidence:
 4. First-token/inter-token latency, throughput, GPU memory and transfer stalls.
 5. All-or-nothing minimum-cluster acquisition with bounded time and cleanup.
 
-The current repository does **not** meet these requirements yet.
+As of 2026-10-03 the vLLM deployment meets items 1, 2, 4 and 5. Item 3 is
+implied by concurrent throughput across the two pipeline stages, but no
+explicit kernel-overlap trace was captured. Transfer stalls were not measured.
 
 ## What was verified
 
