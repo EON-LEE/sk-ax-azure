@@ -1,9 +1,9 @@
 """Return results from inside an Azure ML job without touching blob storage.
 
 The subscription's storage policy disables public network access, so job artifacts are only
-reachable from inside the workspace's managed VNet. Small JSON summaries are therefore written to
-the job record as chunked MLflow tags and numeric series as MLflow metric histories; both are read
-back through the workspace's MLflow API. Everything is also echoed to stdout.
+reachable from inside the workspace's managed VNet. JSON summaries and per-position series are
+therefore written to the job record as chunked MLflow tags (AML's metric store truncates long step
+histories) and read back through the workspace's MLflow API. Everything is also echoed to stdout.
 """
 import argparse
 import json
