@@ -1,0 +1,41 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: smoke-tp8-pp2-2xND96amsr-A100
+description: >-
+  Rehearsal of the production topology with the 2-layer real-weight cut on two 8xA100 low-priority
+  nodes: stock vLLM 0.23.0 + pinned SKT fork overlay, dense mode, Ray across the nodes, TP=8 inside
+  each node and PP=2 across nodes (one decoder layer per node), compared with a single-node TP=8 run.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: user_identity
+inputs:
+  model:
+    type: uri_folder
+    mode: download
+    path: azureml://datastores/workspaceblobstore/paths/axk2/smoke2l/2287ca45/
+resources:
+  instance_count: 2
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+  SUITE: smoke
+  TP: "8"
+  PP: "2"
+  MAX_MODEL_LEN: "4096"
+  MAX_NUM_SEQS: "16"
+  GPU_MEM_UTIL: "0.85"
+  EAGER: "0"
+  HEALTH_TIMEOUT: "2400"
+  JOIN_TIMEOUT: "3600"
+  NCCL_IB_DISABLE: "1"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  bash /tmp/axk2src/entry.sh ${{inputs.model}}
+limits:
+  timeout: 3600

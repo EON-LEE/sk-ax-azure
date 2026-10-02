@@ -54,6 +54,48 @@ class BundleTests(unittest.TestCase):
             "00000000-0000-0000-0000-000000000000",
         )
 
+    def test_aml_bundle(self):
+        for path in (ROOT / "aml").rglob("*.py"):
+            with self.subTest(path=path.name):
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for path in [*(ROOT / "aml").glob("*.sh"), *(ROOT / "aml" / "src").glob("*.sh")]:
+            with self.subTest(path=path.name):
+                self.assertNotIn(b"\r\n", path.read_bytes(), "shell scripts must keep LF line endings")
+        manifest = json.loads((ROOT / "aml" / "src" / "overlay_manifest.json").read_text(encoding="utf-8"))
+        statuses = [item["status"] for item in manifest["files"]]
+        self.assertEqual((statuses.count("modified"), statuses.count("added")), (21, 4))
+        for item in manifest["files"]:
+            self.assertTrue(item["path"].startswith("vllm/") and item["path"].endswith(".py"))
+            self.assertEqual(item["base_sha256"] is None, item["status"] == "added")
+
+    def test_rendered_payload_round_trip(self):
+        import base64
+        import io
+        import tarfile
+        sys.path.insert(0, str(ROOT / "aml"))
+        try:
+            import render_job
+        finally:
+            sys.path.pop(0)
+        with tarfile.open(fileobj=io.BytesIO(base64.b64decode(render_job.payload())), mode="r:gz") as tar:
+            names = set(tar.getnames())
+            entry = tar.extractfile("entry.sh").read()
+        self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "client_tests.py"} <= names)
+        self.assertNotIn(b"\r\n", entry)
+
+    def test_new_evidence(self):
+        def read(name):
+            return json.loads((ROOT / "evidence" / name).read_text(encoding="utf-8"))
+
+        dense = read("axk2-dense-equivalence-cpu.json")
+        self.assertTrue(dense["passed"])
+        self.assertEqual(dense["index_topk"], 8)
+        snapshot = json.dumps(read("azure-capacity-snapshot.json"))
+        for part in snapshot.split("/subscriptions/")[1:]:
+            self.assertTrue(part.startswith("00000000-0000-0000-0000-000000000000"))
+        fork = read("skt-vllm-fork-review.json")
+        self.assertEqual(fork["compare"], {"ahead_by": 29, "behind_by": 0, "files_changed": 47})
+
 
 if __name__ == "__main__":
     unittest.main()

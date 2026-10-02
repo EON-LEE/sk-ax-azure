@@ -1,0 +1,29 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: build-smoke-checkpoint
+description: >-
+  Cut a byte-exact 2-layer checkpoint (real embedding, layer 0 dense, layer 1 MoE, norm, lm_head)
+  from the published shards for the cheap multi-node rehearsal, plus fixed token-id prompts.
+compute: azureml:cpu-e32
+environment:
+  image: docker.io/library/python:3.12-slim
+identity:
+  type: user_identity
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  pip install -q --no-cache-dir "huggingface_hub[hf_xet]>=0.35" tokenizers "mlflow-skinny>=2.16" azureml-mlflow &&
+  python /tmp/axk2src/build_smoke_checkpoint.py --revision 2287ca456927eed33b899c404c0b2ffaf17aa09f
+  --out ${{outputs.ckpt}} --work ./source-shards > smoke-build.log 2>&1 ;
+  rc=$? ; tail -c 3000 smoke-build.log ;
+  python /tmp/axk2src/report.py smoke_ckpt.log --text "$(tail -c 3500 smoke-build.log)" ;
+  exit $rc
+outputs:
+  ckpt:
+    type: uri_folder
+    mode: upload
+    path: azureml://datastores/workspaceblobstore/paths/axk2/smoke2l/2287ca45/
+limits:
+  timeout: 7200

@@ -1,0 +1,33 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: oracle-hf-smoke-cpu
+description: >-
+  Official Transformers AXK2 (pinned commit, FP32, sparse DSA) prompt log-probabilities on the
+  2-layer real-weight cut, as the numerical reference for the A100 vLLM deployment.
+compute: azureml:cpu-e32
+environment:
+  image: docker.io/library/python:3.12-slim
+identity:
+  type: user_identity
+inputs:
+  ckpt:
+    type: uri_folder
+    mode: download
+    path: azureml://datastores/workspaceblobstore/paths/axk2/smoke2l/2287ca45/
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  pip install -q --no-cache-dir torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu &&
+  pip install -q --no-cache-dir
+  https://github.com/huggingface/transformers/archive/7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae.zip
+  safetensors "mlflow-skinny>=2.16" azureml-mlflow &&
+  python /tmp/axk2src/oracle_hf.py --ckpt ${{inputs.ckpt}} --out ./outputs/oracle.json > oracle.log 2>&1 ;
+  rc=$? ; tail -c 3000 oracle.log ;
+  python /tmp/axk2src/report.py oracle.log --text "$(tail -c 3500 oracle.log)" ;
+  test $rc = 0 && python /tmp/axk2src/report.py oracle.summary --file ./outputs/oracle.json &&
+  python /tmp/axk2src/report.py oracle --series --file ./outputs/oracle-series.json ;
+  exit $rc
+limits:
+  timeout: 7200
