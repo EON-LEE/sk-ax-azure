@@ -1,0 +1,48 @@
+{
+  "status": "Prepared evidence only; no support ticket has been submitted.",
+  "title": "Repeated Microsoft.Quota RequestThrottled after required wait prevents A100 distributed-inference trial",
+  "subscription_id": "00000000-0000-0000-0000-000000000000",
+  "region": "swedencentral",
+  "resource": "Microsoft.Compute/locations/swedencentral/providers/Microsoft.Quota/quotas/lowPriorityCores",
+  "requested_limit": 192,
+  "verified_current_limit": 100,
+  "verified_current_usage": 0,
+  "subscription_policy": {
+    "quotaId": "Internal_2014-09-01",
+    "locationPlacementId": "Internal_2014-09-01",
+    "state": "Enabled",
+    "spendingLimit": "Off"
+  },
+  "planned_compute": "Two Standard_ND96amsr_A100_v4 Spot VMs, each96vCPU/eightA10080GB;16GPUs total. No H100.",
+  "responses": [
+    {
+      "completed_at_utc": "2026-10-02T05:44:13.060165Z",
+      "http_status": 429,
+      "code": "RequestThrottled",
+      "message": "The request was throttled, please retry after 3600 seconds.",
+      "artifact": "sweden-spot-quota-rest-result-20261002T054413.json"
+    },
+    {
+      "started_at_utc": "2026-10-02T06:47:21.479401Z",
+      "completed_at_utc": "2026-10-02T06:47:23.036684Z",
+      "http_status": 429,
+      "code": "RequestThrottled",
+      "message": "The request was throttled, please retry after 3600 seconds.",
+      "artifact": "sweden-spot-quota-rest-result.json"
+    }
+  ],
+  "request_or_operation_id": "Not returned in captured CLI response; no accepted request identifier confirmed.",
+  "questions_for_capacity_or_quota_support": [
+    "Why does the quota write remain throttled after respecting the full3600second wait?",
+    "Can this Internal subscription receive192 regional SpotvCPU in SwedenCentral?",
+    "Does this subscription require an internal eligibility/placement-policy change for ND96amsr_A100_v4?",
+    "If the target is not eligible, which normal region and A100 SKU can be approved for a same-region full-model cluster?"
+  ],
+  "non_claims": [
+    "Internal subscription classification does not by itself prove the reason for throttling or a hard quota maximum.",
+    "No explicit quota denial or successful quota approval has been observed.",
+    "Empty SKU restrictions do not confirm physical GPU availability.",
+    "No full688B multi-GPU inference success has been established."
+  ],
+  "safety": "No new paid trial resources created. Repeated writes stopped, no regional/account/endpoint workaround, automatic retry cleared."
+}

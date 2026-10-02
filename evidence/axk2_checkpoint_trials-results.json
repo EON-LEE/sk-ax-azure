@@ -1,0 +1,76 @@
+{
+  "scope": "Actual public checkpoint: layer1 expert0 only; 32 random input activations. Not a complete layer/model, text generation, native FP8 GEMM or quality test.",
+  "model_revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+  "shard": "model-00001-of-00346.safetensors",
+  "manifest": {
+    "model.layers.1.mlp.experts.0.gate_proj.weight": {
+      "shape": [
+        2048,
+        7168
+      ],
+      "dtype": "F8_E4M3",
+      "sha256": "a55019bc00d8fd4d8f3ca4acaf991754f7b08417752b764086d5034fc57bdc72"
+    },
+    "model.layers.1.mlp.experts.0.gate_proj.weight_scale_inv": {
+      "shape": [
+        16,
+        56
+      ],
+      "dtype": "F32",
+      "sha256": "529a9a004e1da5867fed4bc86b4c1d687ccae45f2d3657847c5aa9f02c8a1cb5"
+    },
+    "model.layers.1.mlp.experts.0.up_proj.weight": {
+      "shape": [
+        2048,
+        7168
+      ],
+      "dtype": "F8_E4M3",
+      "sha256": "2ebf52a7bf7f4f33a8c95d6d7c75b801e654dfeea63d6413016c82377a241617"
+    },
+    "model.layers.1.mlp.experts.0.up_proj.weight_scale_inv": {
+      "shape": [
+        16,
+        56
+      ],
+      "dtype": "F32",
+      "sha256": "5a64cecc2b5d7746f1368a5cad582654b31dcacf278f489b269174f370b9509c"
+    },
+    "model.layers.1.mlp.experts.0.down_proj.weight": {
+      "shape": [
+        7168,
+        2048
+      ],
+      "dtype": "F8_E4M3",
+      "sha256": "93be914c07b39bb40c5d556921c4d6e437ce183b896b3cbbb732ba6e97a82ec1"
+    },
+    "model.layers.1.mlp.experts.0.down_proj.weight_scale_inv": {
+      "shape": [
+        56,
+        16
+      ],
+      "dtype": "F32",
+      "sha256": "8bd6c61bf05c743a29799da75b706927490a2e133eac167fa3072e001020c8b7"
+    }
+  },
+  "downloaded_bytes": 44059544,
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "compute": "FP8 weights stay stored; official pinned Transformers converter expands each projection to FP32 for A100 GEMM.",
+  "stored_weight_and_scale_bytes": 44050944,
+  "all_fp32_weight_bytes": 176160768,
+  "cpu_vs_cuda": {
+    "max_absolute": 8.940696716308594e-08,
+    "relative_l2": 6.04975411988562e-07,
+    "atol": 0.0001,
+    "rtol": 0.0001,
+    "within_tolerance": true
+  },
+  "on_demand_vs_materialized_cuda": {
+    "max_absolute": 0.0,
+    "relative_l2": 0.0,
+    "atol": 0,
+    "rtol": 0,
+    "within_tolerance": true
+  },
+  "finite": true,
+  "passed": true
+}

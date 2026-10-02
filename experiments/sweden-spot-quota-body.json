@@ -1,0 +1,7 @@
+{
+  "properties": {
+    "name": {"value": "lowPriorityCores"},
+    "limit": {"limitObjectType": "LimitValue", "value": 192},
+    "unit": "Count"
+  }
+}

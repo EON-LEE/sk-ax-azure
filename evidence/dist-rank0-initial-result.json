@@ -1,0 +1,67 @@
+{
+  "scope": "Real pretrained decoder blocks 0 and 1 only, not the full 61-block model or response generation.",
+  "model_revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+  "transformers_revision": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+  "torch": "2.11.0+cu128",
+  "transformers": "5.19.0.dev0",
+  "rank": 0,
+  "hostname": "axk2-dist-0",
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "pipeline_stage": "decoder block 0",
+  "stage_resident_weight_bytes": 2222916608,
+  "transport": "NCCL over private VNet TCP; no RDMA on this SKU",
+  "reference": "Rank1 separately evaluates both identical blocks serially on its one GPU.",
+  "checkpoint_manifest_sha256": "fdefd5e3b38f7930be71335199f42c547a329a98a6ca050940157398b62e5e28",
+  "loader_edge_block_check": {
+    "tail_shape": [
+      576,
+      256
+    ],
+    "scale_grid": [
+      5,
+      2
+    ],
+    "cpu_tile_reference_max_error": 0.0
+  },
+  "loader_patch": "Original 128x128 block scales with a truncated final block; required by actual kv_a_proj_with_mqa shape576x7168/scales5x56.",
+  "cases": [
+    {
+      "total_tokens": 256,
+      "prefill_tokens": 248,
+      "decode_tokens": 8,
+      "activation_bytes_sent": 7340032,
+      "end_to_end_seconds": 0.7146731020000061,
+      "prefill_seconds": 0.6206606200000806,
+      "decode_seconds": 0.09400183000002471,
+      "peak_allocated_bytes": 2389626880,
+      "peak_reserved_bytes": 2401239040
+    },
+    {
+      "total_tokens": 4096,
+      "prefill_tokens": 4080,
+      "decode_tokens": 16,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.3281644539999888,
+      "prefill_seconds": 1.0235214269999915,
+      "decode_seconds": 0.30462785700012773,
+      "peak_allocated_bytes": 12699302912,
+      "peak_reserved_bytes": 12975079424
+    }
+  ],
+  "passed": true,
+  "peers": [
+    {
+      "rank": 0,
+      "hostname": "axk2-dist-0",
+      "stage": 0,
+      "weight_bytes": 2222916608
+    },
+    {
+      "rank": 1,
+      "hostname": "axk2-dist-1",
+      "stage": 1,
+      "weight_bytes": 12098930688
+    }
+  ],
+  "passed_scope": "Transport and stage0 completed; rank1 is authoritative for numerical parity."
+}

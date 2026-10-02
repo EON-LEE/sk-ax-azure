@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.safetensors
+/experiments/*.log
+/experiments/*.json
+!/experiments/sweden-spot-quota-body.json
+/experiments/axk2-source-snapshots/
+/experiments/weights/
+/outputs/

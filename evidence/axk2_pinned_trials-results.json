@@ -1,0 +1,233 @@
+{
+  "scope": "Pinned eager backend only; numerical cache consistency, not eager/SDPA equivalence.",
+  "trials": {
+    "fp32_attention_torch.bfloat16_seed42": {
+      "real_attention_dimensions": true,
+      "dtype": "torch.bfloat16",
+      "precision_mode": "fp32_attention",
+      "seed": 42,
+      "indexer_weights_proj_dtype": "torch.float32",
+      "initialization": "Identical seeded FP32 initialization; AXK2 FP32 loading exceptions preserved.",
+      "parameter_count": 337350144,
+      "sequence_length": 4096,
+      "index_topk": 2048,
+      "backends": {
+        "eager": {
+          "prefill_seconds": 1.0445831619999808,
+          "two_token_decode_seconds": 0.04884089099994071,
+          "peak_allocated_bytes": 11930171904,
+          "peak_reserved_bytes": 16487809024,
+          "cached_decode_difference": {
+            "max_absolute": 0.03125,
+            "relative_l2": 0.0037924477364867926,
+            "atol": 0.02,
+            "rtol": 0.02,
+            "within_tolerance": true
+          },
+          "finite": true,
+          "full_vs_cached_topk_overlap_per_layer": {
+            "0": [
+              1.0,
+              1.0
+            ],
+            "1": [
+              0.9990234375,
+              1.0
+            ]
+          }
+        }
+      },
+      "passed": true
+    },
+    "baseline_torch.float32_seed42": {
+      "real_attention_dimensions": true,
+      "dtype": "torch.float32",
+      "precision_mode": "baseline",
+      "seed": 42,
+      "indexer_weights_proj_dtype": "torch.float32",
+      "initialization": "Identical seeded FP32 initialization; AXK2 FP32 loading exceptions preserved.",
+      "parameter_count": 337350144,
+      "sequence_length": 4096,
+      "index_topk": 2048,
+      "backends": {
+        "eager": {
+          "prefill_seconds": 0.3717610080000213,
+          "two_token_decode_seconds": 0.025382731000036074,
+          "peak_allocated_bytes": 12632375808,
+          "peak_reserved_bytes": 17066622976,
+          "cached_decode_difference": {
+            "max_absolute": 1.3418495655059814e-05,
+            "relative_l2": 2.6091702238772996e-06,
+            "atol": 0.0001,
+            "rtol": 0.0001,
+            "within_tolerance": true
+          },
+          "finite": true,
+          "full_vs_cached_topk_overlap_per_layer": {
+            "0": [
+              1.0,
+              1.0
+            ],
+            "1": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      "passed": true
+    },
+    "fp32_attention_torch.bfloat16_seed123": {
+      "real_attention_dimensions": true,
+      "dtype": "torch.bfloat16",
+      "precision_mode": "fp32_attention",
+      "seed": 123,
+      "indexer_weights_proj_dtype": "torch.float32",
+      "initialization": "Identical seeded FP32 initialization; AXK2 FP32 loading exceptions preserved.",
+      "parameter_count": 337350144,
+      "sequence_length": 4096,
+      "index_topk": 2048,
+      "backends": {
+        "eager": {
+          "prefill_seconds": 0.36754934599991884,
+          "two_token_decode_seconds": 0.02590636299999005,
+          "peak_allocated_bytes": 11930353664,
+          "peak_reserved_bytes": 12163481600,
+          "cached_decode_difference": {
+            "max_absolute": 0.03125,
+            "relative_l2": 0.005031884647905827,
+            "atol": 0.02,
+            "rtol": 0.02,
+            "within_tolerance": true
+          },
+          "finite": true,
+          "full_vs_cached_topk_overlap_per_layer": {
+            "0": [
+              1.0,
+              1.0
+            ],
+            "1": [
+              1.0,
+              0.9990234375
+            ]
+          }
+        }
+      },
+      "passed": true
+    },
+    "baseline_torch.float32_seed123": {
+      "real_attention_dimensions": true,
+      "dtype": "torch.float32",
+      "precision_mode": "baseline",
+      "seed": 123,
+      "indexer_weights_proj_dtype": "torch.float32",
+      "initialization": "Identical seeded FP32 initialization; AXK2 FP32 loading exceptions preserved.",
+      "parameter_count": 337350144,
+      "sequence_length": 4096,
+      "index_topk": 2048,
+      "backends": {
+        "eager": {
+          "prefill_seconds": 0.3729391230000374,
+          "two_token_decode_seconds": 0.025232771999981196,
+          "peak_allocated_bytes": 12631327232,
+          "peak_reserved_bytes": 17070817280,
+          "cached_decode_difference": {
+            "max_absolute": 1.823902130126953e-05,
+            "relative_l2": 3.791308927247883e-06,
+            "atol": 0.0001,
+            "rtol": 0.0001,
+            "within_tolerance": true
+          },
+          "finite": true,
+          "full_vs_cached_topk_overlap_per_layer": {
+            "0": [
+              1.0,
+              1.0
+            ],
+            "1": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      "passed": true
+    },
+    "fp32_attention_torch.bfloat16_seed2026": {
+      "real_attention_dimensions": true,
+      "dtype": "torch.bfloat16",
+      "precision_mode": "fp32_attention",
+      "seed": 2026,
+      "indexer_weights_proj_dtype": "torch.float32",
+      "initialization": "Identical seeded FP32 initialization; AXK2 FP32 loading exceptions preserved.",
+      "parameter_count": 337350144,
+      "sequence_length": 4096,
+      "index_topk": 2048,
+      "backends": {
+        "eager": {
+          "prefill_seconds": 0.36661067200009256,
+          "two_token_decode_seconds": 0.02571508400001221,
+          "peak_allocated_bytes": 11930404864,
+          "peak_reserved_bytes": 16468934656,
+          "cached_decode_difference": {
+            "max_absolute": 0.03125,
+            "relative_l2": 0.004638408310711384,
+            "atol": 0.02,
+            "rtol": 0.02,
+            "within_tolerance": true
+          },
+          "finite": true,
+          "full_vs_cached_topk_overlap_per_layer": {
+            "0": [
+              1.0,
+              1.0
+            ],
+            "1": [
+              0.99951171875,
+              0.99853515625
+            ]
+          }
+        }
+      },
+      "passed": true
+    },
+    "baseline_torch.float32_seed2026": {
+      "real_attention_dimensions": true,
+      "dtype": "torch.float32",
+      "precision_mode": "baseline",
+      "seed": 2026,
+      "indexer_weights_proj_dtype": "torch.float32",
+      "initialization": "Identical seeded FP32 initialization; AXK2 FP32 loading exceptions preserved.",
+      "parameter_count": 337350144,
+      "sequence_length": 4096,
+      "index_topk": 2048,
+      "backends": {
+        "eager": {
+          "prefill_seconds": 0.37217434100000446,
+          "two_token_decode_seconds": 0.02516759100001309,
+          "peak_allocated_bytes": 12631376384,
+          "peak_reserved_bytes": 17009999872,
+          "cached_decode_difference": {
+            "max_absolute": 1.6689300537109375e-05,
+            "relative_l2": 3.1207132451527286e-06,
+            "atol": 0.0001,
+            "rtol": 0.0001,
+            "within_tolerance": true
+          },
+          "finite": true,
+          "full_vs_cached_topk_overlap_per_layer": {
+            "0": [
+              1.0,
+              1.0
+            ],
+            "1": [
+              1.0,
+              1.0
+            ]
+          }
+        }
+      },
+      "passed": true
+    }
+  }
+}

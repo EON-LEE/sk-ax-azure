@@ -1,0 +1,49 @@
+{
+  "scope": "Read-only upstream research and local CPU validation. No Azure mutations, GPU allocation, quota requests, deployment or released checkpoint download.",
+  "verdicts": {
+    "unmodified_skt_vllm_on_a100": "UNSUPPORTED at the pinned revision; more GPUs do not remove unsupported operators.",
+    "transformers_bf16_eager_sdpa": "Documented alternative with successful miniature CPU execution; full-weight A100 execution, distributed serving and performance UNVERIFIED.",
+    "custom_sm80_sparse_backend_and_indexer_with_marlin": "Engineering candidate only, not an existing validated AXK2 deployment."
+  },
+  "versions": {
+    "skt_branch": "axk2-v0.23.0",
+    "skt_commit": "023bc76025459d6356c5885f271b9b95c50f93b6",
+    "vendored_flashmla_commit": "a6ec2ba7bd0a7dff98b3f4d3e6b52b159c48d78b",
+    "vendored_deepgemm_commit": "891d57b4db1071624b5c8fa0d1e51cb317fa709f",
+    "flashinfer_python_and_cubin": "0.6.12",
+    "transformers_commit": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+    "model_card_revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f"
+  },
+  "blockers": [
+    "FlashMLASparseBackend supports major 9 or 10; FlashInferMLASparseBackend supports major 10; A100 is SM80.",
+    "Vendored FlashMLA and DeepGEMM build targets are SM90a and SM100a/f, not SM80. Removing Python capability checks is insufficient.",
+    "CUDA SparseAttnIndexer calls DeepGEMM fp8_fp4_mqa_logits and fp8_fp4_paged_mqa_logits. Disabling DeepGEMM GEMM selection does not substitute an SM80 indexer.",
+    "TRITON_MLA inherits non-sparse behavior; AttentionBackend.validate_configuration rejects use_sparse=True.",
+    "Transformers BF16 fallback needs approximately 1.4 TB for full weights, plus runtime memory. Its eager/SDPA sparse selection uses dense additive masks, not efficient vLLM sparse kernels."
+  ],
+  "correction": "A100 lacking native FP8 does NOT imply all runtimes must expand weights to BF16. vLLM Marlin has weight-only FP8 W8A16 linear/MoE building blocks including block-128 weights. This does not solve the AXK2 sparse operators or prove end-to-end compatibility.",
+  "evidence_tiers": {
+    "source": "Pinned source snapshots, SHA256 hashes, line evidence and extracted Python predicates with mocked device metadata.",
+    "cpu": "39,328 random parameters, 2 AXK2 layers (dense and grouped MoE), 12 tokens, sparse top-k=4. Eager/SDPA, cached decoding and BF16 finite-output smoke. See axk2-validation-results.json.",
+    "actual_a100": "NONE",
+    "published_688b_weights": "NOT loaded",
+    "qwen_azure_sample": "Orchestration example only; not AXK2 compatibility evidence."
+  },
+  "minimum_future_gpu_plan_not_executed": [
+    "Use an already available A100 if possible. Install CUDA-enabled PyTorch and pinned Transformers; record driver, CUDA, package versions and measured capability (8, 0).",
+    "Run random reduced AXK2 on CUDA in BF16 eager and SDPA, including an original-dimension attention layer (64 heads, qk_nope128, rope64, kv_lora512, v128, index_heads64, index_head_dim128). Use context above index_topk2048, e.g. 4096, to exercise real pruning.",
+    "Compare top-k selection and logits with a matching reference, test prefill and cached decode, and record peak allocated/reserved memory, latency and numerical differences. CPU tests alone do not establish GPU tolerance thresholds.",
+    "Separately test block-128 FP8 Marlin linear/MoE operators against BF16 references if pursuing a custom vLLM port. Do not expect this to make the existing sparse backend run.",
+    "Only after single-GPU operator success, separately approve a reduced-model 2-GPU/2-node communication and sharding test. Full 688B weights and production serving require another capacity/performance decision."
+  ],
+  "conditional_price_estimate": {
+    "region": "eastus2",
+    "sku": "Standard_NC24ads_A100_v4",
+    "os": "Linux",
+    "retail_on_demand_usd_per_hour": 3.673,
+    "one_to_two_hour_compute_only_usd": [3.673, 7.346],
+    "source": "https://prices.azure.com/api/retail/prices?currencyCode=USD&$filter=armSkuName%20eq%20%27Standard_NC24ads_A100_v4%27%20and%20armRegionName%20eq%20%27eastus2%27%20and%20priceType%20eq%20%27Consumption%27",
+    "caveats": "Estimate only; excludes disks, network, tax and setup overruns. No VM allocated. Previous subscription inspection found zero A100 family quota; price does not prove quota or capacity."
+  },
+  "next_action": "Identify and authorize use of one already available A100 for the reduced-model CUDA test; do not provision a full cluster yet."
+}

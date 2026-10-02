@@ -1,0 +1,1274 @@
+{
+  "scope": "CPU only; actual AXK2 architecture with61 miniature random-weight blocks. NOT688B/checkpoint/GPU validation.",
+  "scheduler": "PyTorch ScheduleGPipe forward-only, separate fixed-shape prefill/decode schedules",
+  "transformers_revision": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+  "processes": 4,
+  "requests": 8,
+  "layers": 61,
+  "prompt_lengths": [
+    5,
+    9,
+    13,
+    17,
+    7,
+    11,
+    15,
+    19
+  ],
+  "prefill_chunk": 20,
+  "generated_tokens": 4,
+  "prefill_vs_official_whole_model_max_error": 5.960464477539063e-08,
+  "greedy_token_ids_equal_official_serial_model": true,
+  "all_stage_cache_positions": [
+    {
+      "0": 8,
+      "1": 12,
+      "2": 16,
+      "3": 20,
+      "4": 10,
+      "5": 14,
+      "6": 18,
+      "7": 22
+    },
+    {
+      "0": 8,
+      "1": 12,
+      "2": 16,
+      "3": 20,
+      "4": 10,
+      "5": 14,
+      "6": 18,
+      "7": 22
+    },
+    {
+      "0": 8,
+      "1": 12,
+      "2": 16,
+      "3": 20,
+      "4": 10,
+      "5": 14,
+      "6": 18,
+      "7": 22
+    },
+    {
+      "0": 8,
+      "1": 12,
+      "2": 16,
+      "3": 20,
+      "4": 10,
+      "5": 14,
+      "6": 18,
+      "7": 22
+    }
+  ],
+  "stale_cache_metadata_rejected": true,
+  "cpu_compute_overlap": {
+    "max_simultaneously_active_stages": 4,
+    "overlap_ns": 1181767317
+  },
+  "outputs": [
+    [
+      34,
+      81,
+      50,
+      98
+    ],
+    [
+      84,
+      84,
+      84,
+      84
+    ],
+    [
+      81,
+      112,
+      93,
+      47
+    ],
+    [
+      112,
+      93,
+      6,
+      102
+    ],
+    [
+      50,
+      51,
+      73,
+      42
+    ],
+    [
+      64,
+      16,
+      79,
+      91
+    ],
+    [
+      61,
+      108,
+      90,
+      108
+    ],
+    [
+      34,
+      120,
+      81,
+      63
+    ]
+  ],
+  "spans": [
+    {
+      "rank": 0,
+      "slot": 0,
+      "position": 0,
+      "valid_tokens": 5,
+      "start_ns": 97822907869592,
+      "end_ns": 97822936269476,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 1,
+      "position": 0,
+      "valid_tokens": 9,
+      "start_ns": 97822936679812,
+      "end_ns": 97822968347644,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 2,
+      "position": 0,
+      "valid_tokens": 13,
+      "start_ns": 97822968758882,
+      "end_ns": 97822993474838,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 3,
+      "position": 0,
+      "valid_tokens": 17,
+      "start_ns": 97822993828552,
+      "end_ns": 97823027454028,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 4,
+      "position": 0,
+      "valid_tokens": 7,
+      "start_ns": 97823027825565,
+      "end_ns": 97823059485928,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 5,
+      "position": 0,
+      "valid_tokens": 11,
+      "start_ns": 97823063003143,
+      "end_ns": 97823103966198,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 6,
+      "position": 0,
+      "valid_tokens": 15,
+      "start_ns": 97823104442996,
+      "end_ns": 97823141509603,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 7,
+      "position": 0,
+      "valid_tokens": 19,
+      "start_ns": 97823141866500,
+      "end_ns": 97823182248296,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 0,
+      "position": 5,
+      "valid_tokens": 1,
+      "start_ns": 97823351276122,
+      "end_ns": 97823366252904,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 1,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97823366596755,
+      "end_ns": 97823384397655,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 2,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97823384732531,
+      "end_ns": 97823404539214,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 3,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97823404881244,
+      "end_ns": 97823433017077,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 4,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97823433316866,
+      "end_ns": 97823455659320,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 5,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97823456070494,
+      "end_ns": 97823476795968,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 6,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97823477137704,
+      "end_ns": 97823507936693,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 7,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97823508262584,
+      "end_ns": 97823541648878,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 0,
+      "position": 6,
+      "valid_tokens": 1,
+      "start_ns": 97823700283060,
+      "end_ns": 97823723127186,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 1,
+      "position": 10,
+      "valid_tokens": 1,
+      "start_ns": 97823723474073,
+      "end_ns": 97823754527340,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 2,
+      "position": 14,
+      "valid_tokens": 1,
+      "start_ns": 97823756933165,
+      "end_ns": 97823783880062,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 3,
+      "position": 18,
+      "valid_tokens": 1,
+      "start_ns": 97823784269025,
+      "end_ns": 97823821397070,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 4,
+      "position": 8,
+      "valid_tokens": 1,
+      "start_ns": 97823821711797,
+      "end_ns": 97823857185672,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 5,
+      "position": 12,
+      "valid_tokens": 1,
+      "start_ns": 97823857467958,
+      "end_ns": 97823893855686,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 6,
+      "position": 16,
+      "valid_tokens": 1,
+      "start_ns": 97823894137191,
+      "end_ns": 97823921976753,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 7,
+      "position": 20,
+      "valid_tokens": 1,
+      "start_ns": 97823922272742,
+      "end_ns": 97823943860289,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 0,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97824039772713,
+      "end_ns": 97824056997447,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 1,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97824057345962,
+      "end_ns": 97824070473503,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 2,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97824071615575,
+      "end_ns": 97824087633639,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 3,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97824097013753,
+      "end_ns": 97824145336086,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 4,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97824145644081,
+      "end_ns": 97824192858710,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 5,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97824193136059,
+      "end_ns": 97824244051741,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 6,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97824244400453,
+      "end_ns": 97824279586662,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 0,
+      "slot": 7,
+      "position": 21,
+      "valid_tokens": 1,
+      "start_ns": 97824279878647,
+      "end_ns": 97824299373198,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 0,
+      "position": 0,
+      "valid_tokens": 5,
+      "start_ns": 97822936796081,
+      "end_ns": 97822968865940,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 1,
+      "position": 0,
+      "valid_tokens": 9,
+      "start_ns": 97822970196493,
+      "end_ns": 97823009485966,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 2,
+      "position": 0,
+      "valid_tokens": 13,
+      "start_ns": 97823010037888,
+      "end_ns": 97823043254513,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 3,
+      "position": 0,
+      "valid_tokens": 17,
+      "start_ns": 97823043850781,
+      "end_ns": 97823080492797,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 4,
+      "position": 0,
+      "valid_tokens": 7,
+      "start_ns": 97823081084933,
+      "end_ns": 97823128455401,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 5,
+      "position": 0,
+      "valid_tokens": 11,
+      "start_ns": 97823129085748,
+      "end_ns": 97823159480165,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 6,
+      "position": 0,
+      "valid_tokens": 15,
+      "start_ns": 97823160121580,
+      "end_ns": 97823195786355,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 7,
+      "position": 0,
+      "valid_tokens": 19,
+      "start_ns": 97823196406676,
+      "end_ns": 97823224581078,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 0,
+      "position": 5,
+      "valid_tokens": 1,
+      "start_ns": 97823366684591,
+      "end_ns": 97823389928405,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 1,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97823390459640,
+      "end_ns": 97823425470168,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 2,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97823425973561,
+      "end_ns": 97823455727862,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 3,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97823456235991,
+      "end_ns": 97823479755481,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 4,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97823480863586,
+      "end_ns": 97823513200029,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 5,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97823514476170,
+      "end_ns": 97823539397579,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 6,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97823540178052,
+      "end_ns": 97823574300547,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 7,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97823574954235,
+      "end_ns": 97823606753038,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 0,
+      "position": 6,
+      "valid_tokens": 1,
+      "start_ns": 97823723568840,
+      "end_ns": 97823747556023,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 1,
+      "position": 10,
+      "valid_tokens": 1,
+      "start_ns": 97823757057058,
+      "end_ns": 97823777557659,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 2,
+      "position": 14,
+      "valid_tokens": 1,
+      "start_ns": 97823784321830,
+      "end_ns": 97823809304477,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 3,
+      "position": 18,
+      "valid_tokens": 1,
+      "start_ns": 97823821950476,
+      "end_ns": 97823855714620,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 4,
+      "position": 8,
+      "valid_tokens": 1,
+      "start_ns": 97823857954261,
+      "end_ns": 97823890674444,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 5,
+      "position": 12,
+      "valid_tokens": 1,
+      "start_ns": 97823894931367,
+      "end_ns": 97823923009411,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 6,
+      "position": 16,
+      "valid_tokens": 1,
+      "start_ns": 97823930399959,
+      "end_ns": 97823947479345,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 7,
+      "position": 20,
+      "valid_tokens": 1,
+      "start_ns": 97823951008200,
+      "end_ns": 97823976345422,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 0,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97824057347551,
+      "end_ns": 97824071697076,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 1,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97824087418741,
+      "end_ns": 97824124687026,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 2,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97824125326530,
+      "end_ns": 97824175247226,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 3,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97824191992911,
+      "end_ns": 97824223156751,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 4,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97824223820061,
+      "end_ns": 97824252907459,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 5,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97824270083290,
+      "end_ns": 97824293903187,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 6,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97824294428083,
+      "end_ns": 97824327544457,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 1,
+      "slot": 7,
+      "position": 21,
+      "valid_tokens": 1,
+      "start_ns": 97824329050251,
+      "end_ns": 97824359004238,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 0,
+      "position": 0,
+      "valid_tokens": 5,
+      "start_ns": 97822973300597,
+      "end_ns": 97823007630926,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 1,
+      "position": 0,
+      "valid_tokens": 9,
+      "start_ns": 97823019116251,
+      "end_ns": 97823045425840,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 2,
+      "position": 0,
+      "valid_tokens": 13,
+      "start_ns": 97823046152885,
+      "end_ns": 97823099916664,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 3,
+      "position": 0,
+      "valid_tokens": 17,
+      "start_ns": 97823101164688,
+      "end_ns": 97823141362295,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 4,
+      "position": 0,
+      "valid_tokens": 7,
+      "start_ns": 97823142510262,
+      "end_ns": 97823171024822,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 5,
+      "position": 0,
+      "valid_tokens": 11,
+      "start_ns": 97823171610384,
+      "end_ns": 97823207306108,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 6,
+      "position": 0,
+      "valid_tokens": 15,
+      "start_ns": 97823207868949,
+      "end_ns": 97823243512487,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 7,
+      "position": 0,
+      "valid_tokens": 19,
+      "start_ns": 97823244109457,
+      "end_ns": 97823284847458,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 0,
+      "position": 5,
+      "valid_tokens": 1,
+      "start_ns": 97823390332559,
+      "end_ns": 97823414275242,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 1,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97823425868004,
+      "end_ns": 97823447933316,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 2,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97823456380227,
+      "end_ns": 97823492362708,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 3,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97823504881698,
+      "end_ns": 97823523872628,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 4,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97823524594695,
+      "end_ns": 97823560956319,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 5,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97823575051711,
+      "end_ns": 97823600885882,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 6,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97823604269810,
+      "end_ns": 97823636711475,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 7,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97823639616567,
+      "end_ns": 97823670274443,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 0,
+      "position": 6,
+      "valid_tokens": 1,
+      "start_ns": 97823747954336,
+      "end_ns": 97823764315326,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 1,
+      "position": 10,
+      "valid_tokens": 1,
+      "start_ns": 97823778046660,
+      "end_ns": 97823821834456,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 2,
+      "position": 14,
+      "valid_tokens": 1,
+      "start_ns": 97823822745159,
+      "end_ns": 97823861151986,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 3,
+      "position": 18,
+      "valid_tokens": 1,
+      "start_ns": 97823862879454,
+      "end_ns": 97823890512864,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 4,
+      "position": 8,
+      "valid_tokens": 1,
+      "start_ns": 97823891625514,
+      "end_ns": 97823921982615,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 5,
+      "position": 12,
+      "valid_tokens": 1,
+      "start_ns": 97823925303773,
+      "end_ns": 97823943191551,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 6,
+      "position": 16,
+      "valid_tokens": 1,
+      "start_ns": 97823947810679,
+      "end_ns": 97823962533786,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 7,
+      "position": 20,
+      "valid_tokens": 1,
+      "start_ns": 97823977795852,
+      "end_ns": 97824001093349,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 0,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97824088248741,
+      "end_ns": 97824113743985,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 1,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97824125264620,
+      "end_ns": 97824174349494,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 2,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97824175550464,
+      "end_ns": 97824224586923,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 3,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97824225069874,
+      "end_ns": 97824262394600,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 4,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97824278669725,
+      "end_ns": 97824302408402,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 5,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97824302899092,
+      "end_ns": 97824330784532,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 6,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97824331848163,
+      "end_ns": 97824354711287,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 2,
+      "slot": 7,
+      "position": 21,
+      "valid_tokens": 1,
+      "start_ns": 97824359667733,
+      "end_ns": 97824376309964,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 0,
+      "position": 0,
+      "valid_tokens": 5,
+      "start_ns": 97823014771606,
+      "end_ns": 97823053467564,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 1,
+      "position": 0,
+      "valid_tokens": 9,
+      "start_ns": 97823079781525,
+      "end_ns": 97823125303075,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 2,
+      "position": 0,
+      "valid_tokens": 13,
+      "start_ns": 97823125810522,
+      "end_ns": 97823180596183,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 3,
+      "position": 0,
+      "valid_tokens": 17,
+      "start_ns": 97823181086286,
+      "end_ns": 97823215890722,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 4,
+      "position": 0,
+      "valid_tokens": 7,
+      "start_ns": 97823216515271,
+      "end_ns": 97823242994361,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 5,
+      "position": 0,
+      "valid_tokens": 11,
+      "start_ns": 97823244301774,
+      "end_ns": 97823279573618,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 6,
+      "position": 0,
+      "valid_tokens": 15,
+      "start_ns": 97823285654178,
+      "end_ns": 97823311199601,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 7,
+      "position": 0,
+      "valid_tokens": 19,
+      "start_ns": 97823311718750,
+      "end_ns": 97823346632788,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 0,
+      "position": 5,
+      "valid_tokens": 1,
+      "start_ns": 97823414678359,
+      "end_ns": 97823430818435,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 1,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97823451919212,
+      "end_ns": 97823480353483,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 2,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97823503469317,
+      "end_ns": 97823529019677,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 3,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97823529464463,
+      "end_ns": 97823564608137,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 4,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97823565739429,
+      "end_ns": 97823587739849,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 5,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97823601346018,
+      "end_ns": 97823625510042,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 6,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97823637129067,
+      "end_ns": 97823660890164,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 7,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97823670646038,
+      "end_ns": 97823698275520,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 0,
+      "position": 6,
+      "valid_tokens": 1,
+      "start_ns": 97823769589314,
+      "end_ns": 97823806631885,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 1,
+      "position": 10,
+      "valid_tokens": 1,
+      "start_ns": 97823826747932,
+      "end_ns": 97823854716778,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 2,
+      "position": 14,
+      "valid_tokens": 1,
+      "start_ns": 97823861559177,
+      "end_ns": 97823892708504,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 3,
+      "position": 18,
+      "valid_tokens": 1,
+      "start_ns": 97823893317463,
+      "end_ns": 97823919663018,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 4,
+      "position": 8,
+      "valid_tokens": 1,
+      "start_ns": 97823922488527,
+      "end_ns": 97823940598194,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 5,
+      "position": 12,
+      "valid_tokens": 1,
+      "start_ns": 97823943542116,
+      "end_ns": 97823973985563,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 6,
+      "position": 16,
+      "valid_tokens": 1,
+      "start_ns": 97823978310391,
+      "end_ns": 97824011230551,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 7,
+      "position": 20,
+      "valid_tokens": 1,
+      "start_ns": 97824014527532,
+      "end_ns": 97824037475724,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 0,
+      "position": 7,
+      "valid_tokens": 1,
+      "start_ns": 97824125245660,
+      "end_ns": 97824175997620,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 1,
+      "position": 11,
+      "valid_tokens": 1,
+      "start_ns": 97824176607671,
+      "end_ns": 97824225353755,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 2,
+      "position": 15,
+      "valid_tokens": 1,
+      "start_ns": 97824225834022,
+      "end_ns": 97824261097430,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 3,
+      "position": 19,
+      "valid_tokens": 1,
+      "start_ns": 97824262680430,
+      "end_ns": 97824285337294,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 4,
+      "position": 9,
+      "valid_tokens": 1,
+      "start_ns": 97824302778602,
+      "end_ns": 97824325973086,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 5,
+      "position": 13,
+      "valid_tokens": 1,
+      "start_ns": 97824331723048,
+      "end_ns": 97824357694284,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 6,
+      "position": 17,
+      "valid_tokens": 1,
+      "start_ns": 97824358097802,
+      "end_ns": 97824379746323,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    },
+    {
+      "rank": 3,
+      "slot": 7,
+      "position": 21,
+      "valid_tokens": 1,
+      "start_ns": 97824380440097,
+      "end_ns": 97824399404685,
+      "scope": "CPU span; for CUDA this is a launch interval, NOT proof of GPU overlap."
+    }
+  ],
+  "passed": true
+}
