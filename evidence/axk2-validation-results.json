@@ -1,0 +1,403 @@
+{
+  "source": {
+    "scope": "Extracted original Python predicates with mocked device metadata; no vLLM import or CUDA execution.",
+    "vllm_revision": "023bc76025459d6356c5885f271b9b95c50f93b6",
+    "hardware_gate_matrix": {
+      "sm80": {
+        "flashmla": false,
+        "flashinfer": false
+      },
+      "sm86": {
+        "flashmla": false,
+        "flashinfer": false
+      },
+      "sm90": {
+        "flashmla": true,
+        "flashinfer": false
+      },
+      "sm100": {
+        "flashmla": true,
+        "flashinfer": true
+      },
+      "sm120": {
+        "flashmla": false,
+        "flashinfer": false
+      }
+    },
+    "dense_triton_sparse_request": [
+      "sparse not supported"
+    ],
+    "sources": {
+      "base": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/v1/attention/backend.py",
+        "sha256": "01e2068470081d2dcf3b676d454ed73d4728798fced35e76ebfa8f0fe4e5dad7"
+      },
+      "flashmla": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/v1/attention/backends/mla/flashmla_sparse.py",
+        "sha256": "18e9445c7400af8a16dac939a9d29e21847e26da6c1f0f8fe138eb479ba422f9"
+      },
+      "flashinfer": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/v1/attention/backends/mla/flashinfer_mla_sparse.py",
+        "sha256": "b9c82e6c05abd9f72706ceb7472c7a89f009c1aaec30d7cc6026f5db9ace9b65"
+      },
+      "triton": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/v1/attention/backends/mla/triton_mla.py",
+        "sha256": "fcaa82edd4835f11617cfa6a6783d04914006a5d85915663b0b5a014f42588e0"
+      },
+      "mla_common": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/model_executor/layers/attention/mla_attention.py",
+        "sha256": "70c408b116da2e5068ad6e918f608eabc2b1d30c1c9045c0f44e7b86ce4d0336"
+      },
+      "flashmla_build": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/cmake/external_projects/flashmla.cmake",
+        "sha256": "dc1ce76ba8dcb9dbcc8756382f595f03d1dc9e88912c13b1cadd73696b8c684c"
+      },
+      "deepgemm_build": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/cmake/external_projects/deepgemm.cmake",
+        "sha256": "04afb7e630d5343c896fbd46f8f23ec592dbc591bb786f03638cbb2ab4f8343b"
+      },
+      "indexer": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/model_executor/layers/sparse_attn_indexer.py",
+        "sha256": "1d1e033f53b778c98f3216c2e9b28297525dfac6994b98f47b260334a4c8b7f6"
+      },
+      "platform": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/platforms/cuda.py",
+        "sha256": "c3842089c5d0fa754edf4e432c780fe56171dd2de4b8883570fdc6fda4400ead"
+      },
+      "deepgemm": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/utils/deep_gemm.py",
+        "sha256": "977da8e0afa75a9dadfe0b7e0845dac427869f4d110474803ed98bc1c7485c86"
+      },
+      "marlin_linear": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/model_executor/kernels/linear/scaled_mm/marlin.py",
+        "sha256": "eb70541360af6b432a88909fd5fcd190fec75ed03b09edde8a64ee90f9da1b52"
+      },
+      "marlin_moe": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/model_executor/layers/fused_moe/experts/marlin_moe.py",
+        "sha256": "2de70ddb80b8dbdd18e535e9714cea18afa63c8975289d1004e2d6b2e5286c47"
+      },
+      "model": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/vllm/model_executor/models/axk2.py",
+        "sha256": "288c100935deea15e676ba36336b6f6a535a0bb217fea032b9793ff3ce978a41"
+      },
+      "requirements": {
+        "url": "https://raw.githubusercontent.com/SKT-AI/vllm/023bc76025459d6356c5885f271b9b95c50f93b6/requirements/cuda.txt",
+        "sha256": "b15cdeba2ca41715bf4376b076d1236ea55034f771af171e4198cffceda97ad7"
+      }
+    },
+    "evidence": {
+      "base": [
+        {
+          "line": 257,
+          "text": "def supports_compute_capability(cls, capability: \"DeviceCapability\") -> bool:"
+        },
+        {
+          "line": 314,
+          "text": "invalid_reasons.append(\"sparse not supported\")"
+        },
+        {
+          "line": 316,
+          "text": "invalid_reasons.append(\"non-sparse not supported\")"
+        },
+        {
+          "line": 319,
+          "text": "if not cls.supports_compute_capability(device_capability):"
+        }
+      ],
+      "flashmla": [
+        {
+          "line": 129,
+          "text": "def supports_compute_capability(cls, capability: DeviceCapability) -> bool:"
+        },
+        {
+          "line": 130,
+          "text": "return capability.major in [9, 10]"
+        },
+        {
+          "line": 290,
+          "text": "if current_platform.is_device_capability_family(100):"
+        },
+        {
+          "line": 575,
+          "text": "128 if current_platform.is_device_capability_family(100) else 64"
+        }
+      ],
+      "flashinfer": [
+        {
+          "line": 100,
+          "text": "def supports_compute_capability(cls, capability: DeviceCapability) -> bool:"
+        },
+        {
+          "line": 102,
+          "text": "return capability.major == 10"
+        }
+      ],
+      "triton": [
+        {
+          "line": 77,
+          "text": "def supports_compute_capability(cls, capability: DeviceCapability) -> bool:"
+        }
+      ],
+      "mla_common": [
+        {
+          "line": 1459,
+          "text": "if not current_platform.is_device_capability_family(100):"
+        }
+      ],
+      "flashmla_build": [
+        {
+          "line": 22,
+          "text": "GIT_TAG a6ec2ba7bd0a7dff98b3f4d3e6b52b159c48d78b"
+        },
+        {
+          "line": 57,
+          "text": "list(APPEND SUPPORT_ARCHS \"9.0a\")"
+        },
+        {
+          "line": 62,
+          "text": "list(APPEND SUPPORT_ARCHS \"10.0f\")"
+        },
+        {
+          "line": 64,
+          "text": "list(APPEND SUPPORT_ARCHS \"10.0a\")"
+        }
+      ],
+      "deepgemm_build": [
+        {
+          "line": 23,
+          "text": "GIT_TAG 891d57b4db1071624b5c8fa0d1e51cb317fa709f"
+        },
+        {
+          "line": 42,
+          "text": "list(APPEND DEEPGEMM_SUPPORT_ARCHS \"9.0a\")"
+        },
+        {
+          "line": 45,
+          "text": "list(APPEND DEEPGEMM_SUPPORT_ARCHS \"10.0f\")"
+        },
+        {
+          "line": 47,
+          "text": "list(APPEND DEEPGEMM_SUPPORT_ARCHS \"10.0a\")"
+        }
+      ],
+      "indexer": [
+        {
+          "line": 16,
+          "text": "fp8_fp4_mqa_logits,"
+        },
+        {
+          "line": 17,
+          "text": "fp8_fp4_paged_mqa_logits,"
+        },
+        {
+          "line": 18,
+          "text": "has_deep_gemm,"
+        },
+        {
+          "line": 233,
+          "text": "logits = fp8_fp4_mqa_logits("
+        },
+        {
+          "line": 301,
+          "text": "# otherwise. deep_gemm fp8_fp4_paged_mqa_logits requires 2D context_lens;"
+        },
+        {
+          "line": 324,
+          "text": "logits = fp8_fp4_paged_mqa_logits("
+        },
+        {
+          "line": 443,
+          "text": "if current_platform.is_cuda() and not has_deep_gemm():"
+        }
+      ],
+      "platform": [
+        {
+          "line": 81,
+          "text": "# layer and the sparse layers reject FLASHMLA (\"sparse not supported\", job 5558)."
+        },
+        {
+          "line": 137,
+          "text": "if device_capability.major == 10:"
+        },
+        {
+          "line": 195,
+          "text": "if device_capability.major == 10:"
+        },
+        {
+          "line": 522,
+          "text": "and backend_class.supports_compute_capability(cc)"
+        },
+        {
+          "line": 649,
+          "text": "def support_deep_gemm(cls) -> bool:"
+        },
+        {
+          "line": 651,
+          "text": "return cls.is_device_capability(90) or cls.is_device_capability_family(100)"
+        }
+      ],
+      "deepgemm": [
+        {
+          "line": 23,
+          "text": "from vllm.utils.import_utils import has_deep_gemm"
+        },
+        {
+          "line": 40,
+          "text": "if not current_platform.is_device_capability_family(100):"
+        },
+        {
+          "line": 74,
+          "text": "if current_platform.is_device_capability_family(100)"
+        },
+        {
+          "line": 91,
+          "text": "is_supported_arch = current_platform.support_deep_gemm()"
+        },
+        {
+          "line": 92,
+          "text": "return envs.VLLM_USE_DEEP_GEMM and has_deep_gemm() and is_supported_arch"
+        },
+        {
+          "line": 134,
+          "text": "_fp8_fp4_mqa_logits_impl: Callable[..., Any] | None = None"
+        },
+        {
+          "line": 135,
+          "text": "_fp8_fp4_paged_mqa_logits_impl: Callable[..., Any] | None = None"
+        },
+        {
+          "line": 184,
+          "text": "global _fp8_fp4_mqa_logits_impl, _fp8_fp4_paged_mqa_logits_impl"
+        },
+        {
+          "line": 198,
+          "text": "or _fp8_fp4_mqa_logits_impl is not None"
+        },
+        {
+          "line": 199,
+          "text": "or _fp8_fp4_paged_mqa_logits_impl is not None"
+        },
+        {
+          "line": 207,
+          "text": "if not has_deep_gemm():"
+        },
+        {
+          "line": 229,
+          "text": "_fp8_fp4_mqa_logits_impl = getattr(_dg, \"fp8_fp4_mqa_logits\", None)"
+        },
+        {
+          "line": 230,
+          "text": "_fp8_fp4_paged_mqa_logits_impl = getattr(_dg, \"fp8_fp4_paged_mqa_logits\", None)"
+        },
+        {
+          "line": 342,
+          "text": "def fp8_fp4_mqa_logits("
+        },
+        {
+          "line": 375,
+          "text": "if _fp8_fp4_mqa_logits_impl is None:"
+        },
+        {
+          "line": 377,
+          "text": "return _fp8_fp4_mqa_logits_impl("
+        },
+        {
+          "line": 399,
+          "text": "Backend-specific tensor consumed by `fp8_fp4_paged_mqa_logits` to"
+        },
+        {
+          "line": 408,
+          "text": "def fp8_fp4_paged_mqa_logits("
+        },
+        {
+          "line": 447,
+          "text": "if _fp8_fp4_paged_mqa_logits_impl is None:"
+        },
+        {
+          "line": 449,
+          "text": "return _fp8_fp4_paged_mqa_logits_impl("
+        },
+        {
+          "line": 573,
+          "text": "\"fp8_fp4_mqa_logits\","
+        },
+        {
+          "line": 574,
+          "text": "\"fp8_fp4_paged_mqa_logits\","
+        }
+      ],
+      "marlin_linear": [
+        {
+          "line": 18,
+          "text": "kFp8Static128BlockSym,"
+        },
+        {
+          "line": 67,
+          "text": "self.block_quant = self.config.weight_quant_key in {kFp8Static128BlockSym}"
+        }
+      ],
+      "marlin_moe": [
+        {
+          "line": 43,
+          "text": "kFp8Static128BlockSym,"
+        },
+        {
+          "line": 607,
+          "text": "kFp8Static128BlockSym,"
+        }
+      ],
+      "model": [
+        {
+          "line": 105,
+          "text": "SupportsPP,"
+        },
+        {
+          "line": 2255,
+          "text": "SupportsPP,"
+        }
+      ],
+      "requirements": [
+        {
+          "line": 12,
+          "text": "flashinfer-python==0.6.12"
+        },
+        {
+          "line": 13,
+          "text": "flashinfer-cubin==0.6.12"
+        }
+      ]
+    }
+  },
+  "cpu": {
+    "scope": "Random miniature 2-layer CPU AXK2, dense + grouped MoE + sparse indexer; NOT released weights or GPU proof.",
+    "transformers_revision": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+    "transformers_version": "5.19.0.dev0",
+    "torch_version": "2.14.1+cpu",
+    "torch_cuda_build": null,
+    "parameter_count": 39328,
+    "device": "cpu",
+    "logits_shape": [
+      1,
+      12,
+      128
+    ],
+    "attention_implementations": [
+      "eager",
+      "sdpa"
+    ],
+    "sequence_length": 12,
+    "index_topk": 4,
+    "indexer_output_shape": [
+      1,
+      12,
+      4
+    ],
+    "eager_sdpa_max_absolute_error": 0.0,
+    "cached_decode_max_absolute_error": {
+      "eager": 5.960464477539063e-08,
+      "sdpa": 5.960464477539063e-08
+    },
+    "bf16_finite": true,
+    "passed": true
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "scope": "Real pretrained decoder blocks 0 and 1 only, not the full 61-block model or response generation.",
+  "model_revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+  "transformers_revision": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+  "torch": "2.11.0+cu128",
+  "transformers": "5.19.0.dev0",
+  "rank": 0,
+  "hostname": "axk2-dist-0",
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "pipeline_stage": "decoder block 0",
+  "script_sha256": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346",
+  "stage_checkpoint_fingerprint": "d267bd888c286b3f738f30f5b6f27581e4a46b5749afdfd175a0a87aff5680db",
+  "memory_scope": "Includes validation allocations and rank1 serial-reference block0; not full-model serving memory.",
+  "timing_scope": "Sequential two-stage validation including synchronization and output copies; not throughput benchmark.",
+  "prompt_embedding_sha256": "fb1256e134e79ef89845dfbf0a8d7125262582873ccc926d9a41c4c7c4520b37",
+  "prompt_text_sha256": "a21d4c5cf8df5f60df00e8caa7fd91980ea3a807f95da86630a6b1d7ac9df7ec",
+  "stage_resident_weight_bytes": 2222916608,
+  "transport": "NCCL over private VNet TCP; no RDMA on this SKU",
+  "reference": "Rank1 separately evaluates both identical blocks serially on its one GPU.",
+  "checkpoint_manifest_sha256": "fdefd5e3b38f7930be71335199f42c547a329a98a6ca050940157398b62e5e28",
+  "loader_edge_block_check": {
+    "tail_shape": [
+      576,
+      256
+    ],
+    "scale_grid": [
+      5,
+      2
+    ],
+    "cpu_tile_reference_max_error": 0.0,
+    "gpu_tile_reference_max_error": 0.0
+  },
+  "loader_patch": "Original 128x128 block scales with a truncated final block; required by actual kv_a_proj_with_mqa shape576x7168/scales5x56.",
+  "cases": [
+    {
+      "input_kind": "random",
+      "seed": 1490,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 256,
+      "prefill_tokens": 248,
+      "decode_tokens": 8,
+      "activation_bytes_sent": 7340032,
+      "end_to_end_seconds": 0.7062653909999881,
+      "prefill_seconds": 0.6129404800001339,
+      "decode_seconds": 0.0933136689998264,
+      "peak_allocated_bytes": 2391007232,
+      "peak_reserved_bytes": 2409627648
+    },
+    {
+      "input_kind": "random",
+      "seed": 5330,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 4096,
+      "prefill_tokens": 4064,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.6286822560000473,
+      "prefill_seconds": 1.0240378940000028,
+      "decode_seconds": 0.6046168899993063,
+      "peak_allocated_bytes": 12630244352,
+      "peak_reserved_bytes": 12903776256
+    },
+    {
+      "input_kind": "random",
+      "seed": 2026,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 4096,
+      "prefill_tokens": 4064,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.629983965999827,
+      "prefill_seconds": 1.0266355759999897,
+      "decode_seconds": 0.6033185760006745,
+      "peak_allocated_bytes": 12630244352,
+      "peak_reserved_bytes": 12903776256
+    },
+    {
+      "input_kind": "random",
+      "seed": 9426,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 8192,
+      "prefill_tokens": 8160,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 234881024,
+      "end_to_end_seconds": 3.122165030999895,
+      "prefill_seconds": 2.2437978020000173,
+      "decode_seconds": 0.8783386549996521,
+      "peak_allocated_bytes": 40372014080,
+      "peak_reserved_bytes": 40785412096
+    },
+    {
+      "input_kind": "bilingual",
+      "seed": 0,
+      "input_note": "Real tokenizer/embedding rows of repeated synthetic bilingual text.",
+      "total_tokens": 256,
+      "prefill_tokens": 248,
+      "decode_tokens": 8,
+      "activation_bytes_sent": 7340032,
+      "end_to_end_seconds": 0.3416251870000906,
+      "prefill_seconds": 0.2527651819998482,
+      "decode_seconds": 0.08885097600023073,
+      "peak_allocated_bytes": 2391005184,
+      "peak_reserved_bytes": 2409627648
+    },
+    {
+      "input_kind": "bilingual",
+      "seed": 0,
+      "input_note": "Real tokenizer/embedding rows of repeated synthetic bilingual text.",
+      "total_tokens": 4096,
+      "prefill_tokens": 4064,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.6296794570000657,
+      "prefill_seconds": 1.0228163629999472,
+      "decode_seconds": 0.6068339320001996,
+      "peak_allocated_bytes": 12630211584,
+      "peak_reserved_bytes": 12903776256
+    },
+    {
+      "input_kind": "bilingual",
+      "seed": 0,
+      "input_note": "Real tokenizer/embedding rows of repeated synthetic bilingual text.",
+      "total_tokens": 8192,
+      "prefill_tokens": 8160,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 234881024,
+      "end_to_end_seconds": 3.124285439999994,
+      "prefill_seconds": 2.244130456999983,
+      "decode_seconds": 0.8801256689994261,
+      "peak_allocated_bytes": 40371948544,
+      "peak_reserved_bytes": 40785412096
+    }
+  ],
+  "passed": true,
+  "peers": [
+    {
+      "rank": 0,
+      "hostname": "axk2-dist-0",
+      "stage": 0,
+      "weight_bytes": 2222916608,
+      "checkpoint": "d267bd888c286b3f738f30f5b6f27581e4a46b5749afdfd175a0a87aff5680db",
+      "script": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346",
+      "prompt": "fb1256e134e79ef89845dfbf0a8d7125262582873ccc926d9a41c4c7c4520b37",
+      "random_embedding": "34f4cf202c25d8679285c511ba7fa5272e6ebc90908568f069189a1a0c98b149"
+    },
+    {
+      "rank": 1,
+      "hostname": "axk2-dist-1",
+      "stage": 1,
+      "weight_bytes": 12098930688,
+      "checkpoint": "eed5d89ab6215e62fa8676c0758a7afe903a28545f7f2bc913c722c1fdb7cdb1",
+      "script": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346",
+      "prompt": "fb1256e134e79ef89845dfbf0a8d7125262582873ccc926d9a41c4c7c4520b37",
+      "random_embedding": "34f4cf202c25d8679285c511ba7fa5272e6ebc90908568f069189a1a0c98b149"
+    }
+  ],
+  "passed_scope": "Transport and stage0 completed; rank1 is authoritative for numerical parity."
+}

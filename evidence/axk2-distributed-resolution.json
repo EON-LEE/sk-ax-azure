@@ -1,0 +1,82 @@
+{
+  "verdict": "PASS for actual pretrained two-block cross-VM pipeline inference on A100; full 688B deployment remains UNVERIFIED.",
+  "scope": {
+    "hardware": "Two Azure Standard_NC24ads_A100_v4 Spot VMs, one NVIDIA A100 80GB PCIe SM80 per VM.",
+    "partition": "Rank0 evaluates decoder block0; rank1 evaluates decoder block1, including its complete 256-expert bank.",
+    "reference": "Rank1 additionally holds block0 solely for a serial reference using the same custom inference path.",
+    "transport": "NCCL over private VNet TCP, not RDMA or InfiniBand.",
+    "not_tested": [
+      "Complete 61-block 688B model",
+      "Final normalization, LM head, generated answers or task quality",
+      "Native H100/SKT vLLM output equivalence",
+      "Production API, concurrent serving, pipeline microbatch scheduler or throughput SLA",
+      "Tensor parallelism or cross-node expert parallelism",
+      "Maximum supported context length"
+    ]
+  },
+  "revisions": {
+    "model": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+    "transformers": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+    "torch": "2.11.0+cu128",
+    "pipeline_script_sha256_normalized_lf": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346"
+  },
+  "implementation": {
+    "engine": "Pinned Transformers AXK2 plus experimental checkpoint loader, FP8 expert storage/FP32 arithmetic, and two-stage NCCL driver.",
+    "training_performed": false,
+    "checkpoint_modification": "No retraining or replacement learned weights. Stored FP8 values/scales are expanded for FP32 execution.",
+    "attention": "Eager sparse-attention semantics using FP32 computation; not the unsupported SKT sparse CUDA kernel.",
+    "loader_fixes": [
+      "Handle partial 128x128 FP8 blocks: actual kv_a_proj_with_mqa weight576x7168 has scale grid5x56. Pinned official dequantizer rejected this shape.",
+      "Load original e_score_correction_bias router buffer in addition to named parameters; never substitute initialized zeros.",
+      "Require complete checkpoint tensor consumption, matching tensor shapes, no remaining meta tensors, and per-tensor SHA256 validation."
+    ],
+    "tail_block_validation": "CPU tile-by-tile reference and CUDA expansion agree exactly; aligned blocks match the pinned official converter.",
+    "official_vllm_status": "Unmodified pinned SKT vLLM remains unsupported on SM80. This experiment does not change that conclusion."
+  },
+  "results": {
+    "expanded_cases": 7,
+    "contexts": [256, 4096, 8192],
+    "cached_input_tokens": "8 for 256-token cases; 32 for 4096/8192-token cases. These are input tokens, not generated answers.",
+    "inputs": "Four random-token cases using real embedding rows and three cases using actual tokenizer IDs/embeddings of repeated synthetic Korean/English text.",
+    "distributed_vs_serial_prefill_all_passed": true,
+    "distributed_vs_serial_decode_all_passed": true,
+    "distributed_vs_serial_max_absolute_error": 0.0,
+    "full_vs_cached_serial_all_passed": true,
+    "full_vs_cached_serial_max_absolute_error": 0.00001430511474609375,
+    "full_vs_cached_serial_atol": 0.0001,
+    "full_vs_cached_serial_rtol": 0.0001,
+    "maximum_distinct_experts_observed_per_case": 250,
+    "all_256_experts_stored": true,
+    "all_256_experts_observed_in_one_case": false,
+    "stage0_resident_weight_bytes": 2222916608,
+    "stage1_resident_weight_bytes": 12098930688,
+    "largest_rank1_peak_allocated_bytes": 52705629184,
+    "memory_caveat": "Includes rank1 serial-reference block0 and validation allocations; not a full-model memory estimate.",
+    "bilingual_4k_validation_seconds": 1.629364312000007,
+    "bilingual_8k_validation_seconds": 3.1239680520000093,
+    "timing_caveat": "Only two blocks, sequential pipeline with synchronization and output copies. Do not extrapolate to full-model generation tokens/second."
+  },
+  "evidence": [
+    "dist-rank0-result.json",
+    "dist-rank1-result.json",
+    "dist-rank0-initial-result.json",
+    "dist-rank1-initial-result.json",
+    "dist-rank1-prompt-data.json",
+    "axk2_dist_pipeline.py",
+    "axk2_dist_weights.py",
+    "axk2_dist_prompts.py",
+    "axk2_dist_remote.py",
+    "dist-0-partial-block-failure.log",
+    "dist-1-router-buffer-failure.log",
+    "dist-cleanup-confirmation.json"
+  ],
+  "remaining_limitations": [
+    "Serial reference shares the custom loader/operators; exact cross-node parity does not independently prove equivalence to the official H100 engine.",
+    "Earlier random-model 8K strict-tolerance failure remains valid historical evidence; passing current real-two-block cases is not universal numerical stability.",
+    "Two 80GB GPUs cannot hold the complete approximately 656GiB FP8 checkpoint in GPU memory.",
+    "Theoretical checkpoint-size arithmetic alone does not determine a feasible full-model node count; workspaces, FP32 expansion, embeddings, KV cache and context length require additional capacity."
+  ],
+  "next_action": "Before any full-model cloud allocation, design and price an end-to-end 61-block trial with measured workspace constraints and obtain separate explicit approval.",
+  "cost": "Actual billed amount is not yet available. Approved two-node compute ceiling was approximately USD14.70 plus disk/network; this is not an invoice.",
+  "cleanup": "Consult dist-cleanup-confirmation.json for the verified deletion timestamp; both VMs were deallocated before group deletion."
+}

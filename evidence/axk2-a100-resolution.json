@@ -1,0 +1,90 @@
+{
+  "supersedes": "Pre-GPU assertions in axk2-verdict.json; preserves its pinned-vLLM unsupported verdict.",
+  "outcome": "A100-compatible alternative operators and a correctness-first prototype demonstrated. Full 688B inference, response quality, multi-GPU/multi-node serving and production performance remain unverified.",
+  "cloud": {
+    "region": "eastus2",
+    "sku": "Standard_NC24ads_A100_v4",
+    "priority": "Spot",
+    "hardware_observed": "NVIDIA A100 80GB PCIe, capability 8.0",
+    "standard_quota_request": "Failed: QuotaNotAvailableForResource",
+    "spot_allocation": "Succeeded using existing separate regional Spot quota",
+    "hourly_price_cap_usd": 3.673,
+    "note": "One opportunistic Spot allocation is not production capacity or SLA evidence. No second GPU or cluster created."
+  },
+  "root_cause_of_numerical_comparisons": {
+    "not": "Not executing unsupported SM90 kernels on SM80; these GPU tests used the supported PyTorch implementation.",
+    "observed": "Eager/SDPA rounding differences in layer0 changed sparse top-k selections for 6 of 4096 layer1 query positions in the FP32 trace, amplifying downstream differences.",
+    "limitations": "Random weights. This is not evidence of trained-model response degradation, nor proof that exact cross-backend equality should be a universal quality gate."
+  },
+  "prototype": {
+    "backend": "Transformers AXK2 eager, fixed within the test",
+    "compute": "FP32 attention, indexer, residual path and FFN calculations; TF32 disabled",
+    "weight_storage": "BF16 FFN/expert storage with one selected expert expanded at a time. Dense/shared MLP weights expanded only during that module's call.",
+    "status": "Experimental custom inference implementation, not a supported SKT vLLM configuration.",
+    "no_training": true,
+    "not_done": "No full-checkpoint loader, sharded serving integration or optimized SM80 sparse kernel."
+  },
+  "evidence": {
+    "operator_reference": {
+      "file": "axk2_streamed_trials-results.json",
+      "experts_and_mlp_max_absolute_difference": 0.0
+    },
+    "reduced_expert_4k": {
+      "seeds": [42, 123, 2026],
+      "layers": 2,
+      "routed_experts": 4,
+      "top_experts": 2,
+      "context": 4096,
+      "cached_tokens": 32,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "all_passed": true
+    },
+    "original_geometry_4k": {
+      "file": "axk2_geometry_trials-results.json",
+      "seeds": [42, 2026],
+      "parameters": 12037332480,
+      "layers": 2,
+      "vocab": 128,
+      "routed_experts": 256,
+      "top_experts": 8,
+      "attention_ffn_grouping_and_yarn": "Original public-config dimensions",
+      "context": 4096,
+      "index_topk": 2048,
+      "cached_tokens": 32,
+      "all_passed": true,
+      "max_absolute_cache_error": 0.000027298927307128906,
+      "observed_topk_set_agreement": 1.0,
+      "max_peak_allocated_bytes": 35362013184,
+      "max_peak_reserved_bytes": 76095160320,
+      "scope_warning": "Random 2-layer model, not the trained 61-layer model. Timings and memory cannot be extrapolated as production 688B measurements."
+    },
+    "strict_8k_limit": {
+      "file": "axk2_streamed_trials-results.json",
+      "context": 8192,
+      "cached_tokens": 8,
+      "max_absolute_cache_error": 0.00032019615173339844,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "passed": false,
+      "observation": "One of 2048 selected indices differed for one tested layer/query. Threshold was not widened and this result is not classified as a pass."
+    },
+    "actual_public_fp8_expert": {
+      "file": "axk2_checkpoint_trials-results.json",
+      "revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+      "expert": "model.layers.1.mlp.experts.0",
+      "downloaded_bytes": 44059544,
+      "stored_fp8_weights_and_scales_bytes": 44050944,
+      "equivalent_fp32_weights_bytes": 176160768,
+      "method": "Exact HTTP ranges, original block scales, pinned official Transformers Fp8Dequantize helper, FP32 CUDA matmul. No native FP8 matmul used.",
+      "random_input_activations": 32,
+      "cpu_vs_cuda_max_absolute_error": 0.00000008940696716308594,
+      "on_demand_vs_preexpanded_cuda_max_absolute_error": 0.0,
+      "passed": true,
+      "scope_warning": "Only one expert, not a complete real-weight layer or model. This FP8-storage experiment is separate from the BF16-storage 2-layer prototype."
+    }
+  },
+  "memory_implication": "The real expert experiment shows all expert weights need not be expanded permanently to BF16/FP32. Extending this into a full loader may preserve FP8 storage, but aggregate original weights still require roughly 656 GiB plus scales/runtime/sharding overhead. No full-model memory guarantee.",
+  "next_gate": "Separately approved two-GPU/two-node sharding experiment, plus real-weight attention/loading/quality validation and end-to-end performance measurement. Do not present current results as a customer production case.",
+  "cleanup": "See a100-cleanup-confirmation.json for final verified cloud cleanup state."
+}

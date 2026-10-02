@@ -1,0 +1,7 @@
+{
+  "resource_group": "rg-axk2-a100-dist-208d24c1",
+  "group_exists": false,
+  "verified_at_utc": "2026-10-02T04:23:11.617298+00:00",
+  "temporary_ssh_keys_removed": true,
+  "scope": "Two-node trial only. No other resource group changed."
+}

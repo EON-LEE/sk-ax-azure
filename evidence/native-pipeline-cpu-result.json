@@ -1,0 +1,352 @@
+{
+  "scope": "Four local CPU processes, small random residual model; NOT real AXK2 or a GPU result.",
+  "torch": "2.11.0+cpu",
+  "pid": 73391,
+  "scheduler": "torch.distributed.pipelining.ScheduleGPipe, loss_fn=None (forward only)",
+  "stages": 4,
+  "layers": 61,
+  "requests": 8,
+  "coverage": "All61 small test blocks, embedding, final normalization and head. This tests scheduling only.",
+  "timing": "Same-host monotonic CPU compute spans. No GPU speedup or multi-VM timing claim.",
+  "cases": [
+    {
+      "mode": "serialized_control",
+      "elapsed_ns": 473784231,
+      "spans": [
+        {
+          "rank": 0,
+          "start_ns": 95784720639804,
+          "end_ns": 95784736043157
+        },
+        {
+          "rank": 0,
+          "start_ns": 95784772924736,
+          "end_ns": 95784783534856
+        },
+        {
+          "rank": 0,
+          "start_ns": 95784830391708,
+          "end_ns": 95784841617901
+        },
+        {
+          "rank": 0,
+          "start_ns": 95784877817666,
+          "end_ns": 95784887604596
+        },
+        {
+          "rank": 0,
+          "start_ns": 95784931632668,
+          "end_ns": 95784945447201
+        },
+        {
+          "rank": 0,
+          "start_ns": 95784984342360,
+          "end_ns": 95784998315127
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785047780977,
+          "end_ns": 95785066430285
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785124321706,
+          "end_ns": 95785137534627
+        },
+        {
+          "rank": 1,
+          "start_ns": 95784736508531,
+          "end_ns": 95784747642230
+        },
+        {
+          "rank": 1,
+          "start_ns": 95784784174734,
+          "end_ns": 95784795015424
+        },
+        {
+          "rank": 1,
+          "start_ns": 95784842051186,
+          "end_ns": 95784852351335
+        },
+        {
+          "rank": 1,
+          "start_ns": 95784887993788,
+          "end_ns": 95784898569812
+        },
+        {
+          "rank": 1,
+          "start_ns": 95784945867326,
+          "end_ns": 95784956558221
+        },
+        {
+          "rank": 1,
+          "start_ns": 95784999194132,
+          "end_ns": 95785018033350
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785066933567,
+          "end_ns": 95785078118119
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785138023309,
+          "end_ns": 95785153537643
+        },
+        {
+          "rank": 2,
+          "start_ns": 95784748584206,
+          "end_ns": 95784759497760
+        },
+        {
+          "rank": 2,
+          "start_ns": 95784795566804,
+          "end_ns": 95784808694139
+        },
+        {
+          "rank": 2,
+          "start_ns": 95784852691799,
+          "end_ns": 95784864607299
+        },
+        {
+          "rank": 2,
+          "start_ns": 95784898989609,
+          "end_ns": 95784912374370
+        },
+        {
+          "rank": 2,
+          "start_ns": 95784957103099,
+          "end_ns": 95784968462239
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785020278633,
+          "end_ns": 95785034076865
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785078590314,
+          "end_ns": 95785089596321
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785160433046,
+          "end_ns": 95785176829003
+        },
+        {
+          "rank": 3,
+          "start_ns": 95784759974364,
+          "end_ns": 95784771606595
+        },
+        {
+          "rank": 3,
+          "start_ns": 95784810970872,
+          "end_ns": 95784828917101
+        },
+        {
+          "rank": 3,
+          "start_ns": 95784865011893,
+          "end_ns": 95784876587450
+        },
+        {
+          "rank": 3,
+          "start_ns": 95784914556581,
+          "end_ns": 95784928226374
+        },
+        {
+          "rank": 3,
+          "start_ns": 95784968895168,
+          "end_ns": 95784982843140
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785034493816,
+          "end_ns": 95785046411683
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785100835216,
+          "end_ns": 95785122870627
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785177226911,
+          "end_ns": 95785190452274
+        }
+      ],
+      "max_absolute_error": 0.0,
+      "max_simultaneously_active_stages": 1,
+      "overlap_ns": 0
+    },
+    {
+      "mode": "native_gpipe_overlap",
+      "elapsed_ns": 300353548,
+      "spans": [
+        {
+          "rank": 0,
+          "start_ns": 95785501767991,
+          "end_ns": 95785513421724
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785515040314,
+          "end_ns": 95785530898993
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785531239779,
+          "end_ns": 95785550512045
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785561393765,
+          "end_ns": 95785583871038
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785584197754,
+          "end_ns": 95785604627077
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785604978540,
+          "end_ns": 95785637711022
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785638095057,
+          "end_ns": 95785662295041
+        },
+        {
+          "rank": 0,
+          "start_ns": 95785662849908,
+          "end_ns": 95785700972475
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785525029771,
+          "end_ns": 95785545220273
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785545866249,
+          "end_ns": 95785566476969
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785592576330,
+          "end_ns": 95785612314006
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785614838447,
+          "end_ns": 95785637601512
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785638338385,
+          "end_ns": 95785667242950
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785667911668,
+          "end_ns": 95785699500445
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785702166830,
+          "end_ns": 95785723718818
+        },
+        {
+          "rank": 1,
+          "start_ns": 95785724478553,
+          "end_ns": 95785745953475
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785545674929,
+          "end_ns": 95785566098499
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785592601639,
+          "end_ns": 95785614765073
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785630305051,
+          "end_ns": 95785650357971
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785651031586,
+          "end_ns": 95785671997826
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785672947325,
+          "end_ns": 95785705834881
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785706581193,
+          "end_ns": 95785725750860
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785726712312,
+          "end_ns": 95785757682920
+        },
+        {
+          "rank": 2,
+          "start_ns": 95785758743526,
+          "end_ns": 95785779008360
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785566511786,
+          "end_ns": 95785600352888
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785629200620,
+          "end_ns": 95785651394399
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785651854148,
+          "end_ns": 95785675034137
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785675546055,
+          "end_ns": 95785707830132
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785708317166,
+          "end_ns": 95785741518502
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785745578888,
+          "end_ns": 95785762805002
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785763415781,
+          "end_ns": 95785790452979
+        },
+        {
+          "rank": 3,
+          "start_ns": 95785792071638,
+          "end_ns": 95785808703385
+        }
+      ],
+      "max_absolute_error": 0.0,
+      "max_simultaneously_active_stages": 4,
+      "overlap_ns": 251076855
+    }
+  ],
+  "passed": true
+}

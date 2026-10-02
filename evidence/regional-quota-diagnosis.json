@@ -1,0 +1,33 @@
+{
+  "scope": "Subscription-policy and regional quota investigation; no new paid resources or quota mutations during Retry-After.",
+  "subscription_policy_observed": {
+    "state": "Enabled",
+    "quotaId": "Internal_2014-09-01",
+    "locationPlacementId": "Internal_2014-09-01",
+    "spendingLimit": "Off",
+    "interpretation": "Internal subscription classification is confirmed. This alone does not prove why a specific quota request is throttled or whether192vCPU can be approved."
+  },
+  "eligible_single_a100_regions_checked": {
+    "eastus2": {"spot_limit": 100, "regular_a100_family_limit": 0},
+    "westus3": {"spot_limit": 100, "regular_a100_family_limit": 0},
+    "francecentral": {"spot_limit": 100, "regular_a100_family_limit": 0},
+    "italynorth": {"spot_limit": 100, "regular_a100_family_limit": 0},
+    "polandcentral": {"spot_limit": 100, "regular_a100_family_limit": 0},
+    "southeastasia": {"spot_limit": 100, "regular_a100_family_limit": 0},
+    "swedencentral": {"spot_limit": 100, "regular_a100_family_limit": 0}
+  },
+  "network_connected_candidates": {
+    "a100_80gb_8gpu_vm": "SwedenCentral is the unrestricted normal-region candidate found for ND96amsr_A100_v4. No capacity reservation or allocation success inferred.",
+    "a100_40gb_8gpu_vm": "ND96asr_v4 has NotAvailableForSubscription in all returned normal regions:EastUS,SouthCentralUS,WestEurope,WestUS2. CentralUSEUAP is not selected as a customer deployment fallback."
+  },
+  "gates": {
+    "quota": "Existing100 SpotvCPU is insufficient for2x96vCPU RDMA VMs or16x24vCPU smallGPU VMs.",
+    "sku": "NotAvailableForSubscription is distinct from family quota and from live physical capacity.",
+    "capacity": "No new allocation attempt has been made; actual inventory remains unknown.",
+    "throttle": "RequestThrottled429 is not an explicit quota denial. Wait until at least2026-10-02T06:44:13Z before further quota writes.",
+    "spot_note": "Regular A100 family quota0 does not by itself prohibit the Spot path; previous NC Spot allocation succeeded using separate regional Spot quota."
+  },
+  "user_scope_update": "User requested searching and requesting quota in other regions. This allows alternative regional quota requests after Retry-After, not higher spend or automatic changes to the approved paid Sweden two-VM deployment.",
+  "next_attempt": "At06:46Z retry/read Sweden192 first. If explicitly refused for non-throttling reasons, consider one eligible singleGPU fallback such as SoutheastAsia Spot384. Never bypass429 by changing region, identity or endpoint. A different paid topology still needs its own confirmed scope.",
+  "escalation": "If self-service request remains blocked, provide exact Internal policy fields, region/SKU/quota and response IDs to the subscription's internal capacity administrator or Azure quota support. No internal portal or policy cause has been verified."
+}

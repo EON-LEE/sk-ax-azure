@@ -1,0 +1,10 @@
+{
+  "scope": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Compute/locations/swedencentral",
+  "requested_limit": 192,
+  "started_at_utc": "2026-10-02T06:47:21.479401+00:00",
+  "reason": "Original az quota create client waited without response; stopped local client only. Reusing identical approved quota target/value through bounded REST.",
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "ERROR: Too Many Requests({\"error\":{\"code\":\"RequestThrottled\",\"message\":\"The request was throttled, please retry after 3600 seconds.\"}})\n",
+  "completed_at_utc": "2026-10-02T06:47:23.036684+00:00"
+}

@@ -1,0 +1,119 @@
+{
+  "status": "BLOCKED_REPEATED_QUOTA_THROTTLING_SUPPORT_ESCALATION_REQUIRED",
+  "quota_request_outcome": {
+    "artifact": "sweden-spot-quota-rest-result.json",
+    "response_at_utc": "2026-10-02T06:47:23.036684Z",
+    "previous_attempt_artifact": "sweden-spot-quota-rest-result-20261002T054413.json",
+    "retry_wait_observed": "More than3600seconds elapsed before the one scheduled retry; same429 response returned.",
+    "code": "RequestThrottled",
+    "retry_after_seconds": 3600,
+    "requested_limit": 192,
+    "verified_current_limit": 100,
+    "verified_current_usage": 0,
+    "approval_or_acceptance_confirmed": false,
+    "new_paid_resources_created": false,
+    "note": "Both bounded REST attempts returned429. Current Spot quota verified100/usage0. Automatic retries cleared, no regional write fan-out. No request acceptance or quota approval confirmed; seek internal capacity administrator or Azure quota support."
+  },
+  "real_architecture_cpu_preflight": {
+    "artifact": "axk2-request-pipeline-cpu-result.json",
+    "scope": "Miniature random-weight61-layer AXK2 on four local CPU processes, not full688B weights or GPUs.",
+    "scheduler": "Native PyTorch ScheduleGPipe, forward only",
+    "concurrent_requests": 8,
+    "max_simultaneously_active_cpu_stages": 4,
+    "greedy_generation_matches_official_serial_model": true,
+    "prefill_max_absolute_error": 0.00000005960464477539063,
+    "request_cache_isolation_and_padding_checks_passed": true,
+    "stale_request_metadata_rejected": true,
+    "chunked_prefill": "DISABLED for initial full-model trial. Separate unmodified-HF random-model control failed; preserved in axk2-chunking-diagnostic.json. Do not enable without actual-weight evidence."
+  },
+  "user_approval": {
+    "selection": "Sweden quota request plus A10016GPU, maximum4hours, maximum computeUSD96 approved.",
+    "scope": "SwedenCentral Spot quota100to192vCPU and at most two Standard_ND96amsr_A100_v4 VMs.",
+    "limits": "VM max-priceUSD12/hour each,4hours from first allocation, delete dedicated resources afterward; disk/network separate.",
+    "gate": "No paid allocation before quota approval and software preflight. Other regions, larger counts or higher spend are not approved."
+  },
+  "regional_followup": {
+    "scope": "Read-only global SKU restriction checks and selected regional quota reads; no new cloud resources or quota requests.",
+    "nd96amsr_a100_v4_candidate": "SwedenCentral has no reported SKU restriction. CentralUSEUAP also appears unrestricted but is not selected as a normal customer deployment region.",
+    "nc24ads_a100_v4_unrestricted_candidates": ["eastus2", "westus3", "francecentral", "italynorth", "polandcentral", "southeastasia", "swedencentral"],
+    "quota_checks": {
+      "eastus": {"spot_vcpu": 100, "standard_a100_families": 0},
+      "westus3": {"spot_vcpu": 100, "standard_a100_families": 0},
+      "southcentralus": {"spot_vcpu": 100, "standard_a100_families": 0},
+      "swedencentral": {"spot_vcpu": 100, "standard_a100_families": 0},
+      "southeastasia": {"spot_vcpu": 100, "standard_a100_families": 0}
+    },
+    "preferred_proposal_NOT_APPROVED": {
+      "region": "swedencentral",
+      "sku": "Standard_ND96amsr_A100_v4",
+      "max_vms": 2,
+      "gpus_per_vm": 8,
+      "total_gpus": 16,
+      "gpu": "A10080GB, not H100",
+      "network": "NVLink within node and RDMA-capable inter-node fabric; placement and actual RDMA operation must be verified.",
+      "required_spot_vcpu_quota": 192,
+      "public_linux_spot_price_per_vm_hour": 10.551811,
+      "illustrative_four_hour_compute_usd": 84.414488,
+      "proposed_max_price_per_vm_hour": 12,
+      "max_elapsed_hours_from_first_allocation": 4,
+      "maximum_compute_usd_at_caps": 96,
+      "additional_costs": "Disk/network separate.",
+      "guards": "No paid allocation until quota approved and software preflight ready. No guarantee of physical capacity, Spot availability or full-model success. Do not span regions.",
+      "design_note": "Better interconnect permits consideration of intra-node TP/EP with inter-node PP. This is a hardware candidate, not evidence that the A100 AXK2 runtime already supports or passes that hybrid."
+    }
+  },
+  "previous_result_scope": "Two real blocks executed sequentially across two VMs, not concurrent pipeline serving.",
+  "new_local_result": {
+    "artifact": "native-pipeline-cpu-result.json",
+    "scope": "CPU-only scheduler integration test with a small random model, NOT AXK2 full-model validation.",
+    "scheduler": "PyTorch2.11 ScheduleGPipe, forward only",
+    "processes": 4,
+    "microbatches": 8,
+    "serialized_max_active_compute_stages": 1,
+    "pipelined_max_active_compute_stages": 4,
+    "pipelined_overlap_ns": 251076855,
+    "reference_max_absolute_error": 0.0,
+    "does_not_validate": "GPU overlap, real61-block loading, autoregressive KV-cache scheduling or production performance"
+  },
+  "live_azure_read_only_findings": {
+    "region": "eastus2",
+    "regional_spot_vcpu_quota": 100,
+    "regional_spot_vcpu_usage": 0,
+    "standard_nc_a100_family_vcpu_quota": 0,
+    "nc24ads_a100_v4": {"gpus": 1, "vcpus": 24, "rdma": false, "sku_restrictions": []},
+    "nd96amsr_a100_v4": {"gpus": 8, "vcpus": 96, "rdma": true, "sku_restriction": "NotAvailableForSubscription in eastus2"},
+    "availability_caveat": "Empty SKU restrictions do not prove physical capacity or allocation success.",
+    "public_linux_nc24ads_a100_spot_usd_per_hour": 0.67877,
+    "spot_price_effective_date": "2026-08-01",
+    "public_linux_nc24ads_a100_regular_usd_per_hour": 3.673
+  },
+  "proposed_bounded_trial_NOT_APPROVED": {
+    "max_vms": 16,
+    "sku": "Standard_NC24ads_A100_v4",
+    "gpu": "A10080GB; no H100",
+    "required_regional_spot_vcpu_quota": 384,
+    "max_elapsed_hours_from_first_allocation": 4,
+    "spot_max_price_usd_per_vm_hour": 1.0,
+    "maximum_compute_usd_at_caps": 64.0,
+    "illustrative_compute_usd_at_current_retail_spot_price": 43.44128,
+    "additional_costs": "Managed disks and network separate; retail Spot price is variable, not a reservation.",
+    "topology": "One GPU per stage; inter-VM pipeline parallelism on private Ethernet, no unsupported RDMA assumption.",
+    "why_not_force_tp_ep": "Current eligible small A100 SKUs lack RDMA; frequent cross-node collectives require separate evidence before choosing TP/EP.",
+    "runtime": "Pinned AXK2 reference operators plus necessary A100/FP8 loader adaptations; native PyTorch pipelining scheduler. Not an officially supported unmodified SKT vLLM configuration.",
+    "prefill": "Initially unchunked with bounded context/concurrency and measured memory preflight. Per-request KV caches. Chunked prefill is disabled pending independent correctness evidence.",
+    "initial_workload_target": "Full61 blocks, real embeddings, final norm/head, generated outputs; progress from single request to16 concurrent requests and4K context if measured memory permits.",
+    "memory_caveat": "16 nodes is a provisional ceiling, not a measured proof that the target concurrency/context fits.",
+    "before_scale_out": "Implement cache/request routing, validate shape/state correctness locally, then bounded stage-memory GPU preflight before allocating the remaining nodes.",
+    "no_silent_scope_reduction": "A partial-block or CPU pass must not be reported as successful full-model GPU validation.",
+    "exit_policy": "Stop on deadline, capacity failure, memory failure, eviction or failed correctness; collect evidence and delete all dedicated resources."
+  },
+  "acceptance_criteria": [
+    "Every expected real checkpoint tensor loaded into assigned stages with shape/hash checks; no random/meta weights remain.",
+    "All61 blocks plus final normalization and LM head participate in actual generated output.",
+    "Per-request cache isolation and serialized-versus-concurrent generation comparison.",
+    "Actual GPU compute overlap on different ranks from GPU execution traces, not merely CPU launch timestamps or use of asynchronous APIs.",
+    "End-to-end TTFT, inter-token latency, aggregate tokens/sec, GPU memory and communication stalls measured for explicitly stated workloads.",
+    "Preserve failure evidence, actual response examples and exact revisions.",
+    "Verify deletion of the dedicated group and temporary credentials."
+  ]
+}

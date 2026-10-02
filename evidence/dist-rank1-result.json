@@ -1,0 +1,340 @@
+{
+  "scope": "Real pretrained decoder blocks 0 and 1 only, not the full 61-block model or response generation.",
+  "model_revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+  "transformers_revision": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+  "torch": "2.11.0+cu128",
+  "transformers": "5.19.0.dev0",
+  "rank": 1,
+  "hostname": "axk2-dist-1",
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "pipeline_stage": "decoder block 1",
+  "script_sha256": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346",
+  "stage_checkpoint_fingerprint": "eed5d89ab6215e62fa8676c0758a7afe903a28545f7f2bc913c722c1fdb7cdb1",
+  "memory_scope": "Includes validation allocations and rank1 serial-reference block0; not full-model serving memory.",
+  "timing_scope": "Sequential two-stage validation including synchronization and output copies; not throughput benchmark.",
+  "prompt_embedding_sha256": "fb1256e134e79ef89845dfbf0a8d7125262582873ccc926d9a41c4c7c4520b37",
+  "prompt_text_sha256": "a21d4c5cf8df5f60df00e8caa7fd91980ea3a807f95da86630a6b1d7ac9df7ec",
+  "stage_resident_weight_bytes": 12098930688,
+  "transport": "NCCL over private VNet TCP; no RDMA on this SKU",
+  "reference": "Rank1 separately evaluates both identical blocks serially on its one GPU.",
+  "checkpoint_manifest_sha256": "a5cf7b84f5980144ff028613192252d1671471e09c822ab9e666494cdd2e97c5",
+  "loader_edge_block_check": {
+    "tail_shape": [
+      576,
+      256
+    ],
+    "scale_grid": [
+      5,
+      2
+    ],
+    "cpu_tile_reference_max_error": 0.0,
+    "gpu_tile_reference_max_error": 0.0
+  },
+  "loader_patch": "Original 128x128 block scales with a truncated final block; required by actual kv_a_proj_with_mqa shape576x7168/scales5x56.",
+  "cases": [
+    {
+      "input_kind": "random",
+      "seed": 1490,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 256,
+      "prefill_tokens": 248,
+      "decode_tokens": 8,
+      "activation_bytes_sent": 7340032,
+      "end_to_end_seconds": 0.7059145819998776,
+      "prefill_seconds": 0.6138420559998394,
+      "decode_seconds": 0.09206165400019017,
+      "peak_allocated_bytes": 14517143552,
+      "peak_reserved_bytes": 14638120960,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 7.152557373046875e-07,
+        "relative_l2_error": 6.031537509443297e-07,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 242,
+      "passed": true
+    },
+    {
+      "input_kind": "random",
+      "seed": 5330,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 4096,
+      "prefill_tokens": 4064,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.6283410880000702,
+      "prefill_seconds": 1.038924692999899,
+      "decode_seconds": 0.5893851369994536,
+      "peak_allocated_bytes": 24847479808,
+      "peak_reserved_bytes": 25132269568,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 1.1801719665527344e-05,
+        "relative_l2_error": 2.3174943635240197e-06,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 250,
+      "passed": true
+    },
+    {
+      "input_kind": "random",
+      "seed": 2026,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 4096,
+      "prefill_tokens": 4064,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.629610565999883,
+      "prefill_seconds": 1.040856463999944,
+      "decode_seconds": 0.5887244809991898,
+      "peak_allocated_bytes": 24847479808,
+      "peak_reserved_bytes": 25132269568,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 1.1324882507324219e-05,
+        "relative_l2_error": 2.329442622794886e-06,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 250,
+      "passed": true
+    },
+    {
+      "input_kind": "random",
+      "seed": 9426,
+      "input_note": "Random token sequence from actual pretrained embedding rows20000:20256.",
+      "total_tokens": 8192,
+      "prefill_tokens": 8160,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 234881024,
+      "end_to_end_seconds": 3.1218194820000917,
+      "prefill_seconds": 2.273337305000041,
+      "decode_seconds": 0.8484508580002057,
+      "peak_allocated_bytes": 52705629184,
+      "peak_reserved_bytes": 53129248768,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 9.298324584960938e-06,
+        "relative_l2_error": 2.07465268431406e-06,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 250,
+      "passed": true
+    },
+    {
+      "input_kind": "bilingual",
+      "seed": 0,
+      "input_note": "Real tokenizer/embedding rows of repeated synthetic bilingual text.",
+      "total_tokens": 256,
+      "prefill_tokens": 248,
+      "decode_tokens": 8,
+      "activation_bytes_sent": 7340032,
+      "end_to_end_seconds": 0.34129753799993523,
+      "prefill_seconds": 0.2545076710000558,
+      "decode_seconds": 0.0867795390001902,
+      "peak_allocated_bytes": 14517101056,
+      "peak_reserved_bytes": 14638120960,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 7.152557373046875e-07,
+        "relative_l2_error": 2.3992740239009436e-07,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 244,
+      "passed": true
+    },
+    {
+      "input_kind": "bilingual",
+      "seed": 0,
+      "input_note": "Real tokenizer/embedding rows of repeated synthetic bilingual text.",
+      "total_tokens": 4096,
+      "prefill_tokens": 4064,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.629364312000007,
+      "prefill_seconds": 1.0376990140000544,
+      "decode_seconds": 0.5916377369994734,
+      "peak_allocated_bytes": 24847447040,
+      "peak_reserved_bytes": 25132269568,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 1.2874603271484375e-05,
+        "relative_l2_error": 2.0606723865057575e-06,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 245,
+      "passed": true
+    },
+    {
+      "input_kind": "bilingual",
+      "seed": 0,
+      "input_note": "Real tokenizer/embedding rows of repeated synthetic bilingual text.",
+      "total_tokens": 8192,
+      "prefill_tokens": 8160,
+      "decode_tokens": 32,
+      "activation_bytes_sent": 234881024,
+      "end_to_end_seconds": 3.1239680520000093,
+      "prefill_seconds": 2.2729281510000874,
+      "decode_seconds": 0.851008854001293,
+      "peak_allocated_bytes": 52705563648,
+      "peak_reserved_bytes": 53129248768,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 1.430511474609375e-05,
+        "relative_l2_error": 3.25228825204249e-06,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 245,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "peers": [
+    {
+      "rank": 0,
+      "hostname": "axk2-dist-0",
+      "stage": 0,
+      "weight_bytes": 2222916608,
+      "checkpoint": "d267bd888c286b3f738f30f5b6f27581e4a46b5749afdfd175a0a87aff5680db",
+      "script": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346",
+      "prompt": "fb1256e134e79ef89845dfbf0a8d7125262582873ccc926d9a41c4c7c4520b37",
+      "random_embedding": "34f4cf202c25d8679285c511ba7fa5272e6ebc90908568f069189a1a0c98b149"
+    },
+    {
+      "rank": 1,
+      "hostname": "axk2-dist-1",
+      "stage": 1,
+      "weight_bytes": 12098930688,
+      "checkpoint": "eed5d89ab6215e62fa8676c0758a7afe903a28545f7f2bc913c722c1fdb7cdb1",
+      "script": "c49e9993e96e8b62ebf4954b24e552f501a0489f46bd3fea7f08d06dc7550346",
+      "prompt": "fb1256e134e79ef89845dfbf0a8d7125262582873ccc926d9a41c4c7c4520b37",
+      "random_embedding": "34f4cf202c25d8679285c511ba7fa5272e6ebc90908568f069189a1a0c98b149"
+    }
+  ],
+  "full_vs_cached_serial_all_passed": true
+}

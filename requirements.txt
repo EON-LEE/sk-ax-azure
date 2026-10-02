@@ -1,0 +1,2 @@
+numpy==2.5.3
+transformers @ git+https://github.com/huggingface/transformers.git@7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae

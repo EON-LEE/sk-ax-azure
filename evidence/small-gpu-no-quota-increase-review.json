@@ -1,0 +1,58 @@
+{
+  "scope": "Read-only SwedenCentral review under existing100 regional SpotvCPU. No GPU allocations, no further quota writes.",
+  "evidence": ["sweden-small-gpu-skus.json", "sweden-small-gpu-quota.json"],
+  "baseline": {
+    "regional_spot_limit": 100,
+    "regional_spot_usage": 0,
+    "regular_T4_A100_A10_family_quotas": 0,
+    "full_FP8_checkpoint_approx_GiB": 656,
+    "caveat": "VRAM below is nominal marketed GB; usable allocator memory is lower. Host RAM is reported GiB. These are not pooled address spaces."
+  },
+  "candidates": [
+    {
+      "sku": "Standard_NC4as_T4_v3",
+      "max_uniform_vm_count": 25,
+      "total_vcpus": 100,
+      "total_gpus": 25,
+      "nominal_total_VRAM_GB": 400,
+      "total_host_RAM_GiB": 700,
+      "rdma": false,
+      "subscription_sku_restrictions": [],
+      "FP8_GPU_resident": false,
+      "options": "Requires host offload or a separately validated4-bit checkpoint/operator path, not merely distributed placement.",
+      "risks": "T4 SM75 lacks native BF16 and native FP8 arithmetic; previous A100 kernel evidence cannot be reused as T4 evidence. Small per-node RAM/VRAM,25-stage scheduling bubbles, non-RDMA communication, expert placement and Spot fleet availability must be measured.",
+      "four_bit_note": "688B parameters at4bits gives roughly344GB of raw codes only. Scales, exempt high-precision weights, caches and workspace add memory. FP8->4bit changes weights numerically and needs quality validation; no supported complete AXK2 T4 path was established."
+    },
+    {
+      "sku": "Standard_NC24ads_A100_v4",
+      "max_uniform_vm_count": 4,
+      "total_vcpus": 96,
+      "total_gpus": 4,
+      "nominal_total_VRAM_GB": 320,
+      "total_host_RAM_GiB": 880,
+      "rdma": false,
+      "subscription_sku_restrictions": [],
+      "FP8_GPU_resident": false,
+      "options": "Full original FP8 weights distributed in host RAM with bounded GPU expert/weight cache; genuine microbatch pipeline overlap acrossVMs.",
+      "recommendation": "Most directly reusable multi-VM no-quota-increase candidate from currentA100 evidence, but full-model loader/offload scheduler not implemented or proven.",
+      "risks": "Preserve FP8 storage; expanding all weights to BF16/FP32 would exceed host RAM. PCIe transfer/cache misses, large per-stage activation/KV memory and low-throughput prefills may make customer latency unacceptable."
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "max_uniform_vm_count": 1,
+      "total_vcpus": 96,
+      "total_gpus": 8,
+      "nominal_total_VRAM_GB": 640,
+      "total_host_RAM_GiB": 1800,
+      "rdma": true,
+      "subscription_sku_restrictions": [],
+      "FP8_GPU_resident": false,
+      "options": "Single8GPU NVLink node with host offload or separately validated lower-bit weights; no quota increase needed on pure vCPU arithmetic.",
+      "recommendation": "Stronger topology for parallel-execution prototyping than25Ethernet T4 VMs, if physical Spot capacity exists.",
+      "risks": "Not multi-VM evidence;640nominalGB does not fit approximately656GiB FP8 weights plus workspace. No physical allocation or full-model execution attempted."
+    }
+  ],
+  "conclusion": "Existing quota prevents proposed16A100 all-GPU configuration, not every full-model option. Smaller VM counts can rise but totalVRAM remains insufficient for originalFP8 in reviewed candidates. Investigate weight-preserving host offload first for multiVM constraint; compare single8A100 NVLink/offload for efficiency. Treat4bit T4 as separate conversion/quality project.",
+  "validation_gate": "Need full61 real blocks, actual outputs, per-request correctness, GPU-overlap traces, PCIe/network byte counters, cache hit ratios, TTFT/TPOT and throughput. An offload prototype success alone is not proof of production viability.",
+  "authorization": "Current request is review; no new deployment authorized by this artifact. Existing Sweden twoNDVM budget does not automatically authorize25T4 or4NCVM topology."
+}

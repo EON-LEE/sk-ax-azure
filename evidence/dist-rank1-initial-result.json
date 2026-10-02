@@ -1,0 +1,118 @@
+{
+  "scope": "Real pretrained decoder blocks 0 and 1 only, not the full 61-block model or response generation.",
+  "model_revision": "2287ca456927eed33b899c404c0b2ffaf17aa09f",
+  "transformers_revision": "7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae",
+  "torch": "2.11.0+cu128",
+  "transformers": "5.19.0.dev0",
+  "rank": 1,
+  "hostname": "axk2-dist-1",
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "pipeline_stage": "decoder block 1",
+  "stage_resident_weight_bytes": 12098930688,
+  "transport": "NCCL over private VNet TCP; no RDMA on this SKU",
+  "reference": "Rank1 separately evaluates both identical blocks serially on its one GPU.",
+  "checkpoint_manifest_sha256": "a5cf7b84f5980144ff028613192252d1671471e09c822ab9e666494cdd2e97c5",
+  "loader_edge_block_check": {
+    "tail_shape": [
+      576,
+      256
+    ],
+    "scale_grid": [
+      5,
+      2
+    ],
+    "cpu_tile_reference_max_error": 0.0
+  },
+  "loader_patch": "Original 128x128 block scales with a truncated final block; required by actual kv_a_proj_with_mqa shape576x7168/scales5x56.",
+  "cases": [
+    {
+      "total_tokens": 256,
+      "prefill_tokens": 248,
+      "decode_tokens": 8,
+      "activation_bytes_sent": 7340032,
+      "end_to_end_seconds": 0.7143685170000253,
+      "prefill_seconds": 0.6226438659999758,
+      "decode_seconds": 0.0917125590001433,
+      "peak_allocated_bytes": 14513473536,
+      "peak_reserved_bytes": 14629732352,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 7.152557373046875e-07,
+        "relative_l2_error": 6.031537509443297e-07,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 242,
+      "passed": true
+    },
+    {
+      "total_tokens": 4096,
+      "prefill_tokens": 4080,
+      "decode_tokens": 16,
+      "activation_bytes_sent": 117440512,
+      "end_to_end_seconds": 1.3277547179999374,
+      "prefill_seconds": 1.0384434139999712,
+      "decode_seconds": 0.28929331000028924,
+      "peak_allocated_bytes": 24916788224,
+      "peak_reserved_bytes": 25203572736,
+      "distributed_vs_serial_prefill": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "distributed_vs_serial_decode": {
+        "max_absolute_error": 0.0,
+        "relative_l2_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "full_vs_cached_serial_control": {
+        "max_absolute_error": 1.1801719665527344e-05,
+        "relative_l2_error": 2.336279749215464e-06,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "passed": true,
+        "finite": true
+      },
+      "routed_experts_observed": 250,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "peers": [
+    {
+      "rank": 0,
+      "hostname": "axk2-dist-0",
+      "stage": 0,
+      "weight_bytes": 2222916608
+    },
+    {
+      "rank": 1,
+      "hostname": "axk2-dist-1",
+      "stage": 1,
+      "weight_bytes": 12098930688
+    }
+  ]
+}

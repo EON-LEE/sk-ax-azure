@@ -1,0 +1,181 @@
+{
+  "scope": "Random reduced model, FP32, math SDPA vs eager; no source model modifications.",
+  "comparisons": {
+    "0_input_norm": {
+      "max_absolute": 0.0,
+      "relative_l2": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": true,
+      "largest_position": [
+        0,
+        0,
+        0
+      ],
+      "reference_at_largest": 0.5776317715644836,
+      "observed_at_largest": 0.5776317715644836
+    },
+    "0_index": {
+      "changed_rows": 0,
+      "changed_positions": []
+    },
+    "0_attn": {
+      "max_absolute": 7.897615432739258e-07,
+      "relative_l2": 7.617604751430918e-07,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": true,
+      "largest_position": [
+        0,
+        6,
+        6230
+      ],
+      "reference_at_largest": -0.1814776360988617,
+      "observed_at_largest": -0.18147684633731842
+    },
+    "0_mlp": {
+      "max_absolute": 3.814697265625e-06,
+      "relative_l2": 1.268913706553576e-06,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": true,
+      "largest_position": [
+        0,
+        1432,
+        5387
+      ],
+      "reference_at_largest": 0.6140843629837036,
+      "observed_at_largest": 0.6140881776809692
+    },
+    "0_layer": {
+      "max_absolute": 3.814697265625e-06,
+      "relative_l2": 1.260736326003098e-06,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": true,
+      "largest_position": [
+        0,
+        1432,
+        5387
+      ],
+      "reference_at_largest": 0.5258580446243286,
+      "observed_at_largest": 0.5258618593215942
+    },
+    "1_input_norm": {
+      "max_absolute": 5.602836608886719e-06,
+      "relative_l2": 1.2851900237365044e-06,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": true,
+      "largest_position": [
+        0,
+        256,
+        4667
+      ],
+      "reference_at_largest": 0.6436023116111755,
+      "observed_at_largest": 0.6436079144477844
+    },
+    "1_index": {
+      "changed_rows": 6,
+      "changed_positions": [
+        [
+          0,
+          2543
+        ],
+        [
+          0,
+          3296
+        ],
+        [
+          0,
+          3368
+        ],
+        [
+          0,
+          3369
+        ],
+        [
+          0,
+          3707
+        ],
+        [
+          0,
+          3745
+        ]
+      ]
+    },
+    "1_attn": {
+      "max_absolute": 0.0013833045959472656,
+      "relative_l2": 4.512533996603452e-05,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": false,
+      "largest_position": [
+        0,
+        3368,
+        1757
+      ],
+      "reference_at_largest": -0.18243207037448883,
+      "observed_at_largest": -0.1838153749704361
+    },
+    "router": {
+      "max_absolute": 0.0010431408882141113,
+      "relative_l2": 2.2368869394995272e-05,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": false,
+      "largest_position": [
+        3707,
+        1
+      ],
+      "reference_at_largest": -0.507969081401825,
+      "observed_at_largest": -0.5090122222900391
+    },
+    "router_ids": {
+      "changed_rows": 0,
+      "changed_positions": []
+    },
+    "1_mlp": {
+      "max_absolute": 0.0008783936500549316,
+      "relative_l2": 3.589855259633623e-05,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": false,
+      "largest_position": [
+        0,
+        3368,
+        2441
+      ],
+      "reference_at_largest": -0.24483060836791992,
+      "observed_at_largest": -0.243952214717865
+    },
+    "1_layer": {
+      "max_absolute": 0.001541733741760254,
+      "relative_l2": 2.4836183001752943e-05,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": false,
+      "largest_position": [
+        0,
+        3368,
+        1919
+      ],
+      "reference_at_largest": -0.45756995677948,
+      "observed_at_largest": -0.4560282230377197
+    },
+    "logits": {
+      "max_absolute": 0.00487065315246582,
+      "relative_l2": 2.6740921384771354e-05,
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "within_tolerance": false,
+      "largest_position": [
+        0,
+        3368,
+        43
+      ],
+      "reference_at_largest": 0.03015652298927307,
+      "observed_at_largest": 0.02528586983680725
+    }
+  }
+}
