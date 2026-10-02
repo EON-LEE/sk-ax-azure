@@ -13,3 +13,4 @@ __pycache__/
 /experiments/axk2-source-snapshots/
 /experiments/weights/
 /outputs/
+/aml/jobs/.rendered/

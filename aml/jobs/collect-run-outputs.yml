@@ -1,0 +1,26 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: collect-run-outputs
+description: >-
+  Read a finished GPU job's private artifacts from inside the managed VNet and return the smoke
+  series and vLLM start-up facts through the job record (storage is private by policy).
+  Replace __RUN__ with the finished job name before rendering.
+compute: azureml:cpu-lp
+environment:
+  image: docker.io/library/python:3.12-slim
+identity:
+  type: user_identity
+inputs:
+  run_outputs:
+    type: uri_folder
+    mode: download
+    path: azureml://datastores/workspaceartifactstore/paths/ExperimentRun/dcid.__RUN__/outputs/
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  pip install -q --no-cache-dir "mlflow-skinny>=2.16" azureml-mlflow &&
+  python /tmp/axk2src/collect_run_outputs.py ${{inputs.run_outputs}}
+limits:
+  timeout: 1800

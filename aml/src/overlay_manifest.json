@@ -1,0 +1,185 @@
+{
+  "fork_repo": "https://github.com/SKT-AI/vllm",
+  "fork_branch": "axk2-v0.23.0",
+  "fork_sha": "023bc76025459d6356c5885f271b9b95c50f93b6",
+  "upstream_base_sha": "0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665",
+  "upstream_base_tag": "v0.23.0",
+  "note": "Python-only overlay. The only csrc change in the fork (cache_kernels.cu UE8M0 tile-scale rounding) is gated to SM100 or VLLM_DS_MLA_UE8M0_SCALE and does not affect SM80.",
+  "files": [
+    {
+      "path": "vllm/config/speculative.py",
+      "status": "modified",
+      "fork_sha256": "d1840572c43428a4614544ab1ab717f72ca6e5265c91e6db51f9c98f97805040",
+      "fork_bytes": 48783,
+      "base_sha256": "e985d7c75401dc4a58d026a618680fb757450aeac937214f293fabf793751f7b"
+    },
+    {
+      "path": "vllm/engine/arg_utils.py",
+      "status": "modified",
+      "fork_sha256": "b6c3d0db32a73a342e71a6b77e665586b0e80091e3eb3ce0ad7907d5a06d42f3",
+      "fork_bytes": 112546,
+      "base_sha256": "3ade2488897d08b5c1fd4ddb815eb5743169907d59741a47867185caab7f250d"
+    },
+    {
+      "path": "vllm/model_executor/layers/attention/mla_attention.py",
+      "status": "modified",
+      "fork_sha256": "70c408b116da2e5068ad6e918f608eabc2b1d30c1c9045c0f44e7b86ce4d0336",
+      "fork_bytes": 113986,
+      "base_sha256": "b12bfdece54eca4408e0e455ba163c9a0adaf396b2ea9e8fcc8b5d741e697001"
+    },
+    {
+      "path": "vllm/model_executor/layers/mla.py",
+      "status": "modified",
+      "fork_sha256": "11be4d84e968fde5bef1bafd4a4697ed7bfbb182b82257b1549fc3c600777bd8",
+      "fork_bytes": 6838,
+      "base_sha256": "59490e12de3ca7979843c2cd549f4056ec2b8034d2042874af9b4bcbee028337"
+    },
+    {
+      "path": "vllm/model_executor/models/axk2.py",
+      "status": "added",
+      "fork_sha256": "288c100935deea15e676ba36336b6f6a535a0bb217fea032b9793ff3ce978a41",
+      "fork_bytes": 113261,
+      "base_sha256": null
+    },
+    {
+      "path": "vllm/model_executor/models/qwen3_dspark.py",
+      "status": "added",
+      "fork_sha256": "320536ad36993eae41e79d230736795b179a596646d013bc1b44f0fe3bcdbda6",
+      "fork_bytes": 11142,
+      "base_sha256": null
+    },
+    {
+      "path": "vllm/model_executor/models/registry.py",
+      "status": "modified",
+      "fork_sha256": "8cdde1ce2cf6afc450711358d54d7d5aee56f9cb7851b29edbd08d82f262de8b",
+      "fork_bytes": 58177,
+      "base_sha256": "2365c17e087ba4ae8b77c23dc14d529752c467266e23afda686731469aed34ba"
+    },
+    {
+      "path": "vllm/platforms/cuda.py",
+      "status": "modified",
+      "fork_sha256": "c3842089c5d0fa754edf4e432c780fe56171dd2de4b8883570fdc6fda4400ead",
+      "fork_bytes": 37800,
+      "base_sha256": "0b20548768277d6f7bbdf31a324c823388fcb9f504f109cd6859415924b4b9b2"
+    },
+    {
+      "path": "vllm/transformers_utils/config.py",
+      "status": "modified",
+      "fork_sha256": "ed6be5385f12091e430dabfe3cc6c42240825f806b36dc2ebf58cdeff590f938",
+      "fork_bytes": 50168,
+      "base_sha256": "0e868dc23b66b2befa2584f478f01c3c20a522230039f444d872389a0b542fc8"
+    },
+    {
+      "path": "vllm/transformers_utils/configs/__init__.py",
+      "status": "modified",
+      "fork_sha256": "6ed503b8009c02243d9c61ae9269bef80b31e0889587ca8231f42db678177d3f",
+      "fork_bytes": 7137,
+      "base_sha256": "4316a5c1567d56bee17d944a27828343ef956120c8c0373147254a30c74a1d5e"
+    },
+    {
+      "path": "vllm/transformers_utils/configs/axk2.py",
+      "status": "added",
+      "fork_sha256": "a2cd8e5e838700a7966f74e1b67707a79f20de8ac8f58061fb549e6a419fa6f3",
+      "fork_bytes": 6895,
+      "base_sha256": null
+    },
+    {
+      "path": "vllm/transformers_utils/configs/speculators/algos.py",
+      "status": "modified",
+      "fork_sha256": "73686acf0bf53d7b2bf5fef6cf2f111d37e4f9735148e15fa7056d1462c15c4f",
+      "fork_bytes": 6962,
+      "base_sha256": "587b1338d5d0ac528882cf618196cdc00f221074d2563198c18db19a897032d0"
+    },
+    {
+      "path": "vllm/transformers_utils/model_arch_config_convertor.py",
+      "status": "modified",
+      "fork_sha256": "1be1894134cafa19dce4cffffde8fa13be666c9b915cebea5ff8e66080a6929d",
+      "fork_bytes": 24398,
+      "base_sha256": "18a3f9b974ad0b14012814a9582ee9cef0de1715ec53dcce3d0cb0110e6fbc52"
+    },
+    {
+      "path": "vllm/v1/attention/backends/mla/flashattn_mla.py",
+      "status": "modified",
+      "fork_sha256": "8c52f9231280dce0a10589dff447178edf21f4492095d559bd7e809b01dd7d3d",
+      "fork_bytes": 13277,
+      "base_sha256": "6bb547e9d48b7c2cd51b3725e030db6be17058f8dbdbf7403a66295498e93d05"
+    },
+    {
+      "path": "vllm/v1/attention/backends/mla/flashmla.py",
+      "status": "modified",
+      "fork_sha256": "128732ee134367a0c5fcf2fc256f3e27f07cb47e82dc6d5ff69fd83614a1cb38",
+      "fork_bytes": 16115,
+      "base_sha256": "1e09c6fd7ca41fc7a14fcf74cad68c4fa130247d5f49638488d6b6ba97885b3c"
+    },
+    {
+      "path": "vllm/v1/attention/backends/mla/prefill/base.py",
+      "status": "modified",
+      "fork_sha256": "57bfbce3b3fb6c403b005305bd0e12fe5cd58f87c828c9cdc9c15a5fa2c9b517",
+      "fork_bytes": 5674,
+      "base_sha256": "d0109833ba946afe27b2d6c04949169da942e69ff5c9ba74ab4a394573f4d796"
+    },
+    {
+      "path": "vllm/v1/attention/backends/mla/prefill/flash_attn.py",
+      "status": "modified",
+      "fork_sha256": "dabb5dfa1287ef47c1389f4d9e12ead00959eced607c1500378546941a2b8428",
+      "fork_bytes": 8316,
+      "base_sha256": "87d3ece3e207854cb7184c33c76ccf428f1d9eecb68e2a5a68db03a1ad556d37"
+    },
+    {
+      "path": "vllm/v1/attention/backends/mla/prefill/flashinfer.py",
+      "status": "modified",
+      "fork_sha256": "ef4e6f9c1fb3f709d70885cc491a80e933f3823dbbf0a65f035accc2c9b4aad2",
+      "fork_bytes": 11614,
+      "base_sha256": "cc8245b1deb1ab8334b8a1b429f11fcb1156244d19920338bbe1182536622ff5"
+    },
+    {
+      "path": "vllm/v1/attention/ops/flashmla.py",
+      "status": "modified",
+      "fork_sha256": "e4cc43ea7b85c9e248b875cdf343f7dcea582497993c68f8c8b4e46f0b05db0b",
+      "fork_bytes": 7026,
+      "base_sha256": "a002e44179136afcee90d09f12648f15b43981300ff15373e69a1f0a24f1b880"
+    },
+    {
+      "path": "vllm/v1/spec_decode/dflash.py",
+      "status": "modified",
+      "fork_sha256": "2730db8747bc1b182d1f437a07a45ffd893c96a45dee3a92f6036edc4d1dcf90",
+      "fork_bytes": 12190,
+      "base_sha256": "b5802d165af5ba3d8022b3a782edd1bc70bd74f2721fe5ebeefa8ce4874246dd"
+    },
+    {
+      "path": "vllm/v1/spec_decode/dspark.py",
+      "status": "added",
+      "fork_sha256": "18f48ada0db3ac59a36a604e428004fd485877ff534506dcf0821e9e00f7241d",
+      "fork_bytes": 12452,
+      "base_sha256": null
+    },
+    {
+      "path": "vllm/v1/spec_decode/llm_base_proposer.py",
+      "status": "modified",
+      "fork_sha256": "5747d80d49f201bf3b46ee0636604ab932bf73c7bc43de42d37f4bb2964e9a3d",
+      "fork_bytes": 77774,
+      "base_sha256": "34921aef0e9008de808c2fb86ea5f8dd52ea3cf0bff2714b31b2a95038c4227c"
+    },
+    {
+      "path": "vllm/v1/worker/dp_utils.py",
+      "status": "modified",
+      "fork_sha256": "b026f9a2851e87f5e48e327787d9cbdaffed4ccf69d85ac29bca332e50defd8d",
+      "fork_bytes": 9075,
+      "base_sha256": "2ba84bbf92a25e756576918bfb215c1fb387b006899885d811bdb2f774e843a9"
+    },
+    {
+      "path": "vllm/v1/worker/gpu_model_runner.py",
+      "status": "modified",
+      "fork_sha256": "064584a0ce9e15ccffebbb4c7b207355ef9287a146f58f999d9f819d9f7a894a",
+      "fork_bytes": 335861,
+      "base_sha256": "6250ca0670c4593aa2f7c4567c9c71d6cb3d8182624a985d4d4e33d5bf054666"
+    },
+    {
+      "path": "vllm/vllm_flash_attn/flash_attn_interface.py",
+      "status": "modified",
+      "fork_sha256": "f43e25b45fca93977048e76aa7d949debcd857e1f26ed00f3b3b04261ecab60f",
+      "fork_bytes": 20432,
+      "base_sha256": "49a51585d4eec74ee752ead1ade10d077b90c6c56eac6b8a4af6850a194a5b2a"
+    }
+  ]
+}

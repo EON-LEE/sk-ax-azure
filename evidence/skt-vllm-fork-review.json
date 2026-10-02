@@ -1,0 +1,47 @@
+{
+  "fork": "https://github.com/SKT-AI/vllm/tree/023bc76025459d6356c5885f271b9b95c50f93b6",
+  "branch": "axk2-v0.23.0",
+  "upstream_base": {
+    "tag": "v0.23.0",
+    "sha": "0fc695fc6d1d82e9a5ac6835ac8e4e1c83703665"
+  },
+  "compare": {
+    "ahead_by": 29,
+    "behind_by": 0,
+    "files_changed": 47
+  },
+  "cuda_changes": [
+    {
+      "file": "csrc/libtorch_stable/cache_kernels.cu",
+      "lines": "+60/-2",
+      "effect": "UE8M0 power-of-two tile-scale rounding in concat_and_cache_ds_mla_kernel (fp8_ds_mla sparse KV cache)",
+      "active_only_when": "compute capability major == 10 (SM100) or VLLM_DS_MLA_UE8M0_SCALE is set",
+      "op_schema_changed": false,
+      "relevance_on_a100": "none"
+    }
+  ],
+  "python_overlay": {
+    "files": 25,
+    "modified": 21,
+    "added": 4,
+    "released_wheel_check": "All 21 modified files in vllm-0.23.0-cp38-abi3-manylinux_2_28_x86_64.whl are byte-identical to the fork base; the 4 added files are absent.",
+    "manifest": "aml/src/overlay_manifest.json"
+  },
+  "dense_mode": {
+    "config": "vllm/transformers_utils/configs/axk2.py lines 138-148 attach index_topk/index_n_heads/index_head_dim only when provided ('non-DSA mode').",
+    "loader": "vllm/model_executor/models/axk2.py lines 2703-2712 skip indexer weights 'so a DSA checkpoint can be served as a plain AXK2 model'.",
+    "mla_padding": "_pick_mla_target (axk2.py:235) returns 576/False in dense mode; no padding needed for K2 dimensions.",
+    "how": "config.json copy without the three index_* keys (hf_overrides cannot delete keys)."
+  },
+  "skt_serving_practice": {
+    "file": "k2_dsa_test/scale_ab/serve_k2.sbatch",
+    "facts": [
+      "Slurm sbatch + srun with pyxis/enroot --container-image, 1 node x 8 B300",
+      "vllm serve --tensor-parallel-size 8 (TP chosen over DP+EP: DP/EP lock-step hung in long-context eval)",
+      "--load-format fastsafetensors (~92 s vs ~1034 s default for 648 GB)",
+      "--max-model-len 131072, --reasoning-parser deepseek_v3",
+      "node-local VLLM_CACHE_ROOT/TRITON/INDUCTOR caches; NCCL/GLOO iface from default route; VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=3600",
+      "references slurm/vllm_multi_b300.sbatch for multi-node"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: stage-full-weights
+description: >-
+  Copy the pinned skt/A.X-K2 checkpoint (346 FP8 shards, 694 GB) from Hugging Face into
+  same-region workspace blob storage on a CPU node, so paid GPU nodes only copy it inside Azure.
+compute: azureml:cpu-e32
+environment:
+  image: docker.io/library/python:3.12-slim
+identity:
+  type: user_identity
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  pip install -q --no-cache-dir "huggingface_hub[hf_xet]>=0.35" "mlflow-skinny>=2.16" azureml-mlflow &&
+  python /tmp/axk2src/stage_weights.py --revision 2287ca456927eed33b899c404c0b2ffaf17aa09f
+  --out ${{outputs.weights}} ;
+  rc=$? ; python /tmp/axk2src/report.py stage.manifest --file ${{outputs.weights}}/STAGED_MANIFEST.json ;
+  exit $rc
+outputs:
+  weights:
+    type: uri_folder
+    mode: upload
+    path: azureml://datastores/workspaceblobstore/paths/axk2/weights/2287ca45/
+limits:
+  timeout: 14400

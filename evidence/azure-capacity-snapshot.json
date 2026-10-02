@@ -1,0 +1,506 @@
+{
+  "captured": "2026-10-02",
+  "subscription": "redacted (quota type Internal_2014-09-01)",
+  "summary": [
+    "VM quota for A100 families is 0 in every region checked; VM Spot quota is 100 vCPU per region and quota increase requests were throttled (HTTP 429).",
+    "Azure ML compute has a separate low-priority pool: TotalLowPriorityCores = 300 per region, per-family low-priority limit -1 (no cap).",
+    "Standard_ND96amsr_A100_v4 is low-priority capable for Azure ML in swedencentral, westus2, uksouth, francecentral, italynorth and polandcentral, so 2 nodes (192 vCPU, 16 x A100 80GB) fit without any quota change.",
+    "Azure ML low-priority clusters are billed as Spot since 2026-03-31; the price cannot be capped and never exceeds pay-as-you-go."
+  ],
+  "aml_low_priority_region_matrix": [
+    {
+      "region": "eastus",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "eastus",
+      "size": "Standard_ND96asr_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "eastus2",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "westus2",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "westus2",
+      "size": "Standard_ND96asr_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "westus3",
+      "size": "(none of ND96amsr/MI300X/ND96asr)",
+      "lowPriorityCapable": null,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": ""
+    },
+    {
+      "region": "southcentralus",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "southcentralus",
+      "size": "Standard_ND96asr_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "westeurope",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "westeurope",
+      "size": "Standard_ND96asr_v4",
+      "lowPriorityCapable": false,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "uksouth",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "francecentral",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "francecentral",
+      "size": "Standard_ND96isr_MI300X_v5",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/MIR"
+    },
+    {
+      "region": "westus",
+      "size": "Standard_ND96isr_MI300X_v5",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/MIR"
+    },
+    {
+      "region": "koreacentral",
+      "size": "(none of ND96amsr/MI300X/ND96asr)",
+      "lowPriorityCapable": null,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": ""
+    },
+    {
+      "region": "japaneast",
+      "size": "(none of ND96amsr/MI300X/ND96asr)",
+      "lowPriorityCapable": null,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": ""
+    },
+    {
+      "region": "italynorth",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    },
+    {
+      "region": "polandcentral",
+      "size": "Standard_ND96amsr_A100_v4",
+      "lowPriorityCapable": true,
+      "amlLowPriorityQuota": 300,
+      "computeTypes": "AmlCompute/ComputeInstance/MIR/FoundryCompute"
+    }
+  ],
+  "aml_usage_swedencentral_selected": {
+    "TotalDedicatedCores": {
+      "current": 0,
+      "limit": 1000
+    },
+    "standardNCADSA100v4Family": {
+      "current": 0,
+      "limit": -1
+    },
+    "standard NDAMSv4_A100Family": {
+      "current": 0,
+      "limit": -1
+    },
+    "standardNDAMSv4A100noRDMAFamily": {
+      "current": 0,
+      "limit": -1
+    },
+    "standardNDMI300Xv5IBFamily": {
+      "current": 0,
+      "limit": -1
+    },
+    "standardNDFlexMI300XV5noRDMAFamily": {
+      "current": 0,
+      "limit": -1
+    },
+    "TotalLowPriorityCores": {
+      "current": 0,
+      "limit": 300
+    }
+  },
+  "vm_quota_selected_regions": {
+    "francecentral": [
+      {
+        "name": "lowPriorityCores",
+        "current": "0",
+        "limit": "100"
+      },
+      {
+        "name": "cores",
+        "current": "0",
+        "limit": "100"
+      },
+      {
+        "name": "StandardNCADSA100v4Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "standard NDAMSv4_A100Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "Standard NDASv4_A100 Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "standardNDISv5MI300XFamily",
+        "current": "0",
+        "limit": "0"
+      }
+    ],
+    "westus": [
+      {
+        "name": "lowPriorityCores",
+        "current": "0",
+        "limit": "100"
+      },
+      {
+        "name": "cores",
+        "current": "0",
+        "limit": "100"
+      },
+      {
+        "name": "StandardNCADSA100v4Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "standard NDAMSv4_A100Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "Standard NDASv4_A100 Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "standardNDISv5MI300XFamily",
+        "current": "0",
+        "limit": "0"
+      }
+    ],
+    "swedencentral": [
+      {
+        "name": "lowPriorityCores",
+        "current": "0",
+        "limit": "100"
+      },
+      {
+        "name": "cores",
+        "current": "0",
+        "limit": "100"
+      },
+      {
+        "name": "StandardNCADSA100v4Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "standard NDAMSv4_A100Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "Standard NDASv4_A100 Family",
+        "current": "0",
+        "limit": "0"
+      },
+      {
+        "name": "standardNDISv5MI300XFamily",
+        "current": "0",
+        "limit": "0"
+      }
+    ]
+  },
+  "retail_prices_usd_per_hour": [
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "francecentral",
+      "meter": "ND96amsr A100 v4 Spot",
+      "usdPerHour": 10.551811
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "swedencentral",
+      "meter": "ND96amsr A100 v4 Spot",
+      "usdPerHour": 10.551811
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "eastus",
+      "meter": "ND96amsr A100 v4 Low Priority",
+      "usdPerHour": 6.554
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "francecentral",
+      "meter": "ND96amsr A100 v4 Low Priority",
+      "usdPerHour": 8.192
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "swedencentral",
+      "meter": "ND96amsr A100 v4 Low Priority",
+      "usdPerHour": 8.192
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "westus",
+      "meter": "ND96amsr A100 v4 Low Priority",
+      "usdPerHour": 8.52
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "eastus",
+      "meter": "ND96amsr A100 v4 Spot",
+      "usdPerHour": 8.441552
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "eastus",
+      "meter": "ND96amsr A100 v4",
+      "usdPerHour": 32.77
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "francecentral",
+      "meter": "ND96amsr A100 v4",
+      "usdPerHour": 40.962
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "westus",
+      "meter": "ND96amsr A100 v4 Spot",
+      "usdPerHour": 10.974018
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "swedencentral",
+      "meter": "ND96amsr A100 v4",
+      "usdPerHour": 40.962
+    },
+    {
+      "sku": "Standard_ND96amsr_A100_v4",
+      "region": "westus",
+      "meter": "ND96amsr A100 v4",
+      "usdPerHour": 42.601
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "francecentral",
+      "meter": "ND96isrMI300Xv5 Spot",
+      "usdPerHour": 12.198
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "swedencentral",
+      "meter": "ND96isrMI300Xv5",
+      "usdPerHour": 67.2
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "swedencentral",
+      "meter": "ND96isrMI300Xv5 Spot",
+      "usdPerHour": 12.41856
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "francecentral",
+      "meter": "ND96isrMI300Xv5",
+      "usdPerHour": 60.0
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "swedencentral",
+      "meter": "ND96isrMI300Xv5 Low Priority",
+      "usdPerHour": 13.44
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "westus",
+      "meter": "ND96isrMI300Xv5 Spot",
+      "usdPerHour": 14.053931
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "westus",
+      "meter": "ND96isrMI300Xv5",
+      "usdPerHour": 62.853
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "francecentral",
+      "meter": "ND96isrMI300Xv5 Low Priority",
+      "usdPerHour": 12.0
+    },
+    {
+      "sku": "Standard_ND96isr_MI300X_v5",
+      "region": "westus",
+      "meter": "ND96isrMI300Xv5 Low Priority",
+      "usdPerHour": 12.571
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "koreacentral",
+      "meter": "NC96ads_A100_v4 Low Priority",
+      "usdPerHour": 3.967
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "swedencentral",
+      "meter": "NC96ads_A100_v4",
+      "usdPerHour": 19.1
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "eastus",
+      "meter": "NC96ads_A100_v4 Spot",
+      "usdPerHour": 2.715082
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "koreacentral",
+      "meter": "NC96ads_A100_v4 Spot",
+      "usdPerHour": 3.665323
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "westus",
+      "meter": "NC96ads_A100_v4",
+      "usdPerHour": 19.1
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "francecentral",
+      "meter": "NC96ads_A100_v4 Low Priority",
+      "usdPerHour": 3.673
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "francecentral",
+      "meter": "NC96ads_A100_v4",
+      "usdPerHour": 18.365
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "eastus",
+      "meter": "NC96ads_A100_v4",
+      "usdPerHour": 14.692
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "westus",
+      "meter": "NC96ads_A100_v4 Low Priority",
+      "usdPerHour": 3.82
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "swedencentral",
+      "meter": "NC96ads_A100_v4 Spot",
+      "usdPerHour": 3.74933
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "koreacentral",
+      "meter": "NC96ads_A100_v4",
+      "usdPerHour": 19.834
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "eastus",
+      "meter": "NC96ads_A100_v4 Low Priority",
+      "usdPerHour": 2.938
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "westus",
+      "meter": "NC96ads_A100_v4 Spot",
+      "usdPerHour": 3.52968
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "swedencentral",
+      "meter": "NC96ads_A100_v4 Low Priority",
+      "usdPerHour": 3.82
+    },
+    {
+      "sku": "Standard_NC96ads_A100_v4",
+      "region": "francecentral",
+      "meter": "NC96ads_A100_v4 Spot",
+      "usdPerHour": 3.393852
+    }
+  ],
+  "price_check_2026_10_02_spot_usd_per_node_hour": {
+    "Standard_ND96amsr_A100_v4": {
+      "swedencentral": 10.55,
+      "westus2": 8.44,
+      "francecentral": 10.55,
+      "italynorth": 12.89,
+      "uksouth": 12.89,
+      "polandcentral": 12.08
+    },
+    "Standard_NC24ads_A100_v4": {
+      "swedencentral": 0.94,
+      "westus2": 0.68
+    },
+    "Standard_E32ds_v5_dedicated": {
+      "swedencentral": 2.43
+    }
+  },
+  "sources": [
+    "https://learn.microsoft.com/azure/machine-learning/how-to-manage-optimize-cost (low-priority retirement, Spot billing, no max price)",
+    "ARM: Microsoft.MachineLearningServices/locations/{region}/usages and /vmSizes, api-version 2024-04-01",
+    "https://prices.azure.com/api/retail/prices"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "scope": "Chronology of the Azure ML A100 deployment on 2026-10-02 (UTC), including every failure and the fix applied.",
+  "steps": [
+    {
+      "what": "Workspace in swedencentral",
+      "result": "Job submission failed: storage forced to publicNetworkAccess=Disabled and allowSharedKeyAccess=false by a management-group Azure Policy (modify effect).",
+      "fix": "Managed VNet (allow_internet_outbound), identity-based system datastores, compute managed identities with Storage Blob Data Contributor; scripts carried in an environment variable because the CLI cannot upload code; results returned through MLflow tags."
+    },
+    {
+      "what": "Long job command (28 KB embedded payload)",
+      "result": "Batch rejected the task (Bad Request); 20 KB was accepted.",
+      "fix": "Payload moved to the AXK2_SRC_B64 environment variable."
+    },
+    {
+      "what": "CPU staging jobs",
+      "result": "Passed: 694.4 GB in 412 s (1.68 GB/s) from the Hub to private blob; 2-layer cut sha256-verified and built; official FP32 reference computed."
+    },
+    {
+      "what": "2 x NC24ads_A100_v4 rehearsal (swedencentral)",
+      "result": "Second node failed with MIGEnabledError (Azure host had MIG enabled) and never joined; cancelled."
+    },
+    {
+      "what": "2 x ND96amsr_A100_v4 low-priority",
+      "result": "AllocationFailed/OutOfCapacity in swedencentral, westus2, francecentral and polandcentral.",
+      "fix": "Same job queued in six regions with aml/first_capacity_wins.sh; italynorth and uksouth allocated at 17:23Z; uksouth cancelled and its cluster deleted within six minutes so only one cluster billed."
+    },
+    {
+      "what": "First run in italynorth",
+      "result": "Node setup, overlay (21 base files verified, 25 written) and AXK2 registration passed on both nodes; Ray absent from the vLLM 0.23 image.",
+      "fix": "Install ray[cgraph] before any vLLM process (documented step); job resubmitted onto the warm nodes."
+    },
+    {
+      "what": "Second run",
+      "result": "Single-node TP8 server healthy, then marlin_gemm 'unsupported a scalar_type' on the first prefill continuing from cached context.",
+      "fix": "Root cause: on SM80 Marlin repacks FP8 weights into int32 and the MLA chunked-context dtype guard (also in upstream v0.23.0) casts BF16 activations to int32; skip the cast for non-floating weight dtypes (two anchored sites)."
+    },
+    {
+      "what": "Third run (brave_jicama_k0v2dz2txp)",
+      "result": "Passed end to end: rehearsal single-node and two-node, then the full 61-layer model served and tested; job exit status 0."
+    },
+    {
+      "what": "Per-position series through MLflow metrics",
+      "result": "AML truncated/duplicated long metric histories.",
+      "fix": "Series reported as chunked JSON tags; vLLM series recovered by a CPU job reading the private artifacts inside the VNet."
+    }
+  ],
+  "cost_estimate_usd": {
+    "italynorth_2xND96amsr_spot_61min": 26.2,
+    "uksouth_2xND96amsr_spot_6min": 2.6,
+    "swedencentral_NC24ads_spot": 0.3,
+    "cpu_jobs_and_storage_private_endpoints": 4.5,
+    "total_approx": 34,
+    "basis": "Retail Spot rates of 2026-10-02 (ND96amsr USD 12.89/node-hour in italynorth/uksouth) x observed allocation windows; Azure invoice may differ."
+  },
+  "cleanup": "Resource group with all 12 workspaces, storage (including the 694 GB staged copy), key vaults, private endpoints and clusters deleted after the run."
+}
