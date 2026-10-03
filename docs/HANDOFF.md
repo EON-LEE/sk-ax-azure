@@ -4,10 +4,13 @@ Snapshot: 2026-10-03. Read this before allocating any GPU.
 
 ## 2026-10-03 (second update): native DSA on A100
 
-The model now runs **as published** on A100. Its DeepSeek Sparse Attention
-uses a hash-checked port of upstream vLLM PR #38476 (`TRITON_MLA_SPARSE` +
-Triton indexer logits), described in SERVING_DESIGN.md section 5b and
-`aml/src/dsa_port.json`.
+The model now runs on A100 with its published weights and config and its own
+DeepSeek Sparse Attention rule. The attention is computed by substitute Triton
+kernels: a hash-checked port of upstream vLLM PR #38476 (`TRITON_MLA_SPARSE`
+plus Triton indexer logits), described in SERVING_DESIGN.md section 5b and
+`aml/src/dsa_port.json`. Section 5c lists every difference from the reference
+single-node deployment, including the gaps: tool-call parser not set and
+contexts beyond 60K untested.
 
 - **Kernel tests:** 94/94 pass on A100.
 - **2-layer real-weight cut:** native stays at the BF16-versus-FP32 floor

@@ -7,8 +7,10 @@ Azure A100 hardware with a standard distributed inference stack.
 engine (SKT fork) runs on a Ray cluster of two 8xA100-80GB nodes: tensor
 parallel 8 over NVLink inside each node and pipeline parallel 2 across
 nodes, behind one OpenAI-compatible endpoint. The model's own DeepSeek Sparse
-Attention runs natively on A100 through a hash-checked port of upstream vLLM
-PR #38476 (`TRITON_MLA_SPARSE`); a faster dense mode is also available.
+Attention runs on A100 through substitute Triton kernels: a hash-checked port
+of upstream vLLM PR #38476 (`TRITON_MLA_SPARSE`). A faster dense mode is also
+available. Every difference from the reference single-node deployment is
+listed in section 5c of the design doc.
 Capacity comes from the separate Azure ML low-priority quota (300 vCPU per
 region). Deployment assets are in `aml/`.
 

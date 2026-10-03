@@ -171,9 +171,39 @@ Interactions checked against v0.23:
   one in the same CTA group. The tests here never batch two sequences longer
   than 32K.
 
-The SKT checkpoint is served **unchanged** in native mode: no config edits, the
-indexer weights load, and every layer selects 2048 keys per query exactly as
-on B300.
+In native mode the SKT checkpoint and config are served **unchanged**: no
+config edits, and the indexer weights load. Every layer selects its top 2048
+keys per query with the same rule as on B300. Individual near-tied keys can
+still differ, because the kernels and their arithmetic differ.
+
+## 5c. Differences from the reference single-node deployment
+
+The reference is the model card command, `vllm serve skt/A.X-K2
+--tensor-parallel-size <N> --tool-call-parser hermes --reasoning-parser
+deepseek_v3`, validated on 4 x B300. SKT's own script serves it on one
+8 x B300 node with TP8, `fastsafetensors`, `--max-model-len 131072` and the
+BF16 KV-cache default. Every difference from that reference:
+
+| Area | Reference (one B300/H100-class node) | This A100 deployment | Effect |
+| --- | --- | --- | --- |
+| Weights, config, tokenizer, chat template, model code | Checkpoint 2287ca45, SKT fork `axk2.py` | Same files, unmodified (native mode) | None |
+| Linear and MoE matmuls | FP8 x FP8 on FP8 tensor cores (block-scaled W8A8) | FP8 weights expanded in-kernel, BF16 activations (Marlin W8A16); A100 has no FP8 tensor cores | Same weight memory; activations are not quantized; slower when compute-bound; not bit-identical |
+| Indexer scores | DeepGEMM FP8 MQA logits | Triton kernel on the same FP8-quantized q/k, BF16 dot, FP32 accumulation (PR #38476) | Same inputs and rule, different kernel |
+| Top-k selection | `persistent_topk` | Same kernel | None |
+| Sparse MLA over the selected 2048 keys | FlashMLA / FlashInfer sparse | Triton sparse MLA (PR #38476, unmerged upstream) | Same computation; slower; not upstream-supported |
+| KV cache | BF16 by default, FP8 (`fp8_ds_mla`) optional | BF16 only | No FP8-KV memory saving |
+| Engine code | vLLM 0.23 + SKT fork | Same, plus the PR port and a 2-line A100 fix in `mla_attention.py` | Without the fix the server crashes on A100 |
+| Parallelism | One node, TP 4 or 8, multiprocessing executor | Two nodes, TP8 x PP2 (layers 0-30 / 31-60), Ray | One network hop per token; losing either node stops the service |
+| Inter-node network | Not applicable | NCCL over TCP, InfiniBand disabled in the PoC | Enable InfiniBand in production |
+| Tool calling | `--tool-call-parser hermes` | **Not set and not tested** | Add and test before agentic use |
+| Context length | 256K with no extra flags | `max_model_len` 65,536; tested to 60K | Longer contexts untested on A100 |
+| Loader and limits | `fastsafetensors`, 64 sequences | Default loader, 128 sequences | Load time only |
+| Determinism | Not batch-invariant by default | Same; the Triton sparse port cannot use batch-invariant mode yet | Identical requests can differ slightly |
+| Quality evidence | SKT's published evaluations | Functional probes, needles, 2-layer log-probability comparison | Benchmark parity not measured |
+| Speed | Not published per hardware | Measured on A100 only | No like-for-like comparison |
+
+The `persistent_topk` fix #49139 is missing from every vLLM 0.23 build,
+including SKT's own fork, so it is not an A100-specific gap.
 
 ## 6. Subscription policy constraints (MCAPS)
 
@@ -285,17 +315,19 @@ The speed results below come from `vllm bench serve` with random-token prompts,
 
 The two modes trade exactness for speed:
 
-- **Native DSA is the model as trained.** Its decode cost per token is almost
-  flat from 1K to 32K tokens of context (19.2 to 21.1 ms), as designed. The
-  port is still unoptimized Triton, and the PR author calls it "a concept".
+- **Native keeps the trained sparse-attention rule** (top 2048 keys per
+  query), computed with substitute kernels. Its decode cost per token is
+  almost flat from 1K to 32K tokens of context (19.2 to 21.1 ms), as designed.
+  The port is still unoptimized Triton, and the PR author calls it
+  "a concept".
 - **Dense on A100 is 10-60% faster.** Prefill uses the mature FlashAttention-2
   path, and decode attention is cheap at these context lengths. Its decode
   cost grows with context (15.8 to 19.1 ms), so the gap narrows. It is exact
   only up to 2,048 context tokens.
 
-Which mode to choose depends on the workload. Native is the faithful
-long-context configuration. Dense is defensible when prompts plus output stay
-short or when a long-context evaluation accepts it.
+Which mode to choose depends on the workload. Native is the configuration
+closest to the reference at long context. Dense is defensible when prompts
+plus output stay short or when a long-context evaluation accepts it.
 
 ### 8.2 First full-model run, dense only (2026-10-02, italynorth)
 
