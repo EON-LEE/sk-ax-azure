@@ -6,29 +6,33 @@ Azure A100 hardware with a standard distributed inference stack.
 **Current design:** [docs/SERVING_DESIGN.md](docs/SERVING_DESIGN.md). One vLLM
 engine (SKT fork) runs on a Ray cluster of two 8xA100-80GB nodes: tensor
 parallel 8 over NVLink inside each node and pipeline parallel 2 across
-nodes, behind one OpenAI-compatible endpoint. Capacity comes from the
-separate Azure ML low-priority quota (300 vCPU per region). Deployment
-assets are in `aml/`.
+nodes, behind one OpenAI-compatible endpoint. The model's own DeepSeek Sparse
+Attention runs natively on A100 through a hash-checked port of upstream vLLM
+PR #38476 (`TRITON_MLA_SPARSE`); a faster dense mode is also available.
+Capacity comes from the separate Azure ML low-priority quota (300 vCPU per
+region). Deployment assets are in `aml/`.
 
 ## Current status
 
 | Evidence | Result | What it does not prove |
 | --- | --- | --- |
-| **Full 688B on 2 x ND96amsr (16 x A100 80GB), vLLM TP8 x PP2, one endpoint** | **Served and tested**: 6/6 functional, reasoning mode, needle at 1.4K/5.5K tokens, 65-472 output tok/s at concurrency 1-32 | Long-context quality, production SLA, bitwise determinism |
-| Real-weight 2-layer cut, vLLM on A100 vs official Transformers FP32 sparse | Pearson >= 0.99995, mean abs log-prob diff ~0.01, top-1 93-100% | Full-depth logit equivalence |
+| **Full 688B, native DSA, 2 x ND96amsr (16 x A100 80GB), TP8 x PP2, one endpoint** | **Served and measured**: 6/6 functional, reasoning, needles 12/12 up to 60K tokens; 50-812 output tok/s at concurrency 1-128; TPOT 19-21 ms from 1K to 32K context | Full quality evaluation, production SLA, bitwise determinism |
+| Same allocation, dense mode | Same functional results; 10-60% faster (61-898 tok/s), exact only up to 2,048 context tokens | Long-context quality |
+| Real-weight 2-layer cut vs official Transformers FP32 sparse, 14,618 positions | Native stays at the BF16 floor beyond `index_topk` (0.0111 vs 0.0116 inside); dense drifts (0.0123, max 0.22) | Full-depth logit equivalence |
+| PR #38476 Triton kernels on A100 | 94/94 tests passed | Upstream acceptance of the PR |
 | Dense mode == DSA within `index_topk` (CPU, miniature AXK2) | Passed: prefill and cached decode match; divergence only beyond `index_topk` | Quality beyond 2048 tokens |
 | Fork overlay on stock vLLM 0.23.0 | 21 modified base files byte-identical in the released wheel; plus an Ampere MLA dtype fix | Other GPU generations |
-| Pinned SKT vLLM sparse kernels on SM80 | Unsupported paths identified | Native DSA on A100 |
 | Earlier hand-written block runtime on two A100 VMs | Seven parity cases passed | Serving; superseded by the vLLM design |
 
-All Azure resources from the run were deleted. See
+All Azure resources from both runs were deleted. See
 [the handoff](docs/HANDOFF.md) for history and boundaries.
 
 ## Repository layout
 
 - `aml/`: Azure ML deployment of the standard stack: region setup, job
-  templates, per-node launcher (`src/entry.sh`), fork overlay, dense-mode
-  config, client tests, official-reference job, results reader and the
+  templates, per-node launcher (`src/entry.sh`), fork overlay and native-DSA
+  port (`src/dsa_port.json`), dense-mode config, client tests,
+  official-reference job, results reader, log/artifact collectors and the
   multi-region capacity watcher. See `docs/SERVING_DESIGN.md`.
 - `experiments/`: all authored validation scripts, reference stage code,
   historical Azure runners/provisioning/cleanup scripts, and setup script.
@@ -80,20 +84,24 @@ per hour depending on region, and the Spot price cannot be capped.
 
 ```bash
 export AZ=az SUB=<subscription-id> RG=<resource-group> OWNER_TAG=<you>
-bash aml/setup_region.sh swedencentral mlw-axk2-sdc     # repeat per candidate region
-python3 aml/render_job.py aml/jobs/rehearse-then-serve-nd96-hub.yml
-az ml job create --subscription $SUB -g $RG -w mlw-axk2-sdc \
-  -f aml/jobs/.rendered/rehearse-then-serve-nd96-hub.yml --query name -o tsv
-bash aml/first_capacity_wins.sh mlw-axk2-sdc=<job> mlw-axk2-wus2=<job> ...
-AXK2_MLFLOW_URI=$(az ml workspace show -g $RG -n mlw-axk2-sdc --query mlflow_tracking_uri -o tsv) \
+bash aml/setup_region.sh italynorth mlw-axk2-itn       # repeat per candidate region
+python3 aml/render_job.py aml/jobs/native-dsa-bench-nd96-hub.yml aml/jobs/oracle-hf-hub-cpu.yml
+az ml job create --subscription $SUB -g $RG -w mlw-axk2-itn \
+  -f aml/jobs/.rendered/native-dsa-bench-nd96-hub.yml --query name -o tsv
+bash aml/first_capacity_wins.sh mlw-axk2-itn=<job> mlw-axk2-uks=<job> ...
+AXK2_MLFLOW_URI=$(az ml workspace show -g $RG -n mlw-axk2-itn --query mlflow_tracking_uri -o tsv) \
   python3 aml/fetch_results.py show <job>
+python3 aml/fetch_results.py compare <job> <oracle job> --out compare.json   # 2-layer check
 ```
 
-One allocation rehearses the exact launch with a 2-layer real-weight cut
-(single-node TP8, then TP8 x PP2 across both nodes) while the full checkpoint
-downloads, then serves and tests the full model only if the rehearsal passed.
-Delete the resource group afterwards; clusters scale to zero but workspaces,
-storage and managed networks remain until deleted.
+One allocation runs the Triton kernel tests, then the 2-layer real-weight cut
+in native DSA and dense mode, single-node TP8 and native TP8 x PP2 over Ray.
+Meanwhile the full checkpoint downloads under a stall watchdog. It then serves
+and measures the full model in each mode listed in `MODES`.
+`full-native-dense-nd96-hub.yml` runs only the full-model phases. Delete the
+resource group afterwards. Clusters scale to zero, but workspaces, storage and
+managed networks remain until deleted. Deleted workspace names stay reserved
+for 14 days (soft delete).
 
 New outputs are written beside the experiment scripts and ignored by Git.
 Committed results stay unchanged in `evidence/`.

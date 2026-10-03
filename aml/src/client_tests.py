@@ -100,29 +100,44 @@ def needle_prompt(rng, words, code, position=0.4):
     return " ".join(filler)
 
 
-def bench(args, concurrency, prompts, input_len, output_len, out_dir):
-    name = f"bench-c{concurrency}.json"
+BENCH_KEYS = ["completed", "request_throughput", "output_throughput", "total_token_throughput",
+              "mean_ttft_ms", "median_ttft_ms", "p99_ttft_ms", "mean_tpot_ms", "median_tpot_ms",
+              "p99_tpot_ms", "median_itl_ms", "p99_itl_ms", "median_e2el_ms"]
+
+
+def bench(args, name, concurrency, prompts, input_len, output_len, out_dir):
+    filename = f"bench-{name}.json"
     command = ["vllm", "bench", "serve", "--backend", "openai", "--base-url", args.base,
                "--endpoint", "/v1/completions", "--model", MODEL, "--tokenizer", args.tokenizer,
                "--dataset-name", "random", "--random-input-len", str(input_len),
                "--random-output-len", str(output_len), "--num-prompts", str(prompts),
                "--max-concurrency", str(concurrency), "--ignore-eos", "--seed", "2026",
                "--percentile-metrics", "ttft,tpot,itl,e2el", "--metric-percentiles", "50,90,99",
-               "--save-result", "--result-dir", str(out_dir), "--result-filename", name]
+               "--save-result", "--result-dir", str(out_dir), "--result-filename", filename]
     began = time.time()
-    run = subprocess.run(command, capture_output=True, text=True, timeout=3600)
-    record = {"concurrency": concurrency, "num_prompts": prompts, "input_len": input_len,
-              "output_len": output_len, "returncode": run.returncode, "wall_seconds": round(time.time() - began, 1)}
-    path = Path(out_dir) / name
-    if run.returncode == 0 and path.exists():
+    try:
+        run = subprocess.run(command, capture_output=True, text=True, timeout=3600)
+        returncode, stderr = run.returncode, run.stderr
+    except subprocess.TimeoutExpired as exc:
+        returncode, stderr = -1, f"timeout: {exc}"
+    record = {"name": name, "concurrency": concurrency, "num_prompts": prompts, "input_len": input_len,
+              "output_len": output_len, "returncode": returncode, "wall_seconds": round(time.time() - began, 1)}
+    path = Path(out_dir) / filename
+    if returncode == 0 and path.exists():
         data = json.loads(path.read_text())
-        keep = ["completed", "request_throughput", "output_throughput", "total_token_throughput",
-                "mean_ttft_ms", "median_ttft_ms", "p99_ttft_ms", "mean_tpot_ms", "median_tpot_ms",
-                "p99_tpot_ms", "median_itl_ms", "median_e2el_ms"]
-        record.update({k: data.get(k) for k in keep})
+        record.update({k: data.get(k) for k in BENCH_KEYS})
     else:
-        record["stderr_tail"] = run.stderr[-1500:]
+        record["stderr_tail"] = stderr[-1500:]
+    print(json.dumps(record), flush=True)
     return record
+
+
+def benchmark_plan(max_model_len):
+    plan = [(f"latency-in{n}", 1, 3, n, 256) for n in (1024, 8192, 32768) if n + 256 <= max_model_len]
+    plan += [(f"throughput-c{c}", c, min(max(8, 3 * c), 384), 1024, 256) for c in (1, 8, 32, 64, 128)]
+    if 16384 + 256 <= max_model_len:
+        plan += [("long16k-c4", 4, 8, 16384, 256), ("long16k-c16", 16, 32, 16384, 256)]
+    return plan
 
 
 def run_full(args):
@@ -157,21 +172,32 @@ def run_full(args):
     for _ in range(20):
         a, b, c = rng.randint(10, 99), rng.randint(2, 9), rng.randint(10, 99)
         reply = chat(args.base, [{"role": "user", "content":
-                                  f"Compute {a} * {b} + {c}. Reply with only the final integer."}], max_tokens=24)
+                                  f"Compute {a} * {b} + {c}. Reply with only the final integer."}], max_tokens=64)
         numbers = re.findall(r"-?\d+", reply["content"].replace(",", ""))
-        arithmetic.append(bool(numbers) and int(numbers[-1]) == a * b + c)
-    result["arithmetic"] = {"correct": sum(arithmetic), "total": len(arithmetic)}
+        arithmetic.append({"question": f"{a} * {b} + {c}", "expected": a * b + c, "content": reply["content"][:120],
+                           "finish_reason": reply["finish_reason"],
+                           "correct": bool(numbers) and int(numbers[-1]) == a * b + c})
+    result["arithmetic"] = {"correct": sum(x["correct"] for x in arithmetic), "total": len(arithmetic),
+                            "items": arithmetic}
     question = [{"role": "user", "content": "Describe the Han River in Seoul in three sentences."}]
     first, second = chat(args.base, question, max_tokens=160), chat(args.base, question, max_tokens=160)
     result["determinism"] = {"identical": first["content"] == second["content"], "sample": first["content"][:300]}
     needles = []
-    for label, words in (("within_index_topk", 1100), ("beyond_index_topk", 4500)):
-        code = f"BLUE-{rng.randint(1000, 9999)}"
-        text = needle_prompt(rng, words, code)
-        reply = chat(args.base, [{"role": "user", "content": text + "\n\nWhat is the secret code mentioned above? "
-                                  "Answer with the code only."}], max_tokens=24)
-        needles.append({"label": label, "prompt_tokens": reply["usage"]["prompt_tokens"],
-                        "found": code in reply["content"], "content": reply["content"][:80]})
+    for target in (1400, 8000, 30000, 60000):
+        if target + 300 > args.max_model_len:
+            continue
+        for depth in (0.1, 0.5, 0.9):
+            code = f"BLUE-{rng.randint(1000, 9999)}"
+            text = needle_prompt(rng, int(target / 1.22), code, depth)
+            began = time.time()
+            try:
+                reply = chat(args.base, [{"role": "user", "content": text + "\n\nWhat is the secret code mentioned "
+                                          "above? Answer with the code only."}], max_tokens=24)
+                needles.append({"target_tokens": target, "depth": depth,
+                                "prompt_tokens": reply["usage"]["prompt_tokens"], "found": code in reply["content"],
+                                "content": reply["content"][:80], "seconds": round(time.time() - began, 2)})
+            except Exception as exc:
+                needles.append({"target_tokens": target, "depth": depth, "error": str(exc)[:300]})
     result["needle"] = needles
     body = {"model": MODEL, "messages": [{"role": "user", "content": "Write a short story about a lighthouse keeper."}],
             "max_tokens": 256, "temperature": 0.0, "stream": True, "ignore_eos": True,
@@ -194,13 +220,17 @@ def run_full(args):
         "chunks": pieces, "total_seconds": round(total, 2),
         "decode_chunks_per_second": round((pieces - 1) / (total - (first_token - began)), 2)
         if first_token and pieces > 1 else None}
-    result["benchmarks"] = [bench(args, c, n, 1024, 128, out_dir) for c, n in ((1, 6), (8, 32), (32, 96))]
+    result["benchmarks"] = [bench(args, *spec, out_dir) for spec in benchmark_plan(args.max_model_len)]
+    found = [n for n in needles if "found" in n]
     result["summary"] = {
         "functional_passed": sum(f["passed"] for f in functional), "functional_total": len(functional),
         "reasoning_passed": result["reasoning_mode"]["passed"],
         "arithmetic": f"{result['arithmetic']['correct']}/{result['arithmetic']['total']}",
         "deterministic": result["determinism"]["identical"],
-        "needle": {n["label"]: n["found"] for n in needles}}
+        "needle_found": f"{sum(n['found'] for n in found)}/{len(needles)}",
+        "speed": {b["name"]: {k: (round(b[k], 1) if isinstance(b.get(k), float) else b.get(k))
+                              for k in ("output_throughput", "median_ttft_ms", "median_tpot_ms")}
+                  for b in result["benchmarks"]}}
     return result
 
 
@@ -227,6 +257,7 @@ def main():
     parser.add_argument("--tag", default="")
     parser.add_argument("--prompts")
     parser.add_argument("--tokenizer")
+    parser.add_argument("--max-model-len", type=int, default=8192)
     parser.add_argument("--out", required=True)
     parser.add_argument("--a")
     parser.add_argument("--b")

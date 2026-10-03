@@ -1,33 +1,32 @@
 #!/usr/bin/env bash
 # A.X-K2 multi-node serving launcher for one Azure ML command job
 # (distribution: pytorch, process_count_per_instance: 1, so this runs once per node).
-#   node 0  : Ray head, `vllm serve` (tensor parallel inside a node, pipeline parallel across
-#             nodes, one OpenAI-compatible endpoint), then the client test suites
+#   node 0  : kernel tests, single-node rehearsals, Ray head, `vllm serve` (tensor parallel inside a
+#             node, pipeline parallel across nodes, one OpenAI-compatible endpoint), client suites
 #   node >0 : Ray worker; stays up until the head goes away
 #
-# usage: entry.sh <model>   <model> = downloaded input directory | hf:<revision> | hf-smoke:<revision>
-#   SUITE=full  : serve <model> and run the full test suite
-#   SUITE=smoke : rehearse with <model> (single-node TP baseline, then TP x PP across nodes). With
-#                 FULL_SOURCE=hf:<revision>, every node downloads the full checkpoint in the
-#                 background meanwhile, and if the rehearsal passes the full model is served on the
-#                 same Ray cluster and tested. One allocation then does everything.
-# Settings: TP, PP, MAX_MODEL_LEN, MAX_NUM_SEQS, GPU_MEM_UTIL, HEALTH_TIMEOUT, FULL_MAX_MODEL_LEN,
-# FULL_MAX_NUM_SEQS, FULL_GPU_MEM_UTIL, FULL_HEALTH_TIMEOUT, EAGER, NCCL_IB_DISABLE, JOIN_TIMEOUT.
+# usage: entry.sh <smoke model> <full model>
+#   <model> = downloaded input directory | hf:<revision> | hf-smoke:<revision> | none
+#   The smoke model is the 2-layer real-weight cut used for rehearsals and numerical checks.
+# MODES (default "native dense"):
+#   native = the published config: DeepSeek Sparse Attention via the TRITON_MLA_SPARSE port
+#   dense  = indexer keys removed; identical to DSA while the context fits in index_topk tokens
+# Every phase fails softly: the failure is reported and the following phases still run.
 set -uo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODEL_IN="${1:?model input}"
+SMOKE_IN="${1:-none}"
+FULL_IN="${2:-none}"
 RANK="${NODE_RANK:-0}"
 NNODES="${WORLD_SIZE:-1}"
-TP="${TP:-8}"; PP="${PP:-2}"; SUITE="${SUITE:-full}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"; GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"; MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
-EAGER="${EAGER:-0}"; HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-5400}"; JOIN_TIMEOUT="${JOIN_TIMEOUT:-5400}"
-FULL_SOURCE="${FULL_SOURCE:-}"
-FULL_MAX_MODEL_LEN="${FULL_MAX_MODEL_LEN:-8192}"; FULL_MAX_NUM_SEQS="${FULL_MAX_NUM_SEQS:-64}"
+TP="${TP:-8}"; PP="${PP:-2}"; MODES="${MODES:-native dense}"
+SMOKE_MAX_MODEL_LEN="${SMOKE_MAX_MODEL_LEN:-16384}"; SMOKE_MAX_NUM_SEQS="${SMOKE_MAX_NUM_SEQS:-16}"
+SMOKE_GPU_MEM_UTIL="${SMOKE_GPU_MEM_UTIL:-0.85}"; SMOKE_HEALTH_TIMEOUT="${SMOKE_HEALTH_TIMEOUT:-2400}"
+FULL_MAX_MODEL_LEN="${FULL_MAX_MODEL_LEN:-65536}"; FULL_MAX_NUM_SEQS="${FULL_MAX_NUM_SEQS:-128}"
 FULL_GPU_MEM_UTIL="${FULL_GPU_MEM_UTIL:-0.90}"; FULL_HEALTH_TIMEOUT="${FULL_HEALTH_TIMEOUT:-3600}"
+RUN_KERNEL_TESTS="${RUN_KERNEL_TESTS:-1}"; JOIN_TIMEOUT="${JOIN_TIMEOUT:-5400}"
 OUT="$PWD/outputs/node$RANK"; mkdir -p "$OUT"
 PKGS=/tmp/axk2-report-pkgs
-MODEL_DIR=/tmp/axk2-model
-FULL_DIR=/tmp/axk2-full
+TESTS_DIR=/tmp/axk2-dsa-tests
 SERVER_PID=""
 
 log() { echo "[$(date -u +%FT%TZ)] [node$RANK] $*"; }
@@ -53,7 +52,7 @@ print(iface, ip, head)
 EOF
 )
 NGPU=$(nvidia-smi -L | wc -l)
-log "host=$(hostname) ip=$NODE_IP iface=$IFACE head=$HEAD_IP gpus=$NGPU nodes=$NNODES suite=$SUITE tp=$TP pp=$PP"
+log "host=$(hostname) ip=$NODE_IP iface=$IFACE head=$HEAD_IP gpus=$NGPU nodes=$NNODES tp=$TP pp=$PP modes='$MODES'"
 nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,memory.total --format=csv -l 15 \
   > "$OUT/gpu-usage.csv" 2>&1 &
 USAGE_PID=$!
@@ -72,61 +71,73 @@ print(json.dumps({
   "node_rank": $RANK, "nnodes": $NNODES, "gpus": gpus,
   "torch": torch.__version__, "torch_cuda": torch.version.cuda,
   "capability": list(torch.cuda.get_device_capability(0)),
-  "packages": {p: v(p) for p in ("vllm", "ray", "transformers", "triton", "flashinfer-python", "nvidia-nccl-cu12", "huggingface-hub", "hf-xet")},
+  "packages": {p: v(p) for p in ("vllm", "transformers", "triton", "flashinfer-python", "nvidia-nccl-cu12", "huggingface-hub", "hf-xet")},
   "infiniband_devices": sorted(os.listdir("/dev/infiniband")) if os.path.isdir("/dev/infiniband") else [],
   "disk_free_gb": round(shutil.disk_usage(os.getcwd()).free / 2**30, 1),
   "mem_total_gb": round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30, 1),
   "shm_gb": round(shutil.disk_usage("/dev/shm").total / 2**30, 1),
-  "model_input": "$MODEL_IN", "full_source": "$FULL_SOURCE",
+  "smoke_model": "$SMOKE_IN", "full_model": "$FULL_IN", "modes": "$MODES",
 }))
 EOF
 cat "$OUT/env.json"
 report "node$RANK.env" --file "$OUT/env.json"
 
-if ! python3 "$SRC/apply_overlay.py" --report "$OUT/overlay.json" > "$OUT/overlay.log" 2>&1; then
+if ! python3 "$SRC/apply_overlay.py" --report "$OUT/overlay.json" --tests-dir "$TESTS_DIR" > "$OUT/overlay.log" 2>&1; then
   tail -n 40 "$OUT/overlay.log"
   report "node$RANK.overlay_failure" --text "$(tail -c 3500 "$OUT/overlay.log")"
   exit 10
 fi
 report "node$RANK.overlay" --file "$OUT/overlay.json"
 
-# vLLM 0.23 no longer ships Ray; its multi-node guide installs it explicitly. Install before any vLLM
-# process starts so no process ever imports a half-installed package.
-(python3 -c "import ray" 2>/dev/null || uv pip install --system -q "ray[cgraph]" \
-   || python3 -m pip install -q --no-cache-dir "ray[cgraph]") > "$OUT/ray-install.log" 2>&1 &
+# vLLM 0.23 no longer ships Ray; its multi-node guide installs it explicitly. pytest runs the
+# kernel tests of the DSA port. Install before any vLLM process starts.
+( (python3 -c "import ray" 2>/dev/null || uv pip install --system -q "ray[cgraph]" \
+     || python3 -m pip install -q --no-cache-dir "ray[cgraph]") &&
+  (uv pip install --system -q pytest || python3 -m pip install -q --no-cache-dir pytest) ) > "$OUT/ray-install.log" 2>&1 &
 RAY_INSTALL_PID=$!
 
-if [ -n "$FULL_SOURCE" ]; then
+# fetch_model <spec> <destination>: prints the local model directory ("" for none)
+fetch_model() {
+  local spec=$1 dest=$2
+  case "$spec" in
+    none) echo "" ;;
+    hf-smoke:*)
+      HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/build_smoke_checkpoint.py" --revision "${spec#*:}" \
+        --out "$dest" --work "$PWD/hub-source-shards" > "$OUT/smoke-download.log" 2>&1 || return 1
+      echo "$dest" ;;
+    hf:*)
+      HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/stage_weights.py" --revision "${spec#*:}" --out "$dest" \
+        > "$OUT/full-download.log" 2>&1 || return 1
+      echo "$dest" ;;
+    *) echo "$spec" ;;
+  esac
+}
+
+FULL_NATIVE=""; FULL_DENSE=/tmp/axk2-full-dense
+if [ "$FULL_IN" != "none" ]; then
   (
     began=$(date +%s)
-    if HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/stage_weights.py" --revision "${FULL_SOURCE#hf:}" \
-         --out "$PWD/hub-model" > "$OUT/full-download.log" 2>&1 &&
-       python3 "$SRC/make_dense_dir.py" "$PWD/hub-model" "$FULL_DIR" --report "$OUT/dense-full.json" \
-         >> "$OUT/full-download.log" 2>&1; then
-      echo $(( $(date +%s) - began )) > /tmp/axk2-full.ready
-    else
+    dir=$(fetch_model "$FULL_IN" "$PWD/hub-model") &&
+      python3 "$SRC/make_dense_dir.py" "$dir" "$FULL_DENSE" --report "$OUT/dense-full.json" >> "$OUT/full-download.log" 2>&1 &&
+      echo "$dir" > /tmp/axk2-full.dir && echo $(( $(date +%s) - began )) > /tmp/axk2-full.ready ||
       touch /tmp/axk2-full.failed
-    fi
   ) &
   log "full checkpoint download started in the background"
+  (
+    while [ ! -f /tmp/axk2-full.ready ] && [ ! -f /tmp/axk2-full.failed ]; do
+      sleep 120
+      log "full download: $(tr '\r' '\n' < "$OUT/full-download.log" 2>/dev/null | grep '^\[download\]' | tail -n 1)"
+    done
+  ) &
 fi
 
-if [[ "$MODEL_IN" == hf:* || "$MODEL_IN" == hf-smoke:* ]]; then
-  REVISION="${MODEL_IN#*:}"
-  began=$(date +%s)
-  if [[ "$MODEL_IN" == hf-smoke:* ]]; then
-    MODEL_IN="$PWD/hub-smoke-model"
-    HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/build_smoke_checkpoint.py" --revision "$REVISION" \
-      --out "$MODEL_IN" --work "$PWD/hub-source-shards" > "$OUT/hub-download.log" 2>&1 || { tail -n 30 "$OUT/hub-download.log"; exit 12; }
-  else
-    MODEL_IN="$PWD/hub-model-direct"
-    HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/stage_weights.py" --revision "$REVISION" --out "$MODEL_IN" \
-      > "$OUT/hub-download.log" 2>&1 || { tail -n 30 "$OUT/hub-download.log"; exit 12; }
-  fi
-  log "downloaded model from the Hub in $(( $(date +%s) - began ))s"
-  report "node$RANK.hub_download" --text "{\"seconds\": $(( $(date +%s) - began ))}"
+began=$(date +%s)
+SMOKE_NATIVE=$(fetch_model "$SMOKE_IN" "$PWD/hub-smoke-model") || { tail -n 30 "$OUT/smoke-download.log"; exit 12; }
+SMOKE_DENSE=/tmp/axk2-smoke-dense
+if [ -n "$SMOKE_NATIVE" ]; then
+  python3 "$SRC/make_dense_dir.py" "$SMOKE_NATIVE" "$SMOKE_DENSE" --report "$OUT/dense-smoke.json" > /dev/null || exit 11
+  report "node$RANK.smoke_download" --text "{\"seconds\": $(( $(date +%s) - began ))}"
 fi
-python3 "$SRC/make_dense_dir.py" "$MODEL_IN" "$MODEL_DIR" --report "$OUT/dense.json" || exit 11
 wait "$RAY_INSTALL_PID"
 RAY_VERSION=$(python3 -c "import ray; print(ray.__version__)" 2>/dev/null) || { tail -n 20 "$OUT/ray-install.log"; exit 29; }
 log "ray $RAY_VERSION installed"
@@ -180,23 +191,28 @@ EOF
   ray stop --force > /dev/null 2>&1
   kill "$USAGE_PID" 2>/dev/null
   report "node$RANK.gpu" --text "$(gpu_peak)"
-  [ -n "$FULL_SOURCE" ] && report "node$RANK.full_download" --text "$(tail -c 1500 "$OUT/full-download.log" 2>/dev/null)"
+  report "node$RANK.full_download" --text "$(tail -c 1500 "$OUT/full-download.log" 2>/dev/null)"
   exit 0
 fi
 
-# start_server <tag> <model dir> <max len> <max seqs> <gpu mem util> [extra vllm args...]
+PHASES="$OUT/phases.jsonl"; : > "$PHASES"
+phase_result() {  # <phase> <status> <began epoch> [note]
+  python3 -c "import json, sys; print(json.dumps({'phase': sys.argv[1], 'status': sys.argv[2], 'seconds': int(sys.argv[3]), 'note': sys.argv[4]}))" \
+    "$1" "$2" "$(( $(date +%s) - $3 ))" "${4:-}" >> "$PHASES"
+  log "phase $1: $2 ${4:-}"
+}
+
+# start_server <tag> <eager flag or ""> <model dir> <max len> <max seqs> <gpu mem util> [vllm args...]
 start_server() {
-  local tag=$1 model=$2 len=$3 seqs=$4 mem=$5; shift 5
-  local eager=""; [ "$EAGER" = "1" ] && eager="--enforce-eager"
-  log "vllm serve [$tag] model=$model len=$len seqs=$seqs mem=$mem $* $eager"
+  local tag=$1 eager=$2 model=$3 len=$4 seqs=$5 mem=$6; shift 6
+  log "vllm serve [$tag] model=$model len=$len seqs=$seqs mem=$mem $eager $*"
   vllm serve "$model" --served-model-name axk2 --host 0.0.0.0 --port 8000 \
     --max-model-len "$len" --gpu-memory-utilization "$mem" --max-num-seqs "$seqs" \
     --reasoning-parser deepseek_v3 --no-enable-log-requests $eager "$@" > "$OUT/vllm-$tag.log" 2>&1 &
   SERVER_PID=$!
 }
 
-# wait_healthy <tag> <timeout seconds>
-wait_healthy() {
+wait_healthy() {  # <tag> <timeout seconds>
   local tag=$1 limit=$2 began; began=$(date +%s)
   while true; do
     if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)" 2>/dev/null; then
@@ -211,9 +227,11 @@ wait_healthy() {
 }
 
 server_facts() {
-  grep -iE "backend|marlin|fp8|kv cache|maximum concurrency|loading weights took|model loading took|graph|placement|rank|pipeline|torch.compile|warning" \
-    "$OUT/vllm-$1.log" | grep -v "Avg prompt throughput" | tail -n 60 | cut -c1-300
+  grep -iE "backend|marlin|fp8|kv cache|maximum concurrency|loading weights took|model loading took|graph|placement|rank|pipeline|torch.compile|sparse|indexer|triton|warning" \
+    "$OUT/vllm-$1.log" | grep -v -E "Avg prompt throughput|NCCL INFO" | tail -n 70 | cut -c1-300
 }
+
+failure_tail() { grep -v "NCCL INFO" "$OUT/vllm-$1.log" | tail -c 7600; }
 
 stop_server() {
   [ -n "$SERVER_PID" ] || return 0
@@ -224,30 +242,27 @@ stop_server() {
   sleep 10
 }
 
-fail_server() {
-  local tag=$1 code=$2
-  tail -n 80 "$OUT/vllm-$tag.log"
-  report "node0.$tag.failure" --text "$(tail -c 7600 "$OUT/vllm-$tag.log")"
-  report "node0.$tag.facts" --text "$(server_facts "$tag" | tail -c 7600)"
-  stop_server
-  ray stop --force > /dev/null 2>&1
-  exit "$code"
-}
-
-# serve <tag> <timeout> <exit code> <start_server args...>: start and wait; if torch.compile/CUDA
-# graphs fail on this GPU, keep the evidence and fall back to eager mode for the rest of the job.
+# serve <tag> <timeout> <model dir> <max len> <max seqs> <gpu mem util> [vllm args...]
+# Starts and waits; if torch.compile/CUDA graphs fail, keeps the evidence and retries this phase
+# eagerly. Returns non-zero when the server never became healthy.
 serve() {
-  local tag=$1 limit=$2 code=$3; shift 3
-  start_server "$tag" "$@"
+  local tag=$1 limit=$2; shift 2
+  export VLLM_ENGINE_READY_TIMEOUT_S="$limit"
+  start_server "$tag" "" "$@"
   wait_healthy "$tag" "$limit" && return 0
-  [ "$EAGER" = "1" ] && fail_server "$tag" "$code"
-  report "node0.$tag.compiled_failure" --text "$(tail -c 7600 "$OUT/vllm-$tag.log")"
+  report "node0.$tag.compiled_failure" --text "$(failure_tail "$tag")"
   stop_server
   cp "$OUT/vllm-$tag.log" "$OUT/vllm-$tag-compiled.log"
-  EAGER=1
   log "[$tag] retrying with --enforce-eager"
-  start_server "$tag" "$@"
-  wait_healthy "$tag" "$limit" || fail_server "$tag" "$code"
+  start_server "$tag" "--enforce-eager" "$@"
+  if wait_healthy "$tag" "$limit"; then
+    report "node0.$tag.eager_fallback" --text "{\"eager\": true}"
+    return 0
+  fi
+  report "node0.$tag.failure" --text "$(failure_tail "$tag")"
+  report "node0.$tag.facts" --text "$(server_facts "$tag" | tail -c 7600)"
+  stop_server
+  return 1
 }
 
 series() {
@@ -258,16 +273,67 @@ print(json.dumps({f"{n}.{k}": v[k] for n, v in data["prompts"].items() for k in 
 EOF
 }
 
-export VLLM_ENGINE_READY_TIMEOUT_S="$HEALTH_TIMEOUT"
-if [ "$SUITE" = "smoke" ]; then
-  serve pp1 "$HEALTH_TIMEOUT" 20 "$MODEL_DIR" "$MAX_MODEL_LEN" "$MAX_NUM_SEQS" "$GPU_MEM_UTIL" \
-    --tensor-parallel-size "$TP" --pipeline-parallel-size 1
-  report "node0.pp1.facts" --text "$(server_facts pp1 | tail -c 7600)"
-  python3 "$SRC/client_tests.py" smoke --tag "tp${TP}-pp1-single-node" --prompts "$MODEL_DIR/smoke_prompts.json" \
-    --out "$OUT/smoke-pp1.json" || fail_server pp1 21
-  series "$OUT/smoke-pp1.json" "$OUT/series-pp1.json"
-  report "node0.pp1" --series --file "$OUT/series-pp1.json"
+# smoke_phase <tag> <model dir> [vllm args...]: logprob series of the 2-layer cut for every prompt
+smoke_phase() {
+  local tag=$1 model=$2 began; shift 2; began=$(date +%s)
+  if ! serve "$tag" "$SMOKE_HEALTH_TIMEOUT" "$model" "$SMOKE_MAX_MODEL_LEN" "$SMOKE_MAX_NUM_SEQS" \
+       "$SMOKE_GPU_MEM_UTIL" --no-enable-prefix-caching "$@"; then
+    phase_result "$tag" failed "$began" "server never became healthy"; return 1
+  fi
+  report "node0.$tag.facts" --text "$(server_facts "$tag" | tail -c 7600)"
+  if python3 "$SRC/client_tests.py" smoke --tag "$tag" --prompts "$model/smoke_prompts.json" \
+       --out "$OUT/smoke-$tag.json" > "$OUT/client-$tag.log" 2>&1; then
+    series "$OUT/smoke-$tag.json" "$OUT/series-$tag.json"
+    report "node0.$tag" --series --file "$OUT/series-$tag.json"
+    python3 -c "import json; d = json.load(open('$OUT/smoke-$tag.json')); print(json.dumps({k: d[k] for k in ('determinism', 'concurrency')}))" \
+      > "$OUT/smoke-summary-$tag.json" && report "node0.$tag.smoke" --file "$OUT/smoke-summary-$tag.json"
+    phase_result "$tag" passed "$began"
+    stop_server; return 0
+  fi
+  report "node0.$tag.client_failure" --text "$(tail -c 2500 "$OUT/client-$tag.log"; failure_tail "$tag" | tail -c 5000)"
+  phase_result "$tag" failed "$began" "client failed"
+  stop_server; return 1
+}
+
+# full_phase <tag> <model dir>: the complete model on the Ray cluster, then the full client suite
+full_phase() {
+  local tag=$1 model=$2 began; began=$(date +%s)
+  if ! serve "$tag" "$FULL_HEALTH_TIMEOUT" "$model" "$FULL_MAX_MODEL_LEN" "$FULL_MAX_NUM_SEQS" "$FULL_GPU_MEM_UTIL" \
+       --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP" --distributed-executor-backend ray; then
+    phase_result "$tag" failed "$began" "server never became healthy"; return 1
+  fi
+  report "node0.$tag.facts" --text "$(server_facts "$tag" | tail -c 7600)"
+  report "node0.$tag.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$tag.seconds")}"
+  python3 "$SRC/client_tests.py" full --tag "$tag" --tokenizer "$model" --max-model-len "$FULL_MAX_MODEL_LEN" \
+    --out "$OUT/full-$tag.json" > "$OUT/client-$tag.log" 2>&1
+  local rc=$?
+  [ -f "$OUT/full-$tag.json" ] && report "node0.$tag.full" --file "$OUT/full-$tag.json"
+  if [ "$rc" = 0 ]; then
+    phase_result "$tag" passed "$began"
+  else
+    report "node0.$tag.client_failure" --text "$(tail -c 2500 "$OUT/client-$tag.log"; failure_tail "$tag" | tail -c 5000)"
+    phase_result "$tag" failed "$began" "client failed"
+  fi
   stop_server
+}
+
+if [ "$RUN_KERNEL_TESTS" = "1" ]; then
+  began=$(date +%s)
+  if timeout 1200 python3 -m pytest -q -p no:cacheprovider --tb=short \
+       "$TESTS_DIR/tests/kernels/attention/test_mqa_logits_triton.py" \
+       "$TESTS_DIR/tests/kernels/attention/test_triton_mla_sparse_kernel.py" > "$OUT/kernel-tests.log" 2>&1; then
+    phase_result kernel_tests passed "$began" "$(tail -n 1 "$OUT/kernel-tests.log")"
+  else
+    phase_result kernel_tests failed "$began" "$(tail -n 1 "$OUT/kernel-tests.log")"
+  fi
+  report "node0.kernel_tests" --text "$(tail -c 6000 "$OUT/kernel-tests.log")"
+fi
+
+if [ -n "$SMOKE_NATIVE" ]; then
+  for mode in $MODES; do
+    dir=$SMOKE_NATIVE; [ "$mode" = dense ] && dir=$SMOKE_DENSE
+    smoke_phase "smoke-$mode-tp$TP" "$dir" --tensor-parallel-size "$TP" --pipeline-parallel-size 1
+  done
 fi
 
 ray start --head --node-ip-address="$NODE_IP" --port=6379 --num-gpus="$NGPU" --include-dashboard=false \
@@ -291,34 +357,17 @@ EOF
 log "Ray cluster: $(cat "$OUT/ray-nodes.json")"
 report "node0.ray" --file "$OUT/ray-nodes.json"
 
-TAG="tp${TP}-pp${PP}"
-serve "$TAG" "$HEALTH_TIMEOUT" 40 "$MODEL_DIR" "$MAX_MODEL_LEN" "$MAX_NUM_SEQS" "$GPU_MEM_UTIL" \
-  --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP" --distributed-executor-backend ray
-report "node0.$TAG.facts" --text "$(server_facts "$TAG" | tail -c 7600)"
-report "node0.$TAG.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$TAG.seconds")}"
-
-status=0
-if [ "$SUITE" = "smoke" ]; then
-  python3 "$SRC/client_tests.py" smoke --tag "$TAG" --prompts "$MODEL_DIR/smoke_prompts.json" \
-    --out "$OUT/smoke-$TAG.json" || status=50
-  if [ "$status" = 0 ]; then
-    series "$OUT/smoke-$TAG.json" "$OUT/series-$TAG.json"
-    report "node0.$TAG" --series --file "$OUT/series-$TAG.json"
-    python3 "$SRC/client_tests.py" compare --a "$OUT/smoke-pp1.json" --b "$OUT/smoke-$TAG.json" \
-      --out "$OUT/compare.json" && report "node0.compare_pp1_vs_$TAG" --file "$OUT/compare.json"
-    python3 -c "import json; d=json.load(open('$OUT/smoke-$TAG.json')); print(json.dumps({k: d[k] for k in ('determinism', 'concurrency')}))" \
-      > "$OUT/smoke-summary.json" && report "node0.$TAG.smoke" --file "$OUT/smoke-summary.json"
-  fi
-else
-  python3 "$SRC/client_tests.py" full --tag "$TAG" --tokenizer "$MODEL_DIR" --out "$OUT/full-$TAG.json" || status=60
-  [ -f "$OUT/full-$TAG.json" ] && report "node0.$TAG.full" --file "$OUT/full-$TAG.json"
+if [ -n "$SMOKE_NATIVE" ]; then
+  first_mode=${MODES%% *}
+  dir=$SMOKE_NATIVE; [ "$first_mode" = dense ] && dir=$SMOKE_DENSE
+  smoke_phase "smoke-$first_mode-tp$TP-pp$PP" "$dir" \
+    --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP" --distributed-executor-backend ray
 fi
-[ "$status" = 0 ] || report "node0.$TAG.client_failure" --text "$(tail -c 7600 "$OUT/vllm-$TAG.log")"
-stop_server
 
-if [ "$SUITE" = "smoke" ] && [ -n "$FULL_SOURCE" ] && [ "$status" = 0 ]; then
-  log "rehearsal passed; waiting for the full checkpoint on every node"
-  python3 - "$FULL_HEALTH_TIMEOUT" > "$OUT/full-download-status.json" <<'EOF' || { log "full checkpoint not ready"; report "node0.full_download_failure" --text "$(cat "$OUT/full-download-status.json" 2>/dev/null; tail -c 3000 "$OUT/full-download.log")"; ray stop --force; exit 70; }
+if [ "$FULL_IN" != "none" ]; then
+  began=$(date +%s)
+  log "waiting for the full checkpoint on every node"
+  if python3 - "${DOWNLOAD_TIMEOUT:-5400}" > "$OUT/full-download-status.json" <<'EOF'
 import json, sys, time
 import ray
 ray.init(address="auto", logging_level="ERROR")
@@ -339,21 +388,24 @@ while True:
         print(json.dumps(states)); break
     time.sleep(20)
 EOF
-  report "node0.full_download" --file "$OUT/full-download-status.json"
-  FTAG="full-tp${TP}-pp${PP}"
-  export VLLM_ENGINE_READY_TIMEOUT_S="$FULL_HEALTH_TIMEOUT"
-  serve "$FTAG" "$FULL_HEALTH_TIMEOUT" 80 "$FULL_DIR" "$FULL_MAX_MODEL_LEN" "$FULL_MAX_NUM_SEQS" "$FULL_GPU_MEM_UTIL" \
-    --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP" --distributed-executor-backend ray
-  report "node0.$FTAG.facts" --text "$(server_facts "$FTAG" | tail -c 7600)"
-  report "node0.$FTAG.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$FTAG.seconds")}"
-  python3 "$SRC/client_tests.py" full --tag "$FTAG" --tokenizer "$FULL_DIR" --out "$OUT/full-$FTAG.json" || status=90
-  [ -f "$OUT/full-$FTAG.json" ] && report "node0.$FTAG.full" --file "$OUT/full-$FTAG.json"
-  [ "$status" = 0 ] || report "node0.$FTAG.client_failure" --text "$(tail -c 7600 "$OUT/vllm-$FTAG.log")"
-  stop_server
+  then
+    report "node0.full_download" --file "$OUT/full-download-status.json"
+    phase_result full_download passed "$began"
+    FULL_NATIVE=$(cat /tmp/axk2-full.dir)
+    for mode in $MODES; do
+      dir=$FULL_NATIVE; [ "$mode" = dense ] && dir=$FULL_DENSE
+      full_phase "full-$mode-tp$TP-pp$PP" "$dir"
+    done
+  else
+    report "node0.full_download_failure" --text "$(cat "$OUT/full-download-status.json" 2>/dev/null; tail -c 3000 "$OUT/full-download.log")"
+    phase_result full_download failed "$began"
+  fi
 fi
 
 ray stop --force > /dev/null 2>&1
 kill "$USAGE_PID" 2>/dev/null
 report "node0.gpu" --text "$(gpu_peak)"
-log "finished with status $status"
-exit "$status"
+report "node0.phases" --text "$(python3 -c "import json, sys; print(json.dumps([json.loads(l) for l in open('$PHASES')]))")"
+failed=$(grep -c '"status": "failed"' "$PHASES")
+log "finished; failed phases: $failed"
+exit 0

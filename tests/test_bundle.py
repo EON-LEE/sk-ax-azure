@@ -68,6 +68,32 @@ class BundleTests(unittest.TestCase):
             self.assertTrue(item["path"].startswith("vllm/") and item["path"].endswith(".py"))
             self.assertEqual(item["base_sha256"] is None, item["status"] == "added")
 
+    def test_dsa_port_manifest_and_diff_applier(self):
+        sys.path.insert(0, str(ROOT / "aml" / "src"))
+        try:
+            import apply_overlay
+        finally:
+            sys.path.pop(0)
+        port = json.loads((ROOT / "aml" / "src" / "dsa_port.json").read_text(encoding="utf-8"))
+        self.assertEqual(port["pr_commit"], "3740c02bb1223d37823593664ae3eafa397b9937")
+        self.assertEqual(len(port["new_files"]), 5)
+        self.assertEqual(
+            sorted(port["patched_files"]),
+            sorted(["vllm/model_executor/layers/sparse_attn_indexer.py", "vllm/platforms/cuda.py",
+                    "vllm/v1/attention/backends/mla/indexer.py", "vllm/v1/attention/backends/registry.py",
+                    "vllm/v1/attention/backends/mla/triton_mla_sparse.py"]))
+        for path, item in port["patched_files"].items():
+            with self.subTest(path=path):
+                self.assertRegex(item["before_sha256"], r"^[0-9a-f]{64}$")
+                self.assertRegex(item["after_sha256"], r"^[0-9a-f]{64}$")
+                self.assertIn("\n@@ ", item["diff"])
+        guard = port["patched_files"]["vllm/v1/attention/backends/mla/triton_mla_sparse.py"]["diff"]
+        self.assertIn("return capability.major not in (9, 10)", guard)
+        diff = "--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+        self.assertEqual(apply_overlay.apply_unified_diff("a\nb\nc\nd\n", diff), "a\nB\nc\nd\n")
+        with self.assertRaises(ValueError):
+            apply_overlay.apply_unified_diff("a\nb\nc\na\nb\nc\n", diff)
+
     def test_rendered_payload_round_trip(self):
         import base64
         import io
@@ -80,8 +106,10 @@ class BundleTests(unittest.TestCase):
         with tarfile.open(fileobj=io.BytesIO(base64.b64decode(render_job.payload())), mode="r:gz") as tar:
             names = set(tar.getnames())
             entry = tar.extractfile("entry.sh").read()
-        self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "client_tests.py"} <= names)
+        self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "dsa_port.json",
+                         "client_tests.py", "build_smoke_checkpoint.py"} <= names)
         self.assertNotIn(b"\r\n", entry)
+        self.assertLess(len(render_job.payload()), 100_000, "payload travels in one environment variable")
 
     def test_new_evidence(self):
         def read(name):
@@ -119,6 +147,39 @@ class BundleTests(unittest.TestCase):
             text = (ROOT / "evidence" / name).read_text(encoding="utf-8")
             self.assertNotIn("onmicrosoft", text)
             self.assertNotRegex(text, r"/subscriptions/(?!0{8}-)")
+
+    def test_native_dsa_evidence(self):
+        def read(name):
+            return json.loads((ROOT / "evidence" / name).read_text(encoding="utf-8"))
+
+        two = read("a100-native-dsa-2layer-vs-official.json")
+        self.assertEqual(two["kernel_tests_on_a100"], ["94 passed in 108.43s (0:01:48)"])
+        summary = two["summary_vs_official"]
+        native = summary["node0.smoke-native-tp8"]
+        dense = summary["node0.smoke-dense-tp8"]
+        self.assertGreater(native["beyond_index_topk"]["positions"], 7000)
+        self.assertLess(native["beyond_index_topk"]["mean_abs_diff"], dense["beyond_index_topk"]["mean_abs_diff"])
+        self.assertAlmostEqual(native["within_index_topk"]["mean_abs_diff"],
+                               dense["within_index_topk"]["mean_abs_diff"], places=4)
+        pair = two["pairs"]["node0.smoke-dense-tp8 vs node0.smoke-native-tp8"]
+        self.assertGreater(pair["beyond_index_topk"]["mean_abs_diff"], 2 * pair["within_index_topk"]["mean_abs_diff"])
+        self.assertTrue(any("TRITON_MLA_SPARSE" in line
+                            for line in two["backend_selection_from_vllm_logs"]["smoke-native-tp8-pp2"]))
+        full = read("a100-native-vs-dense-full-model.json")
+        self.assertEqual(sorted(full["modes"]), ["dense", "native"])
+        for mode, data in full["modes"].items():
+            with self.subTest(mode=mode):
+                self.assertEqual((data["summary"]["functional_passed"], data["summary"]["needle_found"]), (6, "12/12"))
+                self.assertTrue(all(b["returncode"] == 0 for b in data["benchmarks"]))
+        self.assertTrue(any("TRITON_MLA_SPARSE" in line
+                            for line in full["backend_selection_from_vllm_logs"]["full-native-tp8-pp2"]))
+        self.assertFalse(any("TRITON_MLA_SPARSE" in line
+                             for line in full["backend_selection_from_vllm_logs"]["full-dense-tp8-pp2"]))
+        for name in ("a100-native-dsa-2layer-vs-official.json", "a100-native-vs-dense-full-model.json",
+                     "a100-native-dsa-deployment-log.json"):
+            text = (ROOT / "evidence" / name).read_text(encoding="utf-8")
+            self.assertNotIn("onmicrosoft", text)
+            self.assertNotIn("b0af194e", text)
 
 
 if __name__ == "__main__":

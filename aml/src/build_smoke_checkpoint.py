@@ -17,7 +17,7 @@ from pathlib import Path
 REPO = "skt/A.X-K2"
 KEEP_LAYERS = (0, 1)
 SIDE_FILES = ["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json",
-              "special_tokens_map.json", "chat_template.jinja"]
+              "special_tokens_map.json", "chat_template.jinja", "README.md"]
 
 
 def keep(name):
@@ -82,7 +82,7 @@ def synthetic_text(rng, sentences, words):
     return " ".join(picked[:words])
 
 
-def make_prompts(tokenizer_path):
+def make_prompts(tokenizer_path, readme_path):
     from tokenizers import Tokenizer
     tokenizer = Tokenizer.from_file(str(tokenizer_path))
     rng = random.Random(2026)
@@ -110,6 +110,13 @@ def make_prompts(tokenizer_path):
         ids = tokenizer.encode(text, add_special_tokens=False).ids
         prompts.append({"name": name, "token_ids": ids, "num_tokens": len(ids),
                         "text_sha256": hashlib.sha256(text.encode()).hexdigest()})
+    # Natural long text (the model card, Korean/English/markdown, ~7.2K tokens): most positions lie
+    # beyond index_topk=2048, where sparse (DSA) and dense attention differ.
+    readme = Path(readme_path).read_text(encoding="utf-8")
+    readme_ids = tokenizer.encode(readme, add_special_tokens=False).ids
+    for name, ids in (("readme_full", readme_ids), ("readme_tail", readme_ids[3000:])):
+        prompts.append({"name": name, "token_ids": ids, "num_tokens": len(ids),
+                        "text_sha256": hashlib.sha256(readme.encode()).hexdigest()})
     return prompts
 
 
@@ -160,7 +167,7 @@ def main():
     config = json.loads((work / "config.json").read_text())
     config["num_hidden_layers"] = len(KEEP_LAYERS)
     (out / "config.json").write_text(json.dumps(config, indent=2))
-    prompts = make_prompts(work / "tokenizer.json")
+    prompts = make_prompts(work / "tokenizer.json", work / "README.md")
     (out / "smoke_prompts.json").write_text(json.dumps(prompts))
     manifest = {
         "scope": "Real A.X-K2 weights for embedding, decoder layers 0-1, final norm and lm_head only.",

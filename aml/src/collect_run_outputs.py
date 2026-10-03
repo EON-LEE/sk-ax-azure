@@ -1,8 +1,9 @@
 """Return selected files from a finished job's private artifacts through the job record.
 
 Runs as a small CPU job inside the workspace's managed VNet with the finished job's `outputs`
-folder as a downloaded input. It re-reports the per-position smoke series and the vLLM start-up
-facts that matter as evidence: kernel/backend selection, weight loading and KV-cache sizing.
+folder as a downloaded input. It reports the vLLM start-up facts that matter as evidence
+(kernel/backend selection, weight loading, KV-cache sizing), the kernel-test log, the phase list
+and the benchmark files of the last attention mode (bench files are overwritten per mode).
 """
 import json
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 PATTERNS = re.compile(
     r"marlin|backend|kv cache|maximum concurrency|loading weights took|model loading took|"
     r"weights took|available kv|gpu kv|fp8|quantiz|prefill|mla|pipeline|placement|"
-    r"torch.compile|cuda graph|graph capturing|memory profiling|init engine", re.IGNORECASE)
+    r"torch.compile|cuda graph|graph capturing|memory profiling|init engine|sparse|indexer|deepgemm", re.IGNORECASE)
 NOISE = re.compile(r"NCCL INFO|jit_monitor|Avg prompt throughput|GET /|POST /")
 
 
@@ -43,13 +44,19 @@ def main():
     found = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
     report("collect.files", json.dumps(found[:400]))
     node0 = root / "node0"
-    for name in ("series-pp1.json", "series-tp8-pp2.json"):
-        path = node0 / name
-        if path.exists():
-            tag = name[len("series-"):-len(".json")]
-            report(f"node0.{tag}", file=path, series=True)
     for log in sorted(node0.glob("vllm-*.log")):
         report(f"facts.{log.stem}", facts(log)[-24000:])
+    for name in ("kernel-tests.log", "phases.jsonl"):
+        path = node0 / name
+        if path.exists():
+            report(f"file.{path.stem}", path.read_text(errors="replace")[-12000:])
+    benches = {}
+    for path in sorted(node0.glob("bench-*.json")):
+        data = json.loads(path.read_text())
+        benches[path.stem] = {k: data.get(k) for k in ("completed", "output_throughput", "total_token_throughput",
+                                                          "median_ttft_ms", "median_tpot_ms", "median_itl_ms")}
+    if benches:
+        report("file.bench_last_mode", json.dumps(benches))
 
 
 if __name__ == "__main__":
