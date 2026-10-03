@@ -1,0 +1,43 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: verify-remaining-2xND96amsr-A100
+description: >-
+  Verifies the items still open after the first A100 runs, on one allocation of two 8xA100-80GB
+  nodes. First the InfiniBand-versus-TCP NCCL probe between the nodes (serving then uses IB if NCCL
+  chose it). Then the full 61-layer model on TP=8 x PP=2 with the model card's tool-call and
+  reasoning parsers and 256K context, in phase order:
+  native DSA (tool calling, SKT's 32K/128K/256K NIAH, determinism, the tech report's Fig. 7
+  throughput sweep at concurrency 32 / 1K output / 1K-120K input), native with batch-invariant mode,
+  dense (tools, NIAH, Fig. 7 sweep), dense with batch-invariant mode, and a TP=16 layout without
+  pipeline parallelism in dense mode, without and with the published EAGLE3 drafter.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: user_identity
+resources:
+  instance_count: 2
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+  PHASE_PLAN: "native-pp2 native-pp2-bi dense-pp2 dense-pp2-bi dense-tp16 dense-tp16-eagle3"
+  IB_PROBE: "1"
+  EAGLE3_SOURCE: hf:24958e91737d760908f73a8af4b6e06080fc5c1d
+  FULL_MAX_MODEL_LEN: "262144"
+  FULL_MAX_NUM_SEQS: "64"
+  FULL_GPU_MEM_UTIL: "0.90"
+  FULL_HEALTH_TIMEOUT: "3600"
+  DOWNLOAD_TIMEOUT: "5400"
+  RUN_KERNEL_TESTS: "0"
+  JOIN_TIMEOUT: "5400"
+  TP: "8"
+  PP: "2"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  bash /tmp/axk2src/entry.sh none hf:2287ca456927eed33b899c404c0b2ffaf17aa09f
+limits:
+  timeout: 25200

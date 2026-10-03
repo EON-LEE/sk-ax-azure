@@ -114,6 +114,74 @@ fetch_model() {
 }
 
 FULL_NATIVE=""; FULL_DENSE=/tmp/axk2-full-dense
+# InfiniBand: install the RDMA userland the vLLM image lacks, then measure NCCL between the two
+# nodes with IB and with TCP before any download competes for the network. Both nodes run the
+# probe in lockstep (rendezvous at MASTER_ADDR); serving uses IB only if NCCL actually chose it.
+IB_MODE=tcp
+if [ "${IB_PROBE:-0}" = "1" ] && [ "$NNODES" -gt 1 ]; then
+  began=$(date +%s)
+  if ! python3 -c "import ctypes; ctypes.CDLL('libibverbs.so.1')" 2>/dev/null; then
+    (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+       libibverbs1 ibverbs-providers librdmacm1 ibverbs-utils) > "$OUT/rdma-install.log" 2>&1 \
+       || log "rdma userland install failed: $(tail -n 2 "$OUT/rdma-install.log" | tr '\n' ' ')"
+  fi
+  ibv_devinfo -l > "$OUT/ibv-devices.txt" 2>&1 || true
+  ulimit -l unlimited 2>/dev/null || true
+  export AXK2_MEMLOCK="$(ulimit -l)"
+  # Azure's NDv4 NCCL topology (the VM's PCI tree is virtualized); used only if every GPU and
+  # visible HCA PCI address of this VM appears in it.
+  if python3 - /tmp/ndv4-topo.xml > "$OUT/topo-check.json" 2>&1 <<'EOF'
+import glob, json, os, subprocess, sys, urllib.request
+url = "https://raw.githubusercontent.com/Azure/azhpc-images/master/topology/ndv4-topo.xml"
+xml = urllib.request.urlopen(url, timeout=30).read().decode()
+ids = subprocess.run(["nvidia-smi", "--query-gpu=pci.bus_id", "--format=csv,noheader"],
+                     capture_output=True, text=True).stdout.split()
+gpus = [(i.split(":", 1)[0][-4:] + ":" + i.split(":", 1)[1]).lower() for i in ids]
+hcas = sorted(os.path.basename(os.path.realpath(p)).lower() for p in glob.glob("/sys/class/infiniband/*/device"))
+missing = [b for b in gpus + hcas if b not in xml.lower()]
+print(json.dumps({"url": url, "gpus": gpus, "hcas": hcas, "missing": missing}))
+if missing or not gpus:
+    sys.exit(1)
+open(sys.argv[1], "w").write(xml)
+EOF
+  then
+    export NCCL_TOPO_FILE=/tmp/ndv4-topo.xml
+  fi
+  export NCCL_IB_PCI_RELAXED_ORDERING=1
+  port=$(( ${MASTER_PORT:-29500} + 100 ))
+  wait_for=1200  # the first probe also absorbs the nodes' start-up skew
+  for mode in tcp ib; do
+    port=$((port + 1))
+    timeout $((wait_for + 240)) env NCCL_SOCKET_IFNAME="$IFACE" GLOO_SOCKET_IFNAME="$IFACE" \
+      python3 "$SRC/ib_probe.py" --mode "$mode" --port "$port" --rendezvous-seconds "$wait_for" \
+      --out "$OUT/ib-probe-$mode.json" > "$OUT/ib-probe-$mode.log" 2>&1 \
+      || log "ib probe $mode failed: $(tail -n 3 "$OUT/ib-probe-$mode.log" | tr '\n' ' ')"
+    wait_for=300
+  done
+  python3 - "$OUT" > "$OUT/ib-probe.json" <<'EOF'
+import json, os, sys
+out = {}
+for mode in ("tcp", "ib"):
+    result, log = (os.path.join(sys.argv[1], f"ib-probe-{mode}.{ext}") for ext in ("json", "log"))
+    if os.path.exists(result):
+        out[mode] = json.load(open(result))
+    else:
+        out[mode] = {"failed": True, "log_tail": open(log, errors="replace").read()[-1500:] if os.path.exists(log) else ""}
+devices = os.path.join(sys.argv[1], "ibv-devices.txt")
+out["ibv_devices"] = open(devices, errors="replace").read()[-800:] if os.path.exists(devices) else ""
+topo = os.path.join(sys.argv[1], "topo-check.json")
+out["topology_check"] = open(topo, errors="replace").read()[-1200:] if os.path.exists(topo) else ""
+out["nccl_topo_file"] = os.environ.get("NCCL_TOPO_FILE")
+out["memlock"] = os.environ.get("AXK2_MEMLOCK")
+print(json.dumps(out))
+EOF
+  if python3 -c "import json, sys; d = json.load(open('$OUT/ib-probe.json')); sys.exit(0 if d.get('ib', {}).get('transport') == 'IB' else 1)"; then
+    IB_MODE=ib
+  fi
+  report "node$RANK.ib_probe" --file "$OUT/ib-probe.json"
+  log "ib probe done in $(( $(date +%s) - began ))s; serving transport: $IB_MODE"
+fi
+
 if [ "$FULL_IN" != "none" ]; then
   (
     began=$(date +%s)
@@ -131,6 +199,17 @@ if [ "$FULL_IN" != "none" ]; then
   ) &
 fi
 
+# Optional EAGLE3 drafter (skt/A.X-K2-EAGLE3, 6 GB) for the speculative-decoding phases.
+EAGLE3_DIR=/tmp/axk2-eagle3
+if [ -n "${EAGLE3_SOURCE:-}" ]; then
+  ( HF_XET_HIGH_PERFORMANCE=1 python3 - "${EAGLE3_SOURCE#hf:}" "$EAGLE3_DIR" > "$OUT/eagle3-download.log" 2>&1 <<'EOF'
+import sys
+from huggingface_hub import snapshot_download
+snapshot_download("skt/A.X-K2-EAGLE3", revision=sys.argv[1], local_dir=sys.argv[2], max_workers=8)
+EOF
+  ) && touch /tmp/axk2-eagle3.ready || touch /tmp/axk2-eagle3.failed &
+fi
+
 began=$(date +%s)
 SMOKE_NATIVE=$(fetch_model "$SMOKE_IN" "$PWD/hub-smoke-model") || { tail -n 30 "$OUT/smoke-download.log"; exit 12; }
 SMOKE_DENSE=/tmp/axk2-smoke-dense
@@ -144,7 +223,11 @@ log "ray $RAY_VERSION installed"
 report "node$RANK.ray_install" --text "{\"ray\": \"$RAY_VERSION\"}"
 
 export VLLM_HOST_IP="$NODE_IP" NCCL_SOCKET_IFNAME="$IFACE" GLOO_SOCKET_IFNAME="$IFACE"
-export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}" NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+if [ "$IB_MODE" = ib ]; then
+  export NCCL_IB_DISABLE=0 NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET
+else
+  export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}" NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+fi
 export VLLM_CACHE_ROOT=/tmp/vllm-cache TRITON_CACHE_DIR=/tmp/triton-cache TORCHINDUCTOR_CACHE_DIR=/tmp/inductor-cache
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800
@@ -317,6 +400,64 @@ full_phase() {
   stop_server
 }
 
+engine_config() {  # the engine's own record of every effective setting
+  grep -m1 "Initializing a V1 LLM engine" "$OUT/vllm-$1.log" | sed 's/.*with config: //' | cut -c1-3800
+}
+
+nccl_transport() {
+  grep -h -E "NET/IB : Using|NET/Socket : Using|via NET/IB|via NET/Socket|GDRDMA" "$OUT/vllm-$1.log" \
+    | sed -E 's/^.*NCCL INFO //' | sort | uniq -c | sort -rn | head -n 12
+}
+
+# plan_phase <name>: one server configuration of the verification plan, then its client suites.
+# Every configuration serves with the model card's parsers plus the flag vLLM needs to apply the
+# tool parser automatically (--enable-auto-tool-choice), and with vLLM's B200/H100 default of
+# 8192 batched tokens per step (vLLM lowers its default to 2048 on A100), so the throughput sweep
+# runs with the same engine settings as the tech report's B200 measurement.
+plan_phase() {
+  local name=$1 began model len seqs suites bi=0 rc
+  began=$(date +%s)
+  local -a args=(--tool-call-parser hermes --enable-auto-tool-choice --max-num-batched-tokens 8192)
+  local -a pp2=(--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray)
+  local -a tp16=(--tensor-parallel-size 16 --pipeline-parallel-size 1 --distributed-executor-backend ray)
+  case "$name" in
+    native-pp2) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS
+                suites=tools,niah,determinism,docsweep; args+=("${pp2[@]}") ;;
+    dense-pp2) model=$FULL_DENSE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS
+               suites=tools,niah,docsweep; args+=("${pp2[@]}") ;;
+    native-pp2-bi) model=$FULL_NATIVE; len=32768; seqs=32; suites=determinism; bi=1; args+=("${pp2[@]}") ;;
+    dense-pp2-bi) model=$FULL_DENSE; len=32768; seqs=32; suites=determinism; bi=1; args+=("${pp2[@]}") ;;
+    dense-tp16) model=$FULL_DENSE; len=32768; seqs=64; suites=functional,sweepsub; args+=("${tp16[@]}") ;;
+    dense-tp16-eagle3) model=$FULL_DENSE; len=32768; seqs=64; suites=functional,sweepsub,specstats
+                       args+=("${tp16[@]}" --speculative-config
+                              "{\"method\": \"eagle3\", \"model\": \"$EAGLE3_DIR\", \"num_speculative_tokens\": 3}") ;;
+    *) phase_result "$name" failed "$began" "unknown phase"; return 1 ;;
+  esac
+  if [[ "$name" == *eagle3 ]] && [ ! -f /tmp/axk2-eagle3.ready ]; then
+    phase_result "$name" failed "$began" "EAGLE3 drafter not downloaded"; return 1
+  fi
+  [ "$bi" = 1 ] && export VLLM_BATCH_INVARIANT=1
+  if ! serve "$name" "$FULL_HEALTH_TIMEOUT" "$model" "$len" "$seqs" "$FULL_GPU_MEM_UTIL" "${args[@]}"; then
+    unset VLLM_BATCH_INVARIANT
+    phase_result "$name" failed "$began" "server never became healthy"; return 1
+  fi
+  report "node0.$name.facts" --text "$(server_facts "$name" | tail -c 7600)"
+  report "node0.$name.engine_config" --text "$(engine_config "$name")"
+  report "node0.$name.nccl" --text "$(nccl_transport "$name")"
+  report "node0.$name.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$name.seconds"), \"nccl_ib\": \"$IB_MODE\"}"
+  AXK2_REPORT_PKGS="$PKGS" python3 "$SRC/verify_suites.py" --tag "$name" --suites "$suites" --tokenizer "$model" \
+    --max-model-len "$len" --out-dir "$OUT/verify" > "$OUT/client-$name.log" 2>&1
+  rc=$?
+  if [ "$rc" = 0 ]; then
+    phase_result "$name" passed "$began"
+  else
+    report "node0.$name.client_failure" --text "$(tail -c 2500 "$OUT/client-$name.log"; failure_tail "$name" | tail -c 5000)"
+    phase_result "$name" failed "$began" "client failed"
+  fi
+  stop_server
+  unset VLLM_BATCH_INVARIANT
+}
+
 if [ "$RUN_KERNEL_TESTS" = "1" ]; then
   began=$(date +%s)
   if timeout 1200 python3 -m pytest -q -p no:cacheprovider --tb=short \
@@ -392,10 +533,17 @@ EOF
     report "node0.full_download" --file "$OUT/full-download-status.json"
     phase_result full_download passed "$began"
     FULL_NATIVE=$(cat /tmp/axk2-full.dir)
-    for mode in $MODES; do
-      dir=$FULL_NATIVE; [ "$mode" = dense ] && dir=$FULL_DENSE
-      full_phase "full-$mode-tp$TP-pp$PP" "$dir"
-    done
+    if [ -n "${PHASE_PLAN:-}" ]; then
+      for name in $PHASE_PLAN; do
+        plan_phase "$name"
+        report "node0.phases" --text "$(python3 -c "import json; print(json.dumps([json.loads(l) for l in open('$PHASES')]))")"
+      done
+    else
+      for mode in $MODES; do
+        dir=$FULL_NATIVE; [ "$mode" = dense ] && dir=$FULL_DENSE
+        full_phase "full-$mode-tp$TP-pp$PP" "$dir"
+      done
+    fi
   else
     report "node0.full_download_failure" --text "$(cat "$OUT/full-download-status.json" 2>/dev/null; tail -c 3000 "$OUT/full-download.log")"
     phase_result full_download failed "$began"

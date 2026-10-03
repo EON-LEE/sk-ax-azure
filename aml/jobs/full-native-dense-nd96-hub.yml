@@ -38,7 +38,7 @@ environment_variables:
   RUN_KERNEL_TESTS: "0"
   DOWNLOAD_TIMEOUT: "5400"
   JOIN_TIMEOUT: "5400"
-  NCCL_IB_DISABLE: "1"
+  IB_PROBE: "1"
 command: >-
   mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
   bash /tmp/axk2src/entry.sh none hf:2287ca456927eed33b899c404c0b2ffaf17aa09f

@@ -9,8 +9,9 @@ parallel 8 over NVLink inside each node and pipeline parallel 2 across
 nodes, behind one OpenAI-compatible endpoint. The model's own DeepSeek Sparse
 Attention runs on A100 through substitute Triton kernels: a hash-checked port
 of upstream vLLM PR #38476 (`TRITON_MLA_SPARSE`). A faster dense mode is also
-available. Every difference from the reference single-node deployment is
-listed in section 5c of the design doc.
+available for contexts up to about 60K tokens. Every difference from the
+reference single-node deployment is listed in section 5c of the design doc,
+and section 8.1 compares the speed with the tech report's B200 measurement.
 Capacity comes from the separate Azure ML low-priority quota (300 vCPU per
 region). Deployment assets are in `aml/`.
 
@@ -18,15 +19,16 @@ region). Deployment assets are in `aml/`.
 
 | Evidence | Result | What it does not prove |
 | --- | --- | --- |
+| **Verification run, same 16 x A100, one allocation (design doc 8.1)** | **InfiniBand works: 20.6 GB/s between nodes, versus 0.35 over TCP. Tool calling 9/9 (needs `--enable-auto-tool-choice`). SKT's needle test 9/9 up to 252,728 tokens (native). Tech report Fig. 7 conditions: 0.43-0.51x of one B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K** | Batch-invariant mode, EAGLE3 and NVFP4 are not available on A100 |
 | **Full 688B, native DSA, 2 x ND96amsr (16 x A100 80GB), TP8 x PP2, one endpoint** | **Served and measured**: 6/6 functional, reasoning, needles 12/12 up to 60K tokens; 50-812 output tok/s at concurrency 1-128; TPOT 19-21 ms from 1K to 32K context | Full quality evaluation, production SLA, bitwise determinism |
-| Same allocation, dense mode | Same functional results; 10-60% faster (61-898 tok/s), exact only up to 2,048 context tokens | Long-context quality |
+| Same allocation, dense mode | Same functional results; 10-60% faster (61-898 tok/s), exact only up to 2,048 context tokens | Long-context retrieval: no needle found at 126K or 253K tokens (8.1) |
 | Real-weight 2-layer cut vs official Transformers FP32 sparse, 14,618 positions | Native stays at the BF16 floor beyond `index_topk` (0.0111 vs 0.0116 inside); dense drifts (0.0123, max 0.22) | Full-depth logit equivalence |
 | PR #38476 Triton kernels on A100 | 94/94 tests passed | Upstream acceptance of the PR |
 | Dense mode == DSA within `index_topk` (CPU, miniature AXK2) | Passed: prefill and cached decode match; divergence only beyond `index_topk` | Quality beyond 2048 tokens |
 | Fork overlay on stock vLLM 0.23.0 | 21 modified base files byte-identical in the released wheel; plus an Ampere MLA dtype fix | Other GPU generations |
 | Earlier hand-written block runtime on two A100 VMs | Seven parity cases passed | Serving; superseded by the vLLM design |
 
-All Azure resources from both runs were deleted. See
+All Azure resources from every run were deleted. See
 [the handoff](docs/HANDOFF.md) for history and boundaries.
 
 ## Repository layout
@@ -100,7 +102,12 @@ One allocation runs the Triton kernel tests, then the 2-layer real-weight cut
 in native DSA and dense mode, single-node TP8 and native TP8 x PP2 over Ray.
 Meanwhile the full checkpoint downloads under a stall watchdog. It then serves
 and measures the full model in each mode listed in `MODES`.
-`full-native-dense-nd96-hub.yml` runs only the full-model phases. Delete the
+`full-native-dense-nd96-hub.yml` runs only the full-model phases.
+`verify-remaining-nd96-hub.yml` probes InfiniBand against TCP, then runs the
+server configurations listed in `PHASE_PLAN` with `aml/src/verify_suites.py`:
+tool calling, SKT's needle test to 256K, determinism, the tech report's
+Fig. 7 sweep, TP16 and EAGLE3. Every multi-node template sets `IB_PROBE=1`,
+so NCCL uses InfiniBand when the probe confirms it. Delete the
 resource group afterwards. Clusters scale to zero, but workspaces, storage and
 managed networks remain until deleted. Deleted workspace names stay reserved
 for 14 days (soft delete).

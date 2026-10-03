@@ -107,9 +107,75 @@ class BundleTests(unittest.TestCase):
             names = set(tar.getnames())
             entry = tar.extractfile("entry.sh").read()
         self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "dsa_port.json",
-                         "client_tests.py", "build_smoke_checkpoint.py"} <= names)
+                         "client_tests.py", "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py"} <= names)
         self.assertNotIn(b"\r\n", entry)
         self.assertLess(len(render_job.payload()), 100_000, "payload travels in one environment variable")
+
+    def test_verification_plan(self):
+        import re
+        sys.path.insert(0, str(ROOT / "aml" / "src"))
+        try:
+            import verify_suites
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(sorted(verify_suites.DOC_FIG7), [1024, 2048, 4096, 8192, 16384, 32768, 65536, 120000])
+        self.assertEqual(sorted(verify_suites.DOC_FIG8_TOTAL), sorted(verify_suites.DOC_FIG7))
+        for isl, (total, output) in verify_suites.DOC_FIG7.items():
+            self.assertGreater(total, output)
+            self.assertGreater(verify_suites.DOC_FIG8_TOTAL[isl], total, "EAGLE3 raises throughput in Fig. 8")
+        job = (ROOT / "aml" / "jobs" / "verify-remaining-nd96-hub.yml").read_text(encoding="utf-8")
+        plan = re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split()
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        handled = set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M))
+        self.assertTrue(set(plan) <= handled, set(plan) - handled)
+        self.assertIn("--enable-auto-tool-choice", entry)
+        self.assertNotIn("NCCL_IB_DISABLE", job, "the IB probe decides the transport")
+        diff = json.loads((ROOT / "aml" / "src" / "dsa_port.json").read_text(encoding="utf-8"))[
+            "patched_files"]["vllm/v1/attention/backends/mla/triton_mla_sparse.py"]["diff"]
+        self.assertIn("+    def supports_batch_invariance(cls) -> bool:", diff)
+        self.assertIn("num_kv_splits=1 if envs.VLLM_BATCH_INVARIANT else None", diff)
+        for path in (ROOT / "aml" / "jobs").glob("*.yml"):
+            text = path.read_text(encoding="utf-8")
+            if "instance_count: 2" in text:
+                with self.subTest(job=path.name):
+                    self.assertIn('IB_PROBE: "1"', text)
+                    self.assertNotIn("NCCL_IB_DISABLE", text)
+
+    def test_verification_evidence(self):
+        data = json.loads((ROOT / "evidence" / "a100-verification-and-doc-speed.json").read_text(encoding="utf-8"))
+        for node in ("node0", "node1"):
+            probe = data["interconnect_probe"][node]
+            self.assertEqual((probe["tcp"]["transport"], probe["ib"]["transport"]), ("Socket", "IB"))
+            self.assertTrue(probe["ib"]["gpudirect_rdma"])
+            self.assertGreater(probe["ib"]["send_recv_GBps"], 20 * probe["tcp"]["send_recv_GBps"])
+        for phase in ("native-pp2", "dense-pp2"):
+            review = data["tool_calling_review"][phase]
+            self.assertEqual((review["behaviour_correct"], review["total"]), (9, 9))
+        native = data["per_phase"]["native-pp2"]["niah"]["by_length"]
+        dense = data["per_phase"]["dense-pp2"]["niah"]["by_length"]
+        self.assertEqual([native[k]["hits"] for k in ("32768", "131072", "262144")], [3, 3, 3])
+        self.assertEqual([dense[k]["hits"] for k in ("32768", "131072", "262144")], [3, 0, 0])
+        status = {p["phase"]: p["status"] for p in data["phases"]}
+        self.assertEqual(status["native-pp2-bi"], "failed")
+        self.assertEqual(status["dense-pp2-bi"], "failed")
+        causes = data["from_vllm_logs"]["startup_failure_root_causes"]
+        self.assertTrue(any("No FP8 MoE backend" in line for line in causes["native-pp2-bi"]))
+        self.assertTrue(any("reorder_batch_threshold" in line for line in causes["dense-tp16-eagle3-compiled"]))
+        points = data["doc_speed_comparison"]["points"]
+        self.assertEqual([p["input_tokens"] for p in points], [1024, 2048, 4096, 8192, 16384, 32768, 65536, 120000])
+        for point in points:
+            with self.subTest(isl=point["input_tokens"]):
+                self.assertEqual(point["native"]["returncode"], 0)
+                self.assertLess(point["native_total_vs_doc"], point["dense_total_vs_doc"])
+                self.assertLess(point["dense_total_vs_doc"], 0.7)
+        self.assertLess(points[-1]["native_total_vs_doc"], points[3]["native_total_vs_doc"])
+        self.assertEqual(data["from_vllm_logs"]["kv_cache_tokens"]["native-pp2"], 673792)
+        self.assertLess(data["speculative_decoding"]["acceptance"]["mean_acceptance_length"], 1.2)
+        for row in data["speculative_decoding"]["points"]:
+            self.assertLess(row["eagle3_speedup_total"], 1)
+        text = (ROOT / "evidence" / "a100-verification-and-doc-speed.json").read_text(encoding="utf-8")
+        self.assertNotIn("onmicrosoft", text)
+        self.assertNotIn("b0af194e", text)
 
     def test_new_evidence(self):
         def read(name):

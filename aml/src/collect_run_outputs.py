@@ -14,8 +14,10 @@ from pathlib import Path
 PATTERNS = re.compile(
     r"marlin|backend|kv cache|maximum concurrency|loading weights took|model loading took|"
     r"weights took|available kv|gpu kv|fp8|quantiz|prefill|mla|pipeline|placement|"
-    r"torch.compile|cuda graph|graph capturing|memory profiling|init engine|sparse|indexer|deepgemm", re.IGNORECASE)
-NOISE = re.compile(r"NCCL INFO|jit_monitor|Avg prompt throughput|GET /|POST /")
+    r"torch.compile|cuda graph|graph capturing|memory profiling|init engine|sparse|indexer|deepgemm|"
+    r"speculat|eagle|draft|invarian|tool|runner|error|exception|assert|not supported|unsupported", re.IGNORECASE)
+NOISE = re.compile(r"NCCL INFO|jit_monitor|Avg prompt throughput|GET /|POST /|kill_actor|ActorHandleNotFound|"
+                   r"ray_executor_v2.py:516")
 
 
 def report(key, text=None, file=None, series=False):
@@ -39,6 +41,18 @@ def facts(log):
     return "\n".join(kept)
 
 
+def first_error_window(log):
+    """Text around the first error that is not Ray shutdown noise (the root cause of a failed start)."""
+    text = log.read_text(errors="replace")
+    for match in re.finditer(r"Traceback|Error:|ERROR", text):
+        start = text.rfind("\n", 0, match.start()) + 1
+        end = text.find("\n", match.end())
+        if NOISE.search(text[start:end if end != -1 else None]):
+            continue
+        return text[max(0, start - 1500): start + 6000]
+    return ""
+
+
 def main():
     root = Path(sys.argv[1])
     found = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
@@ -46,6 +60,9 @@ def main():
     node0 = root / "node0"
     for log in sorted(node0.glob("vllm-*.log")):
         report(f"facts.{log.stem}", facts(log)[-24000:])
+        window = first_error_window(log)
+        if window:
+            report(f"error.{log.stem}", window)
     for name in ("kernel-tests.log", "phases.jsonl"):
         path = node0 / name
         if path.exists():

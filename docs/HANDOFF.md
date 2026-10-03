@@ -2,6 +2,37 @@
 
 Snapshot: 2026-10-03. Read this before allocating any GPU.
 
+## 2026-10-03 (third update): verification run and the tech report's speed
+
+Everything left open was tested in one allocation of the same 2 x ND96amsr
+(uksouth, job `wheat_yak_fq7rn5533b`). SERVING_DESIGN.md section 8.1 has the
+results; the evidence is `evidence/a100-verification-and-doc-speed.json`.
+
+- **InfiniBand:** works inside the Azure ML containers with GPUDirect RDMA,
+  at 20.6 GB/s per GPU pair versus 0.35 GB/s over TCP. All multi-node
+  templates now probe it (`IB_PROBE=1`) and use it when NCCL confirms it.
+- **Tool calling:** 9/9 in both modes. It needs `--enable-auto-tool-choice`,
+  which the model card command lacks; without it `tool_choice: auto` returns
+  raw `<tool_call>` text.
+- **Long context:** SKT's needle test passed 9/9 in native mode at 32K, 128K
+  and 256K (up to 252,728 tokens). Dense mode passed 3/3 at 32K and failed
+  all six at 128K and 256K, so it is limited to about 60K tokens.
+- **Determinism:** default kernels diverge after 68-264 characters.
+  Batch-invariant mode cannot start on A100: no FP8 MoE kernel for SM80
+  supports it.
+- **Speed versus tech report Fig. 7** (one B200 node, concurrency 32,
+  1K output): native on 16 A100s reaches 0.43-0.51x at 1K-8K inputs and
+  0.10-0.36x at 16K-120K, where the KV cache (673,792 tokens) limits
+  concurrency. Dense reaches 0.52-0.64x and 0.23-0.58x on the same ranges.
+- **EAGLE3:** not usable. It cannot run with PP. On TP16 the A100 MLA decode
+  kernel cannot verify multi-token drafts: start-up with CUDA graphs fails,
+  and eager mode is 4-5x slower.
+- **NVFP4:** not possible on A100 (needs compute capability 8.9).
+
+Azure state: everything was deleted again (resource group
+`rg-axk2-aml-208d24c1`). Workspace names with `-r3-` are now soft-deleted for
+14 days. The run cost about USD 80-125.
+
 ## 2026-10-03 (second update): native DSA on A100
 
 The model now runs on A100 with its published weights and config and its own
@@ -21,7 +52,7 @@ contexts beyond 60K untested.
   checks and found the needles 12/12 up to 60K tokens. Native gave 50-812
   output tok/s at concurrency 1-128 with TPOT 19-21 ms from 1K to 32K context;
   dense was 10-60% faster but exact only up to 2,048 tokens. Details are in
-  section 8.1 and `evidence/a100-native-*.json`.
+  section 8.2 and `evidence/a100-native-*.json`.
 
 Azure state: everything was deleted again (resource group
 `rg-axk2-aml-208d24c1`, 02:09Z). The deleted workspace names remain reserved
