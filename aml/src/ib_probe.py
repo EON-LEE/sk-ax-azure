@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--mode", choices=["ib", "tcp"], required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--rendezvous-seconds", type=int, default=300,
+                        help="how long to wait for the other node (the first probe absorbs start-up skew)")
     args = parser.parse_args()
     log_glob = f"/tmp/nccl-probe-{args.mode}.*.log"
     for old in glob.glob(log_glob):
@@ -40,7 +42,7 @@ def main():
     result = {"mode": args.mode, "rank": rank, "world_size": world, "host": socket.gethostname()}
     began = time.time()
     dist.init_process_group("nccl", init_method=f"tcp://{master}:{args.port}", rank=rank, world_size=world,
-                            timeout=timedelta(seconds=300))
+                            timeout=timedelta(seconds=args.rendezvous_seconds))
     peer = 1 - rank
     small = torch.ones(2, device="cuda")
     dist.all_reduce(small)

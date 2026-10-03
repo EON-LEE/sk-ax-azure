@@ -149,11 +149,14 @@ EOF
   fi
   export NCCL_IB_PCI_RELAXED_ORDERING=1
   port=$(( ${MASTER_PORT:-29500} + 100 ))
+  wait_for=1200  # the first probe also absorbs the nodes' start-up skew
   for mode in tcp ib; do
     port=$((port + 1))
-    timeout 420 env NCCL_SOCKET_IFNAME="$IFACE" GLOO_SOCKET_IFNAME="$IFACE" \
-      python3 "$SRC/ib_probe.py" --mode "$mode" --port "$port" --out "$OUT/ib-probe-$mode.json" \
-      > "$OUT/ib-probe-$mode.log" 2>&1 || log "ib probe $mode failed: $(tail -n 3 "$OUT/ib-probe-$mode.log" | tr '\n' ' ')"
+    timeout $((wait_for + 240)) env NCCL_SOCKET_IFNAME="$IFACE" GLOO_SOCKET_IFNAME="$IFACE" \
+      python3 "$SRC/ib_probe.py" --mode "$mode" --port "$port" --rendezvous-seconds "$wait_for" \
+      --out "$OUT/ib-probe-$mode.json" > "$OUT/ib-probe-$mode.log" 2>&1 \
+      || log "ib probe $mode failed: $(tail -n 3 "$OUT/ib-probe-$mode.log" | tr '\n' ' ')"
+    wait_for=300
   done
   python3 - "$OUT" > "$OUT/ib-probe.json" <<'EOF'
 import json, os, sys
