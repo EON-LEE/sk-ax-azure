@@ -107,9 +107,33 @@ class BundleTests(unittest.TestCase):
             names = set(tar.getnames())
             entry = tar.extractfile("entry.sh").read()
         self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "dsa_port.json",
-                         "client_tests.py", "build_smoke_checkpoint.py"} <= names)
+                         "client_tests.py", "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py"} <= names)
         self.assertNotIn(b"\r\n", entry)
         self.assertLess(len(render_job.payload()), 100_000, "payload travels in one environment variable")
+
+    def test_verification_plan(self):
+        import re
+        sys.path.insert(0, str(ROOT / "aml" / "src"))
+        try:
+            import verify_suites
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(sorted(verify_suites.DOC_FIG7), [1024, 2048, 4096, 8192, 16384, 32768, 65536, 120000])
+        self.assertEqual(sorted(verify_suites.DOC_FIG8_TOTAL), sorted(verify_suites.DOC_FIG7))
+        for isl, (total, output) in verify_suites.DOC_FIG7.items():
+            self.assertGreater(total, output)
+            self.assertGreater(verify_suites.DOC_FIG8_TOTAL[isl], total, "EAGLE3 raises throughput in Fig. 8")
+        job = (ROOT / "aml" / "jobs" / "verify-remaining-nd96-hub.yml").read_text(encoding="utf-8")
+        plan = re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split()
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        handled = set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M))
+        self.assertTrue(set(plan) <= handled, set(plan) - handled)
+        self.assertIn("--enable-auto-tool-choice", entry)
+        self.assertNotIn("NCCL_IB_DISABLE", job, "the IB probe decides the transport")
+        diff = json.loads((ROOT / "aml" / "src" / "dsa_port.json").read_text(encoding="utf-8"))[
+            "patched_files"]["vllm/v1/attention/backends/mla/triton_mla_sparse.py"]["diff"]
+        self.assertIn("+    def supports_batch_invariance(cls) -> bool:", diff)
+        self.assertIn("num_kv_splits=1 if envs.VLLM_BATCH_INVARIANT else None", diff)
 
     def test_new_evidence(self):
         def read(name):
