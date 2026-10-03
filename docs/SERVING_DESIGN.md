@@ -168,8 +168,12 @@ Interactions checked against v0.23:
   reported on the PR was fixed upstream by #41444 before v0.23.
 - A later fix, #49139, is not in the v0.23 wheel. It affects a decode batch in
   which two sequences longer than 32K tokens are scheduled around a shorter
-  one in the same CTA group. The tests here never batch two sequences longer
-  than 32K.
+  one in the same CTA group. The needle tests send one request at a time, and
+  each point of the throughput sweep in 8.1 batches requests of a single
+  input length, so no shorter sequence sits between longer ones.
+- The port also declares batch invariance for `TRITON_MLA_SPARSE`, using one
+  KV split when `VLLM_BATCH_INVARIANT=1`. On A100 this is unreachable, because
+  no FP8 MoE kernel supports that mode (8.1).
 
 In native mode the SKT checkpoint and config are served **unchanged**: no
 config edits, and the indexer weights load. Every layer selects its top 2048
@@ -191,16 +195,18 @@ BF16 KV-cache default. Every difference from that reference:
 | Indexer scores | DeepGEMM FP8 MQA logits | Triton kernel on the same FP8-quantized q/k, BF16 dot, FP32 accumulation (PR #38476) | Same inputs and rule, different kernel |
 | Top-k selection | `persistent_topk` | Same kernel | None |
 | Sparse MLA over the selected 2048 keys | FlashMLA / FlashInfer sparse | Triton sparse MLA (PR #38476, unmerged upstream) | Same computation; slower; not upstream-supported |
-| KV cache | BF16 by default, FP8 (`fp8_ds_mla`) optional | BF16 only | No FP8-KV memory saving |
+| KV cache | BF16 by default, FP8 (`fp8_ds_mla`) optional | BF16 only | No FP8-KV memory saving. The cache is replicated on every TP rank, so 16 x A100 hold 673,792 tokens (native), which limits concurrency at long inputs (8.1) |
 | Engine code | vLLM 0.23 + SKT fork | Same, plus the PR port and a 2-line A100 fix in `mla_attention.py` | Without the fix the server crashes on A100 |
-| Parallelism | One node, TP 4 or 8, multiprocessing executor | Two nodes, TP8 x PP2 (layers 0-30 / 31-60), Ray | One network hop per token; losing either node stops the service |
-| Inter-node network | Not applicable | NCCL over TCP, InfiniBand disabled in the PoC | Enable InfiniBand in production |
-| Tool calling | `--tool-call-parser hermes` | **Not set and not tested** | Add and test before agentic use |
-| Context length | 256K with no extra flags | `max_model_len` 65,536; tested to 60K | Longer contexts untested on A100 |
-| Loader and limits | `fastsafetensors`, 64 sequences | Default loader, 128 sequences | Load time only |
-| Determinism | Not batch-invariant by default | Same; the Triton sparse port cannot use batch-invariant mode yet | Identical requests can differ slightly |
-| Quality evidence | SKT's published evaluations | Functional probes, needles, 2-layer log-probability comparison | Benchmark parity not measured |
-| Speed | Not published per hardware | Measured on A100 only | No like-for-like comparison |
+| Parallelism | One node, TP 4 or 8, multiprocessing executor | Two nodes, TP8 x PP2 (layers 0-30 / 31-60), Ray | One network hop per step; losing either node stops the service |
+| Inter-node network | Not applicable | NCCL over InfiniBand with GPUDirect RDMA: 20.6 GB/s per GPU pair (TCP: 0.35 GB/s). The first two runs used TCP | None at PP2 decode; required for TP across nodes |
+| Tool calling | `--tool-call-parser hermes` | Same parser plus `--enable-auto-tool-choice`; 9/9 cases correct in both modes (8.1) | Without the extra flag vLLM returns `tool_choice: auto` calls as raw `<tool_call>` text in `content`; this also applies to the reference command |
+| Context length | 256K with no extra flags | `max_model_len` 262,144; SKT's needle test 9/9 up to 252,728 tokens (native) | Dense mode found no needle at 126K or 253K tokens |
+| Loader and limits | `fastsafetensors`, 64 sequences | Default loader; 64 sequences; 8,192 batched tokens per step, vLLM's B200 default (its A100 default is 2,048) | Load time only |
+| Determinism | Not batch-invariant by default | Same, and batch-invariant mode cannot start on A100: no FP8 MoE kernel for SM80 supports it (8.1) | Identical greedy requests diverge after 68-264 characters |
+| Speculative decoding | `skt/A.X-K2-EAGLE3` drafter: +23-30% in tech report Fig. 8 | Not usable: EAGLE3 cannot run with PP, and on TP16 the A100 MLA decode kernel cannot verify multi-token drafts (8.1) | No speed-up option on A100 |
+| 4-bit weights | `skt/A.X-K2-NVFP4` on 4 x B200 | Not possible: vLLM requires compute capability 8.9 for this format, and FP4 tensor cores exist only on Blackwell | FP8 only |
+| Quality evidence | SKT's published evaluations | Functional probes, needles to 253K tokens, tool calls, 2-layer log-probability comparison | Benchmark parity not measured |
+| Speed | Tech report Fig. 7: one B200 node, concurrency 32, 1K output | Same benchmark on 16 A100s: 0.43-0.51x of the B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K (native) | About a quarter of B200 throughput per GPU at short inputs; less at long inputs |
 
 The `persistent_topk` fix #49139 is missing from every vLLM 0.23 build,
 including SKT's own fork, so it is not an A100-specific gap.
@@ -234,6 +240,7 @@ The design works within it and does not bypass it:
 | B2. PR #38476 Triton kernel tests on A100 | The ported indexer-logits and sparse-MLA kernels against their references | minutes |
 | B3. Same cut on the target nodes: vLLM native DSA and dense, single-node TP8, then native over Ray TP8 x PP2 | The exact launch path, overlay, DSA port and SM80 kernels on real weights; agreement with B1 inside and beyond `index_topk` | minutes of the C allocation |
 | C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2, native and dense | Load and serve all 61 layers; functional, reasoning, accuracy, determinism, needles to 60K tokens, latency and throughput sweeps | ~USD 26/hour |
+| D. Same allocation, six server configurations in sequence (`verify-remaining-nd96-hub.yml`) | InfiniBand vs TCP; tool calling; SKT's needle test to 256K; determinism with and without batch-invariant mode; the tech report's Fig. 7 sweep; TP16 and EAGLE3 | ~4.7 hours |
 
 `aml/jobs/native-dsa-bench-nd96-hub.yml` runs B2, B3 and C in one allocation.
 Both nodes download the full checkpoint from the Hub in the background while
@@ -245,7 +252,184 @@ nodes.
 
 ## 8. Results
 
-### 8.1 Native DSA versus dense on the same allocation (2026-10-03, italynorth)
+### 8.1 Verification run: open items and the tech report's speed (2026-10-03, uksouth)
+
+Evidence: `evidence/a100-verification-and-doc-speed.json`. The job
+`aml/jobs/verify-remaining-nd96-hub.yml` ran on one Spot allocation of the same
+2 x ND96amsr_A100_v4. It served the full model in six configurations, one
+after another, each as one OpenAI-compatible endpoint. Every configuration
+used the model card's parsers plus `--enable-auto-tool-choice` and 8,192
+batched tokens per step.
+
+| Item | Result |
+| --- | --- |
+| InfiniBand between the nodes | Works: 20.6 GB/s per GPU pair with GPUDirect RDMA (TCP: 0.35 GB/s); used by every configuration that started |
+| Tool calling, 9 cases, native and dense | 9/9 correct in both modes |
+| SKT's needle test at 32K / 128K / 256K, native | 9/9 |
+| Same, dense | 3/3 at 32K, **0/6** at 128K and 256K |
+| Determinism, default kernels | Identical greedy requests diverge after 68-264 characters |
+| Batch-invariant mode | **Cannot start on A100** |
+| Tech report Fig. 7 conditions, native | 0.43-0.51x of one B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K |
+| TP16 across both nodes, dense | 12-41% faster than TP8 x PP2 at 1K-8K inputs; half the KV cache |
+| EAGLE3 drafter | Not usable: CUDA-graph start-up fails; the eager fallback is 4-5x slower and accepts 1.05 tokens per step |
+| NVFP4 checkpoint | Not possible on A100 |
+
+**InfiniBand.** The job containers expose the eight 200 Gb/s InfiniBand HCAs
+of each node, and the vLLM image already ships the RDMA userland. Memlock is
+unlimited, and Azure's NDv4 NCCL topology file matched every GPU and HCA PCI
+address of the VMs. NCCL between GPU 0 of each node:
+
+| | TCP (the first two runs) | InfiniBand, GPUDirect RDMA |
+| --- | ---: | ---: |
+| Round trip, small message | 454 µs | 122 µs |
+| Send/receive, 256 MiB | 0.35 GB/s | 20.6 GB/s |
+| All-reduce, 256 MiB | 0.37 GB/s | 18.2 GB/s |
+
+Every configuration that started then used `NET/IB` on all eight HCAs.
+Decode at PP2 barely changed: median TPOT at concurrency 32 with 1K inputs
+was 72 ms, against 77 ms over TCP in the earlier run (256 output tokens
+there). Per decode step the stages exchange only the hidden state and
+residual of the batch's new tokens, and decode is bound by MoE weight reads
+on each GPU. InfiniBand matters for prefill, where an 8,192-token chunk moves
+235 MB of hidden state and residual between the stages (0.67 s over TCP,
+11 ms over IB), and it is what makes TP16 across nodes viable.
+
+**Tool calling.** The model card command sets `--tool-call-parser hermes` but
+not `--enable-auto-tool-choice`. Without that flag, vLLM 0.23 skips the parser
+for `tool_choice: "auto"`, the default when tools are sent, and returns the
+`<tool_call>` block as text in `content` (`chat_completion/serving.py:1095`).
+Named and `required` tool choice still work. With the flag, both modes handled
+all nine cases:
+
+- a single Korean call;
+- two parallel calls (서울, 부산);
+- three arguments;
+- thinking plus a call, with the reasoning separated;
+- no tool needed;
+- a follow-up turn with the tool result;
+- streaming;
+- a named tool;
+- `required`.
+
+The automatic check flagged "no tool needed" because the model answered
+"Seoul" rather than "서울". It made no call and the answer is right; the check
+now accepts both.
+
+**Long context.** This uses SKT's own needle test
+(`examples/vllm/niah_test.py`, with the same needle, filler, question, depths
+and codes), one request at a time with thinking off:
+
+| Prompt tokens | Native: found | Native: seconds per request | Dense: found | Dense: seconds |
+| ---: | ---: | ---: | ---: | ---: |
+| 31,597 | 3/3 | 6-9 | 3/3 | 2-4 |
+| 126,368 | 3/3 | 38-52 | **0/3** | 13-18 |
+| 252,728 | 3/3 | 125-167 | **0/3** | 39-52 |
+
+At 126K and 253K tokens dense mode answered with filler sentences. Without the
+2,048-key selection the model was trained with, attention spreads over the
+whole prompt. With the 12/12 needles up to 60K in 8.2, dense mode is usable
+only up to about 60K tokens of context. Native DSA is required beyond that.
+
+**Determinism.** The same greedy 200-token request, default kernels, native:
+
+- a second fresh run first differs at character 107;
+- a prefix-cache hit first differs at character 264;
+- runs inside a batch of 16 first differ at character 68, and the two batch
+  runs also differ from each other.
+
+Bitwise reproducibility needs vLLM's batch-invariant mode, which fails to
+start on A100 for this model with "No FP8 MoE backend supports the deployment
+configuration" (`fused_moe/oracle/fp8.py:417`). In that mode vLLM keeps only
+MoE kernels that declare batch invariance (`fused_moe/modular_kernel.py:577`).
+The only such kernel is the Triton MoE kernel (`experts/triton_moe.py:125`),
+and its FP8 path needs compute capability 8.9 (`platforms/cuda.py:546`).
+A100's Marlin W8A16 MoE kernel does not qualify. The batch-invariance wiring
+added to the attention port is therefore unreachable on A100.
+
+**Speed under the tech report's conditions.** Tech report Fig. 7 measures
+vLLM bench serve with the random dataset at concurrency 32, 1,024 output
+tokens, FP8 weights and BF16 KV cache on one B200 node (8 GPUs). The same
+client command was run here on 16 x A100. Total tok/s counts input plus
+output, so the output ratios are identical.
+
+| Input tokens | B200 node (Fig. 7) | A100 native | Ratio | A100 dense | Ratio | Requests running, native / dense |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,024 | 1,900 | 815 | 0.43 | 980 | 0.52 | 32 / 32 |
+| 2,048 | 2,700 | 1,165 | 0.43 | 1,457 | 0.54 | 32 / 32 |
+| 4,096 | 3,600 | 1,699 | 0.47 | 2,202 | 0.61 | 32 / 32 |
+| 8,192 | 4,800 | 2,424 | 0.51 | 3,070 | 0.64 | 32 / 32 |
+| 16,384 | 6,300 | 2,275 | 0.36 | 3,637 | 0.58 | 32 / 32 |
+| 32,768 | 8,200 | 1,930 | 0.24 | 3,331 | 0.41 | 20 / 23 |
+| 65,536 | 10,600 | 1,535 | 0.14 | 3,242 | 0.31 | 10 / 11 |
+| 120,000 | 12,300 | 1,184 | 0.10 | 2,802 | 0.23 | 5 / 6 |
+
+- **Up to 8K inputs, 16 A100s deliver about half of one B200 node**, or about
+  a quarter per GPU. A100 has no FP8 tensor cores, so the FP8 weights run
+  through Marlin W8A16 kernels. Decode at concurrency 32 is bound by MoE
+  weight reads: native median TPOT is 72-109 ms, where the B200 figure implies
+  about 33 ms.
+- **From 16K the gap widens, for two reasons.**
+  - *KV capacity.* The MLA cache is replicated on every tensor-parallel rank,
+    so the 16 GPUs hold 673,792 tokens (native) or 766,032 (dense). SKT's
+    model card reports about 968K tokens on 4 x B300. At 32K inputs only 20 of
+    the 32 requests fit, 10 at 64K and 5 at 120K. The rest queue: native median
+    TTFT is 225 s, 665 s and 1,646 s.
+  - *Indexer.* On A100 the DSA indexer runs as BF16 Triton kernels, replicated
+    on every TP rank, instead of DeepGEMM FP8. Its prefill cost grows with the
+    square of the input.
+- **Dense is 1.2-2.4x faster than native** at every length, but it fails
+  long-context retrieval (above).
+- **The curves differ in shape.** Total tok/s counts prompt tokens, so on
+  B200, where FP8 prefill is fast, it keeps rising up to 120K inputs. On A100
+  the indexer's prefill cost and the KV limit make it peak at 8K-16K and then
+  fall.
+
+**TP16 and EAGLE3 (dense, `max_model_len` 32,768).** TP16 runs one pipeline
+stage across all 16 GPUs, with tensor-parallel all-reduces over InfiniBand.
+It was used because EAGLE3 cannot run with PP.
+
+| Input tokens | TP8 x PP2 | TP16 | TP16 + EAGLE3 (eager) | B200: Fig. 8 / Fig. 7 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,024 | 980 | 1,386 (0.73x B200) | 324 | 1.26 |
+| 4,096 | 2,202 | 2,638 (0.73x) | 595 | 1.11 |
+| 8,192 | 3,070 | 3,449 (0.72x) | 643 | 1.23 |
+
+- **TP16 is 12-41% faster than TP8 x PP2 at short inputs.** Its KV cache holds
+  362,848 tokens, half of PP2's, so it suits short contexts only.
+- **EAGLE3 cannot speed up this stack on A100.**
+  - The drafter needs the hidden states of layers 2, 30 and 58, which span
+    both PP stages (5c).
+  - On TP16, start-up with CUDA graphs fails at `assert m.max_query_len <=
+    self.reorder_batch_threshold` (`mla_attention.py:1827`). TRITON_MLA, the
+    only MLA decode kernel on SM80, declares single-token decode only
+    (`query_len_support` SINGLE_ONLY). Verifying 3 drafted tokens needs
+    4-token queries, which fall back to the MLA prefill path.
+  - The eager fallback served correctly (4/4 functional checks) but was
+    4-5x slower than TP16 without a drafter, which ran with CUDA graphs.
+  - It accepted 1.05 tokens per step: 1.5% of drafted tokens, and 2-5% at the
+    first position. The tech report gives 2.24 on B200 for the same benchmark
+    type. Even at that acceptance, a 192 ms step yields 86 ms per token, twice
+    the 43 ms of plain TP16, so the low acceptance was not investigated
+    further.
+  - Fig. 8's bar labels give +11% to +26% over Fig. 7 at these lengths; the
+    report's text says 23-30% at every length.
+
+**Not attempted:**
+
+- the NVFP4 checkpoint, which needs hardware this deployment lacks: vLLM's
+  ModelOpt mixed-precision method requires compute capability 8.9
+  (`quantization/modelopt.py:2219`);
+- EAGLE3 on the native sparse port, a software limit: with drafts, vLLM 0.23
+  passes per-token sequence lengths to the indexer, but the port's decode
+  indexer kernel reads one length per request.
+
+**Cost.** The two nodes were held for about 4.7 hours, and the duplicate
+italynorth allocation for about 6 minutes, so about 9.6 node-hours in total.
+That is about USD 80 at the low-priority meter or USD 125 at the Spot meter
+(USD 8.19 or 12.89 per node-hour; on demand is USD 40.96). The GPU cluster was
+deleted at 21:45Z and the resource group at 22:04Z.
+
+### 8.2 Native DSA versus dense on the same allocation (2026-10-03, italynorth)
 
 All phases passed. Evidence: `evidence/a100-native-dsa-2layer-vs-official.json`,
 `evidence/a100-native-vs-dense-full-model.json` and
@@ -326,10 +510,11 @@ The two modes trade exactness for speed:
   only up to 2,048 context tokens.
 
 Which mode to choose depends on the workload. Native is the configuration
-closest to the reference at long context. Dense is defensible when prompts
-plus output stay short or when a long-context evaluation accepts it.
+closest to the reference and the only one that retrieves information from
+long contexts: in 8.1 dense mode found no needle at 126K or 253K tokens. Dense
+is defensible when prompts plus output stay within about 60K tokens.
 
-### 8.2 First full-model run, dense only (2026-10-02, italynorth)
+### 8.3 First full-model run, dense only (2026-10-02, italynorth)
 
 Evidence: `evidence/axk2-dense-equivalence-cpu.json`,
 `evidence/a100-2layer-vs-official.json`,
@@ -379,8 +564,9 @@ Synthetic load, 1024-token prompts, 128 output tokens:
 
 Spend was about USD 34: 61 minutes of the winning 2-node cluster, 6
 minutes of a duplicate allocation that was cancelled, and CPU jobs.
-Everything was deleted afterwards. The native-DSA round (8.1) cost about
+Everything was deleted afterwards. The native-DSA round (8.2) cost about
 USD 71 more, mostly 2.5 hours of the italynorth cluster; it was deleted too.
+The verification run (8.1) cost about USD 80-125.
 
 ## 9. Known limits and next steps
 
@@ -396,18 +582,27 @@ USD 71 more, mostly 2.5 hours of the italynorth cluster; it was deleted too.
   sequences longer than 32K tokens batched around a shorter one). Serving
   many concurrent sequences longer than 32K tokens should wait for a vLLM
   build that includes it.
-- Needles, functional probes and the 2-layer comparison are not a full
-  quality evaluation; run AA-LCR, RULER or the customer's own set, in both
-  modes if dense is considered.
-- Output is not bitwise reproducible across identical requests with the
-  default kernels; use vLLM's batch-invariant mode if exact reproducibility
-  is required (the Triton sparse port does not wire it yet).
-- The PoC disables InfiniBand for NCCL (`NCCL_IB_DISABLE=1`); pipeline-parallel
-  traffic between the two stages is one hidden-state tensor per step. Enable
-  IB in production once the container's RDMA userland is verified; the
-  `/dev/infiniband` devices were visible inside the job containers.
+- Needles, tool calls, functional probes and the 2-layer comparison are not a
+  full quality evaluation; run AA-LCR, RULER or the customer's own set.
+- Dense mode is limited to about 60K tokens of context. It found no needle at
+  126K or 253K tokens; use native DSA for longer prompts.
+- KV capacity limits long inputs. The BF16 MLA cache is replicated on every
+  TP rank, so the 16 GPUs hold about 674K tokens: 20 concurrent 32K requests,
+  10 at 64K, 5 at 120K. Add data-parallel replicas (another 2-node group per
+  replica) to serve more long requests. Data-parallel attention with expert
+  parallelism avoids the replication but was not tested.
+- Output is not bitwise reproducible across identical requests, and vLLM
+  0.23's batch-invariant mode cannot start on A100 for this FP8 MoE model.
+  Exact reproducibility needs FP8-capable GPUs (compute capability 8.9 or
+  newer) and has to be verified there.
+- Speed is about half of one B200 node at short inputs and 10-36% from 16K
+  upward (8.1). EAGLE3 and NVFP4, the tech report's two speed-ups, are not
+  available on A100 with vLLM 0.23.
+- Every configuration now uses InfiniBand for NCCL when the start-up probe
+  confirms it (`aml/src/ib_probe.py`). Azure's NDv4 topology file is fetched
+  from the azhpc-images repository and used only if it matches the VM.
 - Hub downloads of 694 GB can stall (observed once at 68%); the watchdog in
   `stage_weights.py` restarts and resumes. Production should stage the
   weights once into same-region storage or an image cache.
-- Throughput tuning (expert parallelism, data-parallel replicas, speculative
-  decoding, `fastsafetensors` loading) is out of scope for this proof.
+- Further throughput tuning (expert parallelism, data-parallel replicas,
+  `fastsafetensors` loading) is out of scope for this proof.

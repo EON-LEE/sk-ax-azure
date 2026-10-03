@@ -183,7 +183,7 @@ def suite_tools(args):
 
     reply = chat_request(args.base, [{"role": "user", "content": "대한민국의 수도는 어디인가요? 도시 이름만 답하세요."}],
                          tools=TOOLS)
-    record("no_tool_needed", not reply["tool_calls"] and "서울" in reply["content"],
+    record("no_tool_needed", not reply["tool_calls"] and mentions(reply["content"], "서울", "seoul"),
            {"content": reply["content"][:200], "tool_calls": reply["tool_calls"]})
 
     if first_call:
