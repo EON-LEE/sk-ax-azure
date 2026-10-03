@@ -1,6 +1,35 @@
 # Development environment handoff
 
-Snapshot: 2026-10-02. Read this before allocating any GPU.
+Snapshot: 2026-10-03. Read this before allocating any GPU.
+
+## 2026-10-03 (second update): native DSA on A100
+
+The model now runs **as published** on A100. Its DeepSeek Sparse Attention
+uses a hash-checked port of upstream vLLM PR #38476 (`TRITON_MLA_SPARSE` +
+Triton indexer logits), described in SERVING_DESIGN.md section 5b and
+`aml/src/dsa_port.json`.
+
+- **Kernel tests:** 94/94 pass on A100.
+- **2-layer real-weight cut:** native stays at the BF16-versus-FP32 floor
+  beyond `index_topk` against the official FP32 sparse model, while dense mode
+  drifts.
+- **Full 688B model:** served natively and densely in one allocation on
+  2 x ND96amsr (TP8 x PP2) and measured. Both modes passed 6/6 functional
+  checks and found the needles 12/12 up to 60K tokens. Native gave 50-812
+  output tok/s at concurrency 1-128 with TPOT 19-21 ms from 1K to 32K context;
+  dense was 10-60% faster but exact only up to 2,048 tokens. Details are in
+  section 8.1 and `evidence/a100-native-*.json`.
+
+Azure state: everything was deleted again (resource group
+`rg-axk2-aml-208d24c1`, 02:09Z). The deleted workspace names remain reserved
+for 14 days, so reuse needs new names. The first native run's Hub download
+stalled at 68%; `stage_weights.py` now has a restart watchdog. The round cost
+about USD 71, as recorded in `evidence/a100-native-dsa-deployment-log.json`.
+
+Still open: a full quality evaluation (AA-LCR/RULER or customer data);
+upstream fix #49139 for batches of more than one sequence longer than 32K
+tokens; InfiniBand for NCCL; bitwise reproducibility; and on-demand capacity
+in the customer subscription.
 
 ## 2026-10-03 update: standard-stack redesign
 
@@ -48,9 +77,10 @@ Required final evidence:
 4. First-token/inter-token latency, throughput, GPU memory and transfer stalls.
 5. All-or-nothing minimum-cluster acquisition with bounded time and cleanup.
 
-As of 2026-10-03 the vLLM deployment meets items 1, 2, 4 and 5. Item 3 is
-implied by concurrent throughput across the two pipeline stages, but no
-explicit kernel-overlap trace was captured. Transfer stalls were not measured.
+As of 2026-10-03 the vLLM deployment meets items 1, 2, 4 and 5, in both
+native DSA and dense mode. Item 3 is implied by concurrent throughput across
+the two pipeline stages, but no explicit kernel-overlap trace was captured.
+Transfer stalls were not measured.
 
 ## What was verified
 

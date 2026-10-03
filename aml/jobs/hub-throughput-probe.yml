@@ -1,0 +1,21 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: hub-throughput-probe
+description: >-
+  Measure Hugging Face download throughput and HTTP status from inside the workspace's managed VNet
+  (two real checkpoint shards), reported through the job record.
+compute: azureml:cpu-lp
+environment:
+  image: docker.io/library/python:3.12-slim
+identity:
+  type: user_identity
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  pip install -q --no-cache-dir "huggingface_hub[hf_xet]>=0.35" "mlflow-skinny>=2.16" azureml-mlflow &&
+  python /tmp/axk2src/hub_probe.py /tmp/probe.json ;
+  python /tmp/axk2src/report.py probe --file /tmp/probe.json
+limits:
+  timeout: 900

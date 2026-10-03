@@ -1,0 +1,544 @@
+{
+  "scope": "Byte-exact 2-layer cut of skt/A.X-K2 (embedding, layer 0 dense, layer 1 with 256 FP8 experts, final norm, lm_head) served by vLLM on 8 x A100 80GB (one node, TP8) and 16 x A100 (two nodes, TP8 x PP2 over Ray), in native DeepSeek Sparse Attention through the TRITON_MLA_SPARSE port and in dense mode, compared position by position with the official Transformers AXK2 implementation (FP32 CPU, sparse DSA, index_topk 2048) on 14,618 prompt positions, 7,262 of them beyond index_topk (natural 7.2K-token text).",
+  "jobs": {
+    "vllm": "magenta_engine_vgjw1yh229 (italynorth)",
+    "official_reference": "tough_kiwi_6qcr88ls28 (swedencentral CPU)",
+    "log_collection": "lime_jicama_4xnqjqlvst"
+  },
+  "dsa_port": {
+    "pr": "https://github.com/vllm-project/vllm/pull/38476",
+    "pr_commit": "3740c02bb1223d37823593664ae3eafa397b9937",
+    "new_files": 5,
+    "patched_files": 5
+  },
+  "kernel_tests_on_a100": [
+    "94 passed in 108.43s (0:01:48)"
+  ],
+  "backend_selection_from_vllm_logs": {
+    "smoke-dense-tp8": [
+      "INFO [__init__.py:546] Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod",
+      "INFO [cuda.py:471] Using TRITON_MLA attention backend out of potential backends: ['TRITON_MLA'].",
+      "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+      "INFO [fp8.py:406] Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU'].",
+      "INFO [default_loader.py:397] Loading weights took 1.75 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 2.16 GiB memory and 2.481630 seconds",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 63.89 GiB",
+      "INFO [kv_cache_utils.py:1744] GPU KV cache size: 29,775,152 tokens",
+      "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 23.84 s (compilation: 13.96 s)"
+    ],
+    "smoke-native-tp8": [
+      "INFO [__init__.py:546] Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod",
+      "WARNING [sparse_attn_indexer.py:483] DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+      "INFO [cuda.py:471] Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+      "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+      "INFO [fp8.py:406] Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU'].",
+      "INFO [default_loader.py:397] Loading weights took 1.32 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 2.24 GiB memory and 20.013870 seconds",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 63.8 GiB",
+      "INFO [kv_cache_utils.py:1744] GPU KV cache size: 26,677,120 tokens",
+      "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 44.20 s (compilation: 26.43 s)"
+    ],
+    "smoke-native-tp8-pp2": [
+      "INFO [__init__.py:546] Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod",
+      "WARNING [sparse_attn_indexer.py:483] DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+      "INFO [cuda.py:471] Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+      "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+      "INFO [default_loader.py:397] Loading weights took 0.24 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 0.57 GiB memory and 0.808043 seconds",
+      "INFO [fp8.py:406] Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU'].",
+      "INFO [default_loader.py:397] Loading weights took 1.92 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 1.87 GiB memory and 21.838381 seconds",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 66.04 GiB",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 64.12 GiB",
+      "INFO [kv_cache_utils.py:1744] GPU KV cache size: 53,624,320 tokens",
+      "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 34.60 s (compilation: 16.74 s)"
+    ]
+  },
+  "official_reference": {
+    "scope": "Official Transformers AXK2, FP32 CPU, sparse DSA (index_topk=2048), real weights of layers 0-1.",
+    "transformers": "5.19.0.dev0",
+    "torch": "2.11.0+cpu",
+    "index_topk": 2048,
+    "load_seconds": 0.8,
+    "prompts": {
+      "ko_short": {
+        "tokens": 13,
+        "seconds": 3.9,
+        "finite": true
+      },
+      "en_short": {
+        "tokens": 15,
+        "seconds": 4.5,
+        "finite": true
+      },
+      "code": {
+        "tokens": 16,
+        "seconds": 4.1,
+        "finite": true
+      },
+      "mixed_1500": {
+        "tokens": 1172,
+        "seconds": 16.0,
+        "finite": true
+      },
+      "mixed_2600": {
+        "tokens": 2077,
+        "seconds": 18.7,
+        "finite": true
+      },
+      "readme_full": {
+        "tokens": 7166,
+        "seconds": 48.8,
+        "finite": true
+      },
+      "readme_tail": {
+        "tokens": 4166,
+        "seconds": 27.7,
+        "finite": true
+      }
+    }
+  },
+  "summary_vs_official": {
+    "node0.smoke-dense-tp8": {
+      "within_index_topk": {
+        "positions": 7356,
+        "mean_abs_diff": 0.011628,
+        "top1_agreement": 0.9744
+      },
+      "beyond_index_topk": {
+        "positions": 7262,
+        "mean_abs_diff": 0.012254,
+        "top1_agreement": 0.9763
+      }
+    },
+    "node0.smoke-native-tp8": {
+      "within_index_topk": {
+        "positions": 7356,
+        "mean_abs_diff": 0.011629,
+        "top1_agreement": 0.9743
+      },
+      "beyond_index_topk": {
+        "positions": 7262,
+        "mean_abs_diff": 0.011083,
+        "top1_agreement": 0.9754
+      }
+    },
+    "node0.smoke-native-tp8-pp2": {
+      "within_index_topk": {
+        "positions": 7356,
+        "mean_abs_diff": 0.011979,
+        "top1_agreement": 0.9755
+      },
+      "beyond_index_topk": {
+        "positions": 7262,
+        "mean_abs_diff": 0.0115,
+        "top1_agreement": 0.9728
+      }
+    }
+  },
+  "pairs": {
+    "node0.smoke-native-tp8 vs node0.smoke-native-tp8-pp2": {
+      "within_index_topk": {
+        "positions": 7356,
+        "mean_abs_diff": 0.009109,
+        "top1_agreement": 0.9867
+      },
+      "beyond_index_topk": {
+        "positions": 7262,
+        "mean_abs_diff": 0.009066,
+        "top1_agreement": 0.9832
+      }
+    },
+    "node0.smoke-dense-tp8 vs node0.smoke-native-tp8": {
+      "within_index_topk": {
+        "positions": 7356,
+        "mean_abs_diff": 0.005055,
+        "top1_agreement": 0.9939
+      },
+      "beyond_index_topk": {
+        "positions": 7262,
+        "mean_abs_diff": 0.011965,
+        "top1_agreement": 0.9841
+      }
+    }
+  },
+  "per_prompt_vs_official": {
+    "node0.smoke-dense-tp8": {
+      "code": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 15,
+            "max_abs_diff": 0.04688,
+            "mean_abs_diff": 0.01329,
+            "pearson": 0.999983
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "en_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 14,
+            "max_abs_diff": 0.05311,
+            "mean_abs_diff": 0.013003,
+            "pearson": 0.999948
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "ko_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 12,
+            "max_abs_diff": 0.03468,
+            "mean_abs_diff": 0.008018,
+            "pearson": 0.999996
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "mixed_1500": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 1171,
+            "max_abs_diff": 0.10678,
+            "mean_abs_diff": 0.01242,
+            "pearson": 0.999987
+          },
+          "top1_agreement": 0.9693
+        }
+      },
+      "mixed_2600": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.11162,
+            "mean_abs_diff": 0.012726,
+            "pearson": 0.999989
+          },
+          "top1_agreement": 0.9775
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 28,
+            "max_abs_diff": 0.03931,
+            "mean_abs_diff": 0.008515,
+            "pearson": 0.999993
+          },
+          "top1_agreement": 0.9643
+        }
+      },
+      "readme_full": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.08812,
+            "mean_abs_diff": 0.011134,
+            "pearson": 0.999991
+          },
+          "top1_agreement": 0.9775
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 5117,
+            "max_abs_diff": 0.21627,
+            "mean_abs_diff": 0.012441,
+            "pearson": 0.999987
+          },
+          "top1_agreement": 0.9773
+        }
+      },
+      "readme_tail": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.09721,
+            "mean_abs_diff": 0.010569,
+            "pearson": 0.999991
+          },
+          "top1_agreement": 0.9707
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 2117,
+            "max_abs_diff": 0.22595,
+            "mean_abs_diff": 0.011852,
+            "pearson": 0.999989
+          },
+          "top1_agreement": 0.974
+        }
+      }
+    },
+    "node0.smoke-native-tp8": {
+      "code": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 15,
+            "max_abs_diff": 0.04688,
+            "mean_abs_diff": 0.013765,
+            "pearson": 0.999982
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "en_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 14,
+            "max_abs_diff": 0.03512,
+            "mean_abs_diff": 0.010214,
+            "pearson": 0.999981
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "ko_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 12,
+            "max_abs_diff": 0.03039,
+            "mean_abs_diff": 0.010689,
+            "pearson": 0.999995
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "mixed_1500": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 1171,
+            "max_abs_diff": 0.10412,
+            "mean_abs_diff": 0.012433,
+            "pearson": 0.999988
+          },
+          "top1_agreement": 0.9667
+        }
+      },
+      "mixed_2600": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.10509,
+            "mean_abs_diff": 0.012852,
+            "pearson": 0.999989
+          },
+          "top1_agreement": 0.979
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 28,
+            "max_abs_diff": 0.03953,
+            "mean_abs_diff": 0.008602,
+            "pearson": 0.999994
+          },
+          "top1_agreement": 0.9643
+        }
+      },
+      "readme_full": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.14409,
+            "mean_abs_diff": 0.010999,
+            "pearson": 0.999991
+          },
+          "top1_agreement": 0.9771
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 5117,
+            "max_abs_diff": 0.13191,
+            "mean_abs_diff": 0.010928,
+            "pearson": 0.999991
+          },
+          "top1_agreement": 0.9785
+        }
+      },
+      "readme_tail": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.10397,
+            "mean_abs_diff": 0.010576,
+            "pearson": 0.99999
+          },
+          "top1_agreement": 0.9707
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 2117,
+            "max_abs_diff": 0.12716,
+            "mean_abs_diff": 0.01149,
+            "pearson": 0.999991
+          },
+          "top1_agreement": 0.9679
+        }
+      }
+    },
+    "node0.smoke-native-tp8-pp2": {
+      "code": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 15,
+            "max_abs_diff": 0.02746,
+            "mean_abs_diff": 0.010829,
+            "pearson": 0.999991
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "en_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 14,
+            "max_abs_diff": 0.06697,
+            "mean_abs_diff": 0.017754,
+            "pearson": 0.999914
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "ko_short": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 12,
+            "max_abs_diff": 0.05454,
+            "mean_abs_diff": 0.014627,
+            "pearson": 0.999993
+          },
+          "top1_agreement": 1.0
+        }
+      },
+      "mixed_1500": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 1171,
+            "max_abs_diff": 0.10621,
+            "mean_abs_diff": 0.012586,
+            "pearson": 0.999987
+          },
+          "top1_agreement": 0.971
+        }
+      },
+      "mixed_2600": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.10905,
+            "mean_abs_diff": 0.013075,
+            "pearson": 0.999988
+          },
+          "top1_agreement": 0.98
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 28,
+            "max_abs_diff": 0.02481,
+            "mean_abs_diff": 0.009185,
+            "pearson": 0.999995
+          },
+          "top1_agreement": 0.9643
+        }
+      },
+      "readme_full": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.10103,
+            "mean_abs_diff": 0.011602,
+            "pearson": 0.99999
+          },
+          "top1_agreement": 0.9795
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 5117,
+            "max_abs_diff": 0.13853,
+            "mean_abs_diff": 0.011326,
+            "pearson": 0.99999
+          },
+          "top1_agreement": 0.973
+        }
+      },
+      "readme_tail": {
+        "within_index_topk": {
+          "chosen_logprob": {
+            "positions": 2048,
+            "max_abs_diff": 0.10377,
+            "mean_abs_diff": 0.010867,
+            "pearson": 0.99999
+          },
+          "top1_agreement": 0.9692
+        },
+        "beyond_index_topk": {
+          "chosen_logprob": {
+            "positions": 2117,
+            "max_abs_diff": 0.1,
+            "mean_abs_diff": 0.011951,
+            "pearson": 0.99999
+          },
+          "top1_agreement": 0.9726
+        }
+      }
+    }
+  },
+  "smoke_checks": {
+    "node0.smoke-dense-tp8.smoke": {
+      "determinism": {
+        "ko_short": {
+          "max_abs_diff": 0.0,
+          "generated_equal": true
+        },
+        "mixed_2600": {
+          "max_abs_diff": 0.0,
+          "generated_equal": true
+        }
+      },
+      "concurrency": {
+        "requests": 8,
+        "completed": 8,
+        "max_seconds": 0.08
+      }
+    },
+    "node0.smoke-native-tp8-pp2.smoke": {
+      "determinism": {
+        "ko_short": {
+          "max_abs_diff": 0.00017999999999851468,
+          "generated_equal": true
+        },
+        "mixed_2600": {
+          "max_abs_diff": 0.02210999999999963,
+          "generated_equal": true
+        }
+      },
+      "concurrency": {
+        "requests": 8,
+        "completed": 8,
+        "max_seconds": 0.73
+      }
+    },
+    "node0.smoke-native-tp8.smoke": {
+      "determinism": {
+        "ko_short": {
+          "max_abs_diff": 1.000000000139778e-05,
+          "generated_equal": true
+        },
+        "mixed_2600": {
+          "max_abs_diff": 0.0026100000000006673,
+          "generated_equal": true
+        }
+      },
+      "concurrency": {
+        "requests": 8,
+        "completed": 8,
+        "max_seconds": 0.66
+      }
+    }
+  },
+  "interpretation": [
+    "Inside index_topk both modes compute the same function; their distance to the FP32 reference (mean |delta logprob| about 0.0116) is BF16-versus-FP32 numerics.",
+    "Beyond index_topk native DSA stays at that level (0.0111 single node, 0.0115 over two nodes), while dense mode drifts (0.0123, maximum 0.22 versus 0.13 native). Dense and native differ from each other 2.4 times more beyond index_topk (0.0120) than inside it (0.0051).",
+    "Remaining native-versus-reference differences include FP8 quantization of the indexer queries and keys in vLLM, which the official BF16/FP32 indexer omits, so near-tied keys can be selected differently.",
+    "Two layers bound the size of the effect; the full 61-layer model cannot be run in the FP32 CPU reference."
+  ]
+}

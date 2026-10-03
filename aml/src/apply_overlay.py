@@ -4,6 +4,11 @@ The fork is upstream v0.23.0 plus 29 commits. Its only CUDA change (UE8M0 tile-s
 cache_kernels.cu) is gated to SM100 / VLLM_DS_MLA_UE8M0_SCALE, so on A100 the stock precompiled
 kernels are exactly what a full fork build would run. Every base file is hash-checked against the
 upstream tag before it is replaced and every fork file is hash-checked after download.
+
+Native DeepSeek Sparse Attention (DSA) on A100: the port of upstream vLLM PR #38476
+(TRITON_MLA_SPARSE backend + Triton MQA-logits indexer) described in dsa_port.json is applied on top.
+New files come from the PR commit and are hash-checked; modified files must match the expected base
+hash, receive exact-context hunks, and must then match the expected result hash.
 """
 import argparse
 import hashlib
@@ -16,6 +21,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 RAW = "https://raw.githubusercontent.com/SKT-AI/vllm/{sha}/{path}"
+PR_RAW = "https://raw.githubusercontent.com/vllm-project/vllm/{sha}/{path}"
 MLA = "vllm/model_executor/layers/attention/mla_attention.py"
 # Ampere fix, also needed for upstream v0.23.0: on SM80 the FP8 weights run through Marlin, which
 # repacks kv_b_proj.weight into int32 tiles. The dtype guard in the chunked-context prefill path then
@@ -35,10 +41,10 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def fetch(sha, path):
+def fetch(sha, path, template=RAW):
     for attempt in range(6):
         try:
-            with urllib.request.urlopen(RAW.format(sha=sha, path=path), timeout=60) as response:
+            with urllib.request.urlopen(template.format(sha=sha, path=path), timeout=60) as response:
                 return response.read()
         except Exception:
             if attempt == 5:
@@ -46,9 +52,61 @@ def fetch(sha, path):
             time.sleep(2 ** attempt)
 
 
+def apply_unified_diff(text, diff):
+    """Apply a `git diff -U3` for one file; every hunk must match exactly once."""
+    hunks, old, new, active = [], [], [], False
+    for line in diff.splitlines(keepends=True):
+        if line.startswith("@@"):
+            if active:
+                hunks.append(("".join(old), "".join(new)))
+            old, new, active = [], [], True
+        elif not active or line.startswith("\\"):
+            continue
+        elif line[0] == " ":
+            old.append(line[1:])
+            new.append(line[1:])
+        elif line[0] == "-":
+            old.append(line[1:])
+        elif line[0] == "+":
+            new.append(line[1:])
+    if active:
+        hunks.append(("".join(old), "".join(new)))
+    for before, after in hunks:
+        if text.count(before) != 1:
+            raise ValueError("hunk context does not match exactly once")
+        text = text.replace(before, after)
+    return text
+
+
+def apply_dsa_port(site, tests_dir):
+    port = json.loads(Path(__file__).with_name("dsa_port.json").read_text())
+    for item in port["new_files"]:
+        data = fetch(port["pr_commit"], item["path"], PR_RAW)
+        if sha256(data) != item["pr_sha256"]:
+            raise SystemExit(f"PR download hash mismatch for {item['path']}")
+        is_test = item["path"].startswith("tests/")
+        target = (tests_dir if is_test else site) / item["path"]
+        if not is_test and target.exists():
+            raise SystemExit(f"unexpected existing file {item['path']}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    for path, item in port["patched_files"].items():
+        target = site / path
+        data = target.read_bytes()
+        if sha256(data) != item["before_sha256"]:
+            raise SystemExit(f"{path} differs from the DSA port base")
+        patched = apply_unified_diff(data.decode(), item["diff"]).encode()
+        if sha256(patched) != item["after_sha256"]:
+            raise SystemExit(f"{path} DSA port result hash mismatch")
+        target.write_bytes(patched)
+    return {"pr": port["upstream_pr"], "pr_commit": port["pr_commit"],
+            "new_files": len(port["new_files"]), "patched_files": len(port["patched_files"])}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", required=True)
+    parser.add_argument("--tests-dir", default="/tmp/axk2-dsa-tests")
     args = parser.parse_args()
     manifest = json.loads(Path(__file__).with_name("overlay_manifest.json").read_text())
     installed = version("vllm")
@@ -85,16 +143,24 @@ def main():
             raise SystemExit(f"patch anchor not found exactly once in {path}")
         target.write_text(text.replace(old, new))
         result["patches"].append({"path": path, "sha256_after": sha256(target.read_bytes())})
-    probe = ("from vllm.model_executor.models.registry import ModelRegistry;"
+    result["dsa_port"] = apply_dsa_port(site, Path(args.tests_dir))
+    probe = ("import importlib;"
+             "from vllm.model_executor.models.registry import ModelRegistry;"
              "from vllm.transformers_utils.configs import AXK2Config;"
+             "from vllm.v1.attention.backends.registry import AttentionBackendEnum as E;"
+             "import vllm.model_executor.layers.sparse_attn_indexer;"
+             "m, c = E.TRITON_MLA_SPARSE.value.rsplit('.', 1);"
+             "print(getattr(importlib.import_module(m), c).get_name());"
              "print('AXK2ForCausalLM' in ModelRegistry.get_supported_archs())")
     check = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=600)
-    result["axk2_registered"] = check.stdout.strip().endswith("True")
+    lines = check.stdout.strip().splitlines()
+    result["axk2_registered"] = bool(lines) and lines[-1] == "True"
+    result["triton_mla_sparse_importable"] = "TRITON_MLA_SPARSE" in lines
     result["probe_stderr_tail"] = check.stderr[-1500:]
     Path(args.report).write_text(json.dumps(result, indent=2))
     print(json.dumps(result), flush=True)
-    if not result["axk2_registered"]:
-        raise SystemExit("AXK2 architecture not registered after overlay")
+    if not (result["axk2_registered"] and result["triton_mla_sparse_importable"]):
+        raise SystemExit("AXK2 or the TRITON_MLA_SPARSE backend is not usable after the overlay")
 
 
 if __name__ == "__main__":

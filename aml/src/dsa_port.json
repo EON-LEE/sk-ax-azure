@@ -1,0 +1,60 @@
+{
+ "upstream_pr": "https://github.com/vllm-project/vllm/pull/38476",
+ "pr_commit": "3740c02bb1223d37823593664ae3eafa397b9937",
+ "applied_on": "SKT-AI/vllm axk2-v0.23.0 @ 023bc76025459d6356c5885f271b9b95c50f93b6",
+ "note": "TRITON_MLA_SPARSE backend + Triton MQA-logits indexer for GPUs without DeepGEMM/FlashMLA-Sparse (A100). Conflicts with v0.23 (XPU branch) resolved as XPU -> DeepGEMM -> Triton. Backend restricted to non-SM90/SM100 so Hopper/Blackwell keep their native sparse kernels.",
+ "new_files": [
+  {
+   "path": "vllm/v1/attention/ops/mqa_logits_triton.py",
+   "source": "pr",
+   "pr_sha256": "0ad55e7f5be5341fead7605e3f6d62f83d4008c881af4c7d0dcac8bb16aa9e21"
+  },
+  {
+   "path": "vllm/v1/attention/ops/triton_mla_sparse_kernel.py",
+   "source": "pr",
+   "pr_sha256": "c1a0186f43fd08ffcc397ad1731a8757979de4dc54d0b91ee99fe0afcc91a518"
+  },
+  {
+   "path": "vllm/v1/attention/backends/mla/triton_mla_sparse.py",
+   "source": "pr",
+   "pr_sha256": "05a1ce61ea6a399a5e4b8d2a460cba53fd02d22ede48df67c265d5155b96ab1a"
+  },
+  {
+   "path": "tests/kernels/attention/test_mqa_logits_triton.py",
+   "source": "pr",
+   "pr_sha256": "fca252b0f03de690392f7f396957261b4211a9017b3dbd01b864c05127756058"
+  },
+  {
+   "path": "tests/kernels/attention/test_triton_mla_sparse_kernel.py",
+   "source": "pr",
+   "pr_sha256": "cd431b8641206891c20c1981fae76522bc16b732513d0cc7ce371b8e78ef810c"
+  }
+ ],
+ "patched_files": {
+  "vllm/model_executor/layers/sparse_attn_indexer.py": {
+   "before_sha256": "1d1e033f53b778c98f3216c2e9b28297525dfac6994b98f47b260334a4c8b7f6",
+   "after_sha256": "fba2d6c4ee3536a9f89e0749d9223baf739fb2b14ca2f24d71e4e3bd7d5eb270",
+   "diff": "diff --git a/vllm/model_executor/layers/sparse_attn_indexer.py b/vllm/model_executor/layers/sparse_attn_indexer.py\nindex 9597708..d4d02b0 100644\n--- a/vllm/model_executor/layers/sparse_attn_indexer.py\n+++ b/vllm/model_executor/layers/sparse_attn_indexer.py\n@@ -15,7 +15,7 @@ from vllm.platforms import current_platform\n from vllm.utils.deep_gemm import (\n     fp8_fp4_mqa_logits,\n     fp8_fp4_paged_mqa_logits,\n-    has_deep_gemm,\n+    is_deep_gemm_supported,\n )\n from vllm.utils.torch_utils import (\n     LayerNameType,\n@@ -27,6 +27,10 @@ from vllm.v1.attention.backends.mla.indexer import (\n     DeepseekV32IndexerMetadata,\n )\n from vllm.v1.attention.ops.common import pack_seq_triton, unpack_seq_triton\n+from vllm.v1.attention.ops.mqa_logits_triton import (\n+    fp8_mqa_logits_triton,\n+    fp8_paged_mqa_logits_triton,\n+)\n from vllm.v1.worker.workspace import current_workspace_manager\n \n logger = init_logger(__name__)\n@@ -173,6 +177,12 @@ def sparse_attn_indexer(\n         )\n \n     topk_indices_buffer[: hidden_states.shape[0]] = -1\n+    # DeepGEMM availability is constant per process; check once for both branches.\n+    use_deep_gemm = is_deep_gemm_supported()\n+    if not use_deep_gemm:\n+        assert not use_fp4_cache, (\n+            \"Triton sparse-MLA fallback does not support FP4 KV cache\"\n+        )\n     if has_prefill:\n         prefill_metadata = attn_metadata_narrowed.prefill\n         assert prefill_metadata is not None\n@@ -229,7 +239,7 @@ def sparse_attn_indexer(\n                     chunk.cu_seqlen_ks,\n                     chunk.cu_seqlen_ke,\n                 )\n-            else:\n+            elif use_deep_gemm:\n                 logits = fp8_fp4_mqa_logits(\n                     (q_slice_cast, q_scale_slice),\n                     (k_quant_cast, k_scale_cast),\n@@ -238,6 +248,16 @@ def sparse_attn_indexer(\n                     chunk.cu_seqlen_ke,\n                     clean_logits=False,\n                 )\n+            else:\n+                # SM80/SM121 Triton fallback (FP8 cache only).\n+                logits = fp8_mqa_logits_triton(\n+                    q_slice_cast,\n+                    (k_quant_cast, k_scale_cast),\n+                    weights[chunk.token_start : chunk.token_end],\n+                    chunk.cu_seqlen_ks,\n+                    chunk.cu_seqlen_ke,\n+                    clean_logits=False,\n+                )\n             num_rows = logits.shape[0]\n \n             topk_indices = topk_indices_buffer[\n@@ -320,7 +340,7 @@ def sparse_attn_indexer(\n                 decode_metadata.schedule_metadata,\n                 max_model_len,\n             )\n-        else:\n+        elif use_deep_gemm:\n             logits = fp8_fp4_paged_mqa_logits(\n                 (padded_q_quant_cast, padded_q_scale),\n                 kv_cache,\n@@ -331,6 +351,20 @@ def sparse_attn_indexer(\n                 max_model_len=max_model_len,\n                 clean_logits=False,\n             )\n+        else:\n+            # SM80/SM121 Triton fallback. Downstream topk reads only up to\n+            # `seq_lens`, so size the buffer to the active batch max rather\n+            # than the configured model max.\n+            active_max_model_len = attn_metadata_narrowed.max_seq_len\n+            logits = fp8_paged_mqa_logits_triton(\n+                padded_q_quant_cast,\n+                kv_cache,\n+                weights[:num_padded_tokens],\n+                seq_lens,\n+                decode_metadata.block_table,\n+                max_model_len=active_max_model_len,\n+                clean_logits=False,\n+            )\n         num_rows = logits.shape[0]\n         topk_indices = topk_indices_buffer[:num_padded_tokens, :topk_tokens]\n \n@@ -440,9 +474,15 @@ class SparseAttnIndexer(CustomOp):\n         self.topk_indices_buffer = topk_indices_buffer\n         self.skip_k_cache_insert = skip_k_cache_insert\n         self.use_fp4_cache = use_fp4_cache\n-        if current_platform.is_cuda() and not has_deep_gemm():\n-            raise RuntimeError(\n-                \"Sparse Attention Indexer CUDA op requires DeepGEMM to be installed.\"\n+        # On SM80/SM121 (A100, GB10) DeepGEMM is unavailable \u2014 fall back to\n+        # the Triton sparse-MLA path. is_deep_gemm_supported() encodes the\n+        # SM-arch + has_deep_gemm() gate; if not supported, downgrade the\n+        # hard error from upstream to a one-time warning so the indexer\n+        # routes through the Triton kernels in `mqa_logits_triton.py`.\n+        if current_platform.is_cuda() and not is_deep_gemm_supported():\n+            logger.warning_once(\n+                \"DeepGEMM not supported on this platform; \"\n+                \"using Triton fallback for sparse attention indexer.\"\n             )\n \n     def forward_native(\n"
+  },
+  "vllm/platforms/cuda.py": {
+   "before_sha256": "c3842089c5d0fa754edf4e432c780fe56171dd2de4b8883570fdc6fda4400ead",
+   "after_sha256": "1a4f6f366a75cb69f1799e0ba6e0c5b578e08bf92add2e0bf065441d6ca35b1d",
+   "diff": "diff --git a/vllm/platforms/cuda.py b/vllm/platforms/cuda.py\nindex 1d06cec..42486e2 100644\n--- a/vllm/platforms/cuda.py\n+++ b/vllm/platforms/cuda.py\n@@ -189,6 +189,7 @@ def _get_backend_priorities(\n                 AttentionBackendEnum.FLASHMLA,\n                 AttentionBackendEnum.FLASHINFER_MLA,\n                 AttentionBackendEnum.TRITON_MLA,\n+                AttentionBackendEnum.TRITON_MLA_SPARSE,\n                 AttentionBackendEnum.FLASHMLA_SPARSE,\n             ]\n     else:\n"
+  },
+  "vllm/v1/attention/backends/mla/indexer.py": {
+   "before_sha256": "ce0eb5302518da7867a004683517b164e4227a054226c2d2ab9b86320850473a",
+   "after_sha256": "540d8275e0cba8f6eda01dd5f16af915186b7fe370ab73229560f6384c0bcfcc",
+   "diff": "diff --git a/vllm/v1/attention/backends/mla/indexer.py b/vllm/v1/attention/backends/mla/indexer.py\nindex 2870ec9..b4c4fa4 100644\n--- a/vllm/v1/attention/backends/mla/indexer.py\n+++ b/vllm/v1/attention/backends/mla/indexer.py\n@@ -11,7 +11,7 @@ from vllm.platforms import current_platform\n from vllm.triton_utils import tl, triton\n from vllm.utils.deep_gemm import (\n     get_paged_mqa_logits_metadata,\n-    has_deep_gemm,\n+    is_deep_gemm_supported,\n )\n from vllm.utils.math_utils import cdiv\n from vllm.utils.platform_utils import num_compute_units\n@@ -609,7 +609,7 @@ class DeepseekV32IndexerMetadataBuilder(AttentionMetadataBuilder):\n                 seq_lens = seq_lens.unsqueeze(-1)\n \n             # DeepGEMM is required for the paged MQA logits on CUDA devices\n-            if current_platform.is_cuda() and has_deep_gemm():\n+            if current_platform.is_cuda() and is_deep_gemm_supported():\n                 self.scheduler_metadata_buffer[:] = get_paged_mqa_logits_metadata(\n                     seq_lens,\n                     self.kv_cache_spec.storage_block_size,\n"
+  },
+  "vllm/v1/attention/backends/registry.py": {
+   "before_sha256": "bc4adf34a954dd92c01cc2439922857c8fb7e15f29ac1fe85813dcd86107c065",
+   "after_sha256": "e564fbc4340170e52934d59ba503ece14f61fd1492505b51b9475221a111f119",
+   "diff": "diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py\nindex 24a59f0..35f1417 100644\n--- a/vllm/v1/attention/backends/registry.py\n+++ b/vllm/v1/attention/backends/registry.py\n@@ -71,6 +71,9 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):\n         \"FlashInferMLASparseBackend\"\n     )\n     TRITON_MLA = \"vllm.v1.attention.backends.mla.triton_mla.TritonMLABackend\"\n+    TRITON_MLA_SPARSE = (\n+        \"vllm.v1.attention.backends.mla.triton_mla_sparse.TritonMLASparseBackend\"\n+    )\n     CUTLASS_MLA = \"vllm.v1.attention.backends.mla.cutlass_mla.CutlassMLABackend\"\n     FLASHMLA = \"vllm.v1.attention.backends.mla.flashmla.FlashMLABackend\"\n     FLASHMLA_SPARSE = (\n"
+  },
+  "vllm/v1/attention/backends/mla/triton_mla_sparse.py": {
+   "before_sha256": "05a1ce61ea6a399a5e4b8d2a460cba53fd02d22ede48df67c265d5155b96ab1a",
+   "after_sha256": "15f89a325fc674cc94c0dfc9c3e4612991362515980c9641c36ed07bab69d95d",
+   "diff": "diff --git a/vllm/v1/attention/backends/mla/triton_mla_sparse.py b/vllm/v1/attention/backends/mla/triton_mla_sparse.py\nindex f9a3b09..a671938 100644\n--- a/vllm/v1/attention/backends/mla/triton_mla_sparse.py\n+++ b/vllm/v1/attention/backends/mla/triton_mla_sparse.py\n@@ -156,4 +156,7 @@ class TritonMLASparseBackend(AttentionBackend):\n \n     @classmethod\n     def supports_compute_capability(cls, capability: DeviceCapability) -> bool:\n-        return True\n+        # FlashMLA-Sparse / FlashInfer-MLA-Sparse are native on SM90/SM100 and\n+        # this backend precedes them in the shared priority list; keep the\n+        # Triton fallback to the architectures without those kernels.\n+        return capability.major not in (9, 10)\n"
+  }
+ }
+}

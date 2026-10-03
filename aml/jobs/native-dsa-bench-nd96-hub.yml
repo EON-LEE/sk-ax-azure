@@ -1,0 +1,46 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: native-dsa-and-dense-tp8-pp2-2xND96amsr-A100
+description: >-
+  One allocation of two 8xA100-80GB low-priority nodes. Both nodes download the pinned full
+  checkpoint (694 GB) from the Hub in the background. Meanwhile node 0 runs the kernel tests of the
+  TRITON_MLA_SPARSE port and serves the byte-exact 2-layer cut single-node (TP=8) in native DeepSeek
+  Sparse Attention and in dense mode, then on a Ray cluster across both nodes (TP=8 x PP=2), recording
+  per-position log-probabilities for comparison with the official Transformers implementation. The
+  full 61-layer model is then served as one OpenAI-compatible endpoint (TP=8 over NVLink inside each
+  node, PP=2 across nodes) in each mode and measured: functional, reasoning, arithmetic, determinism,
+  needles up to 60K tokens, latency and throughput sweeps.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: user_identity
+resources:
+  instance_count: 2
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+  MODES: "native dense"
+  TP: "8"
+  PP: "2"
+  SMOKE_MAX_MODEL_LEN: "16384"
+  SMOKE_MAX_NUM_SEQS: "16"
+  SMOKE_GPU_MEM_UTIL: "0.85"
+  SMOKE_HEALTH_TIMEOUT: "2400"
+  FULL_MAX_MODEL_LEN: "65536"
+  FULL_MAX_NUM_SEQS: "128"
+  FULL_GPU_MEM_UTIL: "0.90"
+  FULL_HEALTH_TIMEOUT: "3600"
+  RUN_KERNEL_TESTS: "1"
+  JOIN_TIMEOUT: "5400"
+  NCCL_IB_DISABLE: "1"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  bash /tmp/axk2src/entry.sh hf-smoke:2287ca456927eed33b899c404c0b2ffaf17aa09f
+  hf:2287ca456927eed33b899c404c0b2ffaf17aa09f
+limits:
+  timeout: 14400

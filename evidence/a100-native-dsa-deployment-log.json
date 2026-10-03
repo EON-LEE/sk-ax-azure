@@ -1,0 +1,43 @@
+{
+  "scope": "Chronology of the native-DSA A100 round on 2026-10-02/03 (UTC), with every failure and the fix applied.",
+  "steps": [
+    {
+      "what": "Port vLLM PR #38476 (TRITON_MLA_SPARSE) onto SKT axk2-v0.23.0",
+      "result": "git apply --3way: four files clean, sparse_attn_indexer.py conflicted with the v0.23 XPU branch.",
+      "fix": "Merged as XPU -> DeepGEMM -> Triton; restricted the backend to non-SM90/SM100; recorded as aml/src/dsa_port.json; offline application byte-identical to the merged tree."
+    },
+    {
+      "what": "Recreate workspaces",
+      "result": "11 of 12 failed: 'Soft-deleted workspace exists' (names reused from the deleted round).",
+      "fix": "New names with an -r2 suffix."
+    },
+    {
+      "what": "Capacity",
+      "result": "Job queued in 12 regions; italynorth and uksouth both allocated 2 x ND96amsr at 23:39Z.",
+      "fix": "first_capacity_wins.sh now wins on node allocation, cancelled 11 jobs and deleted the uksouth cluster holding 2 nodes."
+    },
+    {
+      "what": "Run 1 (magenta_engine_vgjw1yh229)",
+      "result": "Overlay + DSA port verified on both nodes; 94/94 PR kernel tests passed; 2-layer native TP8, dense TP8 and native TP8 x PP2 passed and were compared with the official reference. The full-checkpoint download stalled on both nodes at about 68% (241/355 files after 3.5 minutes, then no progress for 50 minutes), so the full-model phases were skipped.",
+      "fix": "Hub throughput probe from the same network: 326-476 MB/s per file, HTTP 200, no rate limiting. stage_weights.py now downloads in a child process under a watchdog (restart after 180 s without progress, resume, 16 workers)."
+    },
+    {
+      "what": "Run 2 (great_boniato_1kj9zkkgn1) on the still-warm nodes",
+      "result": "Download 568 s and 926 s per node; full model native (healthy in 302 s) and dense (171 s) served and measured; job exit 0."
+    },
+    {
+      "what": "Reports",
+      "result": "Some vLLM start-up summaries never reached the job record; the per-node progress line could not be parsed (tqdm carriage returns).",
+      "fix": "report.py ASCII-escapes and retries; launcher logs download progress with carriage returns split; facts recovered by collect-run-outputs.yml from the private artifacts."
+    }
+  ],
+  "cost_estimate_usd": {
+    "italynorth_2xND96amsr_spot_about_2.5h": 65.0,
+    "uksouth_duplicate_2xND96amsr_about_8min": 3.5,
+    "cpu_jobs": 0.5,
+    "workspaces_private_endpoints_storage": 2.0,
+    "total_this_round_approx": 71,
+    "basis": "Retail Spot USD 12.89 per ND96amsr node-hour in italynorth/uksouth on 2026-10-02 x observed allocation windows; the Azure invoice is authoritative."
+  },
+  "cleanup": "Resource group rg-axk2-aml-208d24c1 (12 workspaces, storage, key vaults, private endpoints, clusters) deleted at 02:09Z."
+}

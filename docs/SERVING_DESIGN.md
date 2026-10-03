@@ -80,8 +80,8 @@ flowchart LR
 | --- | --- | --- |
 | Capacity | Azure ML compute cluster, low-priority ND96amsr x 2, min 0 nodes | Same SKU on demand/reserved in the customer subscription |
 | Orchestration | One AML command job, `distribution: pytorch`, 1 process per node; script starts the Ray head/worker | AKS + KubeRay or LeaderWorkerSet (KAITO), or CycleCloud Slurm |
-| Engine | vLLM 0.23.0 + SKT fork, `--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray` | Same command and image |
-| Kernels on SM80 | FP8 weight-only Marlin (linear and MoE), Triton MLA decode, FlashAttention-2 MLA prefill | Same; Hopper/Blackwell use native FP8 and DSA kernels |
+| Engine | vLLM 0.23.0 + SKT fork + TRITON_MLA_SPARSE port (section 5b), `--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray` | Same command and image |
+| Kernels on SM80 | FP8 weight-only Marlin (linear and MoE). Native DSA: Triton MQA-logits indexer + Triton sparse MLA. Dense mode: Triton MLA decode, FlashAttention-2 MLA prefill | Same; Hopper/Blackwell use native FP8 and DSA kernels |
 
 Files: `aml/src/entry.sh` (per-node launcher), `aml/jobs/*.yml`
 (job templates), `aml/render_job.py`, `aml/fetch_results.py`, `aml/Dockerfile`.
@@ -134,6 +134,47 @@ RULER and NIAH). DeepSeek uses the same identity in production: "for
 short-sequence prefilling, we specially implement a masked MHA mode to
 simulate DSA" (DeepSeek-V3.2-Exp report).
 
+## 5b. Native DSA on A100: the TRITON_MLA_SPARSE port
+
+Dense mode is no longer the only option. Upstream vLLM PR
+[#38476](https://github.com/vllm-project/vllm/pull/38476) (open, not merged;
+author's own description: "a concept") adds what A100 lacks:
+
+- `TRITON_MLA_SPARSE`, a pure-Triton sparse MLA backend. It computes MQA over
+  exactly the top-k selected latent KV entries, with a split-KV decode.
+- A Triton implementation of DeepGEMM's FP8 MQA logits for the lightning
+  indexer (prefill and paged decode). FP8 keys are decoded in-kernel, because
+  SM80 has no FP8 tensor cores.
+- Dispatch guards so DeepGEMM is never called where it is unsupported.
+
+The PR was written against vLLM main from March 2026; the SKT fork is
+v0.23.0 (June). `git apply --3way` applied it cleanly except
+`sparse_attn_indexer.py`. There, the v0.23 XPU branch and the PR's Triton branch
+were merged in the order XPU, then DeepGEMM, then Triton. One guard was added:
+the PR put `TRITON_MLA_SPARSE` ahead of `FLASHMLA_SPARSE` in a priority list
+that Hopper also uses, so the backend now declines SM90/SM100, which keep
+their native kernels. `aml/src/dsa_port.json` records the result. It lists the
+five new files, downloaded from the PR commit and hash-checked, and exact-context
+diffs for the five modified files, each with an expected before-hash and
+after-hash. Applied to the v0.23 + fork files offline, the port is
+byte-identical to the merged git tree.
+
+Interactions checked against v0.23:
+
+- The XPU sparse base class the backend extends is unchanged since March.
+- AXK2's indexer uses the same `SparseAttnIndexer` op and 64 heads (no padding).
+- The 4D indexer cache view and 2D `seq_lens` already existed at the PR's base.
+- `persistent_topk` (decode top-k) needs only SM70. Its long-context hang
+  reported on the PR was fixed upstream by #41444 before v0.23.
+- A later fix, #49139, is not in the v0.23 wheel. It affects a decode batch in
+  which two sequences longer than 32K tokens are scheduled around a shorter
+  one in the same CTA group. The tests here never batch two sequences longer
+  than 32K.
+
+The SKT checkpoint is served **unchanged** in native mode: no config edits, the
+indexer weights load, and every layer selects 2048 keys per query exactly as
+on B300.
+
 ## 6. Subscription policy constraints (MCAPS)
 
 A management-group Azure Policy with a `modify` effect forces every storage
@@ -147,29 +188,118 @@ The design works within it and does not bypass it:
 - The CLI cannot upload a `code:` snapshot from outside the VNet, and Batch
   rejects very long command lines. `aml/render_job.py` puts `aml/src` in the
   `AXK2_SRC_B64` environment variable (base64 tar.gz).
-- Artifacts stay in private storage. Jobs report JSON summaries as chunked
-  MLflow tags and per-position series as MLflow metrics, read with
-  `aml/fetch_results.py` through the workspace API.
+- Artifacts stay in private storage. Jobs report JSON summaries and
+  zlib-compressed per-position series as chunked MLflow tags (ASCII-escaped,
+  at most 90 tags per call, retried), read with `aml/fetch_results.py`
+  through the workspace API. `aml/jobs/peek-run-logs.yml` and
+  `collect-run-outputs.yml` read a job's streamed logs or finished outputs
+  from inside the VNet.
 
 ## 7. Validation ladder
 
 | Stage | What it proves | Cost |
 | --- | --- | --- |
 | A. CPU tiny AXK2 (`experiments/validate_dense_equivalence.py`) | Dense == sparse within `index_topk` for prefill and cached decode; divergence beyond it | none |
-| B1. 2-layer real-weight cut, official Transformers FP32 sparse on CPU | Reference log-probabilities from SKT's own model definition | CPU minutes |
-| B2. Same cut on the target nodes: vLLM dense, single-node TP8, then Ray TP8 x PP2 across both nodes | The exact launch path, overlay and SM80 kernels on real weights, multi-node parity, agreement with B1 | minutes of the C allocation |
-| C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2, same Ray cluster as B2 | Load and serve all 61 layers; functional, reasoning, accuracy, determinism, long-context and load tests | ~USD 26/hour |
+| B1. 2-layer real-weight cut, official Transformers FP32 sparse on CPU, prompts up to 7,166 tokens | Reference log-probabilities from SKT's own model definition | CPU minutes |
+| B2. PR #38476 Triton kernel tests on A100 | The ported indexer-logits and sparse-MLA kernels against their references | minutes |
+| B3. Same cut on the target nodes: vLLM native DSA and dense, single-node TP8, then native over Ray TP8 x PP2 | The exact launch path, overlay, DSA port and SM80 kernels on real weights; agreement with B1 inside and beyond `index_topk` | minutes of the C allocation |
+| C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2, native and dense | Load and serve all 61 layers; functional, reasoning, accuracy, determinism, needles to 60K tokens, latency and throughput sweeps | ~USD 26/hour |
 
-`aml/jobs/rehearse-then-serve-nd96-hub.yml` runs B2 and C in one allocation:
-both nodes download the full checkpoint from the Hub in the background
-while B2 runs, and C starts only if B2 passes. Because Spot capacity was
-scarce, the same job was queued in several regions, and
-`aml/first_capacity_wins.sh` cancelled every other region once one region
-had both nodes.
+`aml/jobs/native-dsa-bench-nd96-hub.yml` runs B2, B3 and C in one allocation.
+Both nodes download the full checkpoint from the Hub in the background while
+B2 and B3 run. `aml/jobs/full-native-dense-nd96-hub.yml` runs only C. Spot
+capacity was scarce, so the same job was queued in up to 12 regions.
+`aml/first_capacity_wins.sh` picks the first region that holds both nodes,
+cancels every other job and deletes any loser cluster that already holds
+nodes.
 
-## 8. Results (2026-10-02, italynorth)
+## 8. Results
 
-All stages passed. Evidence: `evidence/axk2-dense-equivalence-cpu.json`,
+### 8.1 Native DSA versus dense on the same allocation (2026-10-03, italynorth)
+
+All phases passed. Evidence: `evidence/a100-native-dsa-2layer-vs-official.json`,
+`evidence/a100-native-vs-dense-full-model.json` and
+`evidence/a100-native-dsa-deployment-log.json` (failures, fixes, cost).
+
+**Kernels.** The 94 PR #38476 Triton kernel tests pass on A100. vLLM logs
+confirm the paths used:
+
+- **Native mode:** "DeepGEMM not supported on this platform; using Triton
+  fallback for sparse attention indexer" and "Using TRITON_MLA_SPARSE
+  attention backend".
+- **Dense mode:** `TRITON_MLA`.
+- **Both modes:** `MarlinFP8ScaledMMLinearKernel` for linear layers and the
+  MARLIN FP8 MoE backend.
+
+**Correctness on real weights.** The byte-exact 2-layer cut was compared
+with the official Transformers implementation (FP32, sparse DSA) on 14,618
+prompt positions. Of these, 7,262 lie beyond `index_topk`, in the 7.2K-token
+model card. The table shows the mean |Δ log-probability| of the chosen token:
+
+| vLLM on A100 | Inside `index_topk` | Beyond `index_topk` | Max beyond |
+| --- | ---: | ---: | ---: |
+| Native DSA, one node TP8 | 0.0116 | **0.0111** | 0.13 |
+| Native DSA, two nodes TP8 x PP2 | 0.0120 | **0.0115** | - |
+| Dense, one node TP8 | 0.0116 | 0.0123 | 0.22 |
+
+Inside `index_topk` both modes compute the same function, and 0.0116 is the
+BF16-versus-FP32 floor. Beyond it, native stays at that floor while dense
+drifts. Dense and native differ from each other 2.4 times more beyond
+`index_topk` (0.0120) than inside it (0.0051). Native therefore reproduces
+the trained sparse attention. Two layers bound the size of the effect; the
+full model cannot run in the FP32 CPU reference.
+
+**Full 688B model, one endpoint, 16 x A100 80GB.** Settings: TP8 x PP2,
+`max_model_len` 65,536, up to 128 sequences.
+
+| | Native DSA | Dense |
+| --- | --- | --- |
+| Healthy after launch | 302 s | 171 s |
+| Weights / KV cache per GPU | 42.2 GiB / 26.4 GiB | 41.7 GiB / 26.8 GiB |
+| KV cache capacity | 724,544 tokens | 821,312 tokens |
+| Functional (Korean/English, translation, code) | 6/6 | 6/6 |
+| Reasoning mode | correct | correct |
+| Needles at 1.4K / 8K / 30K / 60K tokens, 3 depths each | 12/12 | 12/12 |
+| Arithmetic without thinking | 14/20 | 14/20 |
+| Two identical greedy requests bitwise equal | no | no |
+
+All six arithmetic misses ended normally (`stop`), with a wrong number, for
+example 86 x 8 + 83 answered as 761. That is the model's no-thinking mental
+arithmetic, not truncation; the same kind of problem was answered correctly
+in reasoning mode.
+
+The speed results below come from `vllm bench serve` with random-token prompts,
+256 output tokens and `--ignore-eos`.
+
+| Scenario | Native: output tok/s | Native: median TTFT | Native: median TPOT | Dense: output tok/s | Dense: median TTFT | Dense: median TPOT |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 request, 1K input | 49 | 355 ms | 19.2 ms | 60 | 199 ms | 15.8 ms |
+| 1 request, 8K input | 38 | 1.65 s | 20.0 ms | 50 | 0.85 s | 16.7 ms |
+| 1 request, 32K input | 20 | 7.21 s | 21.1 ms | 31 | 3.33 s | 19.1 ms |
+| 1K input, concurrency 8 | 216 | 1.51 s | 31.0 ms | 243 | 1.09 s | 28.4 ms |
+| 1K input, concurrency 32 | 360 | 1.83 s | 76.7 ms | 494 | 0.99 s | 58.1 ms |
+| 1K input, concurrency 64 | 618 | 1.70 s | 90.3 ms | 707 | 0.76 s | 85.8 ms |
+| 1K input, concurrency 128 | 812 | 2.94 s | 145.5 ms | 898 | 1.20 s | 132.9 ms |
+| 16K input, concurrency 4 | 53 | 6.30 s | 43.5 ms | 69 | 4.92 s | 37.5 ms |
+| 16K input, concurrency 16 | 51 | 25.4 s | 208 ms | 84 | 13.1 s | 140 ms |
+
+The two modes trade exactness for speed:
+
+- **Native DSA is the model as trained.** Its decode cost per token is almost
+  flat from 1K to 32K tokens of context (19.2 to 21.1 ms), as designed. The
+  port is still unoptimized Triton, and the PR author calls it "a concept".
+- **Dense on A100 is 10-60% faster.** Prefill uses the mature FlashAttention-2
+  path, and decode attention is cheap at these context lengths. Its decode
+  cost grows with context (15.8 to 19.1 ms), so the gap narrows. It is exact
+  only up to 2,048 context tokens.
+
+Which mode to choose depends on the workload. Native is the faithful
+long-context configuration. Dense is defensible when prompts plus output stay
+short or when a long-context evaluation accepts it.
+
+### 8.2 First full-model run, dense only (2026-10-02, italynorth)
+
+Evidence: `evidence/axk2-dense-equivalence-cpu.json`,
 `evidence/a100-2layer-vs-official.json`,
 `evidence/a100-full-model-tp8-pp2-results.json` and
 `evidence/a100-deployment-attempts.json` (every failure and fix).
@@ -217,26 +347,35 @@ Synthetic load, 1024-token prompts, 128 output tokens:
 
 Spend was about USD 34: 61 minutes of the winning 2-node cluster, 6
 minutes of a duplicate allocation that was cancelled, and CPU jobs.
-Everything was deleted afterwards.
+Everything was deleted afterwards. The native-DSA round (8.1) cost about
+USD 71 more, mostly 2.5 hours of the italynorth cluster; it was deleted too.
 
 ## 9. Known limits and next steps
 
 - Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
-  could not be allocated in four of six regions on the test day. Production
-  needs on-demand or reserved capacity in the customer subscription. Run the
+  was available in two of twelve regions when asked. Production needs
+  on-demand or reserved capacity in the customer subscription. Run the
   same image and command there, on AKS + KubeRay/LWS or CycleCloud Slurm.
-- Dense mode beyond 2048 context tokens is only probed by one needle test
-  here; it needs a quality evaluation (for example AA-LCR, RULER) before
-  long-context production use. A native SM80 DSA backend (a Triton indexer
-  plus sparse MLA over the selected indices) would remove the approximation.
-- The arithmetic probe (14/20) did not record individual answers; repeat it
-  with thinking enabled and per-item logging before drawing conclusions.
+- Native DSA depends on an unmerged upstream PR carried as a hash-checked
+  overlay. Re-validate (kernel tests plus the 2-layer comparison in
+  `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
+  prefer upstream support once it lands.
+- The v0.23 `persistent_topk` decode kernel lacks upstream fix #49139 (two
+  sequences longer than 32K tokens batched around a shorter one). Serving
+  many concurrent sequences longer than 32K tokens should wait for a vLLM
+  build that includes it.
+- Needles, functional probes and the 2-layer comparison are not a full
+  quality evaluation; run AA-LCR, RULER or the customer's own set, in both
+  modes if dense is considered.
 - Output is not bitwise reproducible across identical requests with the
   default kernels; use vLLM's batch-invariant mode if exact reproducibility
-  is required.
+  is required (the Triton sparse port does not wire it yet).
 - The PoC disables InfiniBand for NCCL (`NCCL_IB_DISABLE=1`); pipeline-parallel
   traffic between the two stages is one hidden-state tensor per step. Enable
   IB in production once the container's RDMA userland is verified; the
   `/dev/infiniband` devices were visible inside the job containers.
+- Hub downloads of 694 GB can stall (observed once at 68%); the watchdog in
+  `stage_weights.py` restarts and resumes. Production should stage the
+  weights once into same-region storage or an image cache.
 - Throughput tuning (expert parallelism, data-parallel replicas, speculative
   decoding, `fastsafetensors` loading) is out of scope for this proof.

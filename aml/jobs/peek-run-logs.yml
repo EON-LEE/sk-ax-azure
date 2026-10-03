@@ -1,0 +1,27 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: peek-run-logs
+description: >-
+  Read another job's streamed user_logs from inside the managed VNet (storage is private by policy)
+  and report the launcher's progress lines through the job record. Replace __RUN__ before rendering.
+compute: azureml:cpu-lp
+environment:
+  image: docker.io/library/python:3.12-slim
+identity:
+  type: user_identity
+inputs:
+  logs:
+    type: uri_folder
+    mode: download
+    path: azureml://datastores/workspaceartifactstore/paths/ExperimentRun/dcid.__RUN__/user_logs/
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  pip install -q --no-cache-dir "mlflow-skinny>=2.16" azureml-mlflow &&
+  for f in ${{inputs.logs}}/std_log_process_*.txt; do
+  grep -v -E "NCCL INFO|jit_monitor|CUDA graph pool|Registering [0-9]+ cuda graph" "$f" | grep -E "\[node[0-9]\]|ERROR|Error|Traceback|healthy|phase" | tail -n 60 > /tmp/peek.txt ;
+  python /tmp/axk2src/report.py "peek.$(basename $f .txt)" --file /tmp/peek.txt ; done
+limits:
+  timeout: 1200

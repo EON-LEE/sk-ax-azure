@@ -1,13 +1,12 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 type: command
 experiment_name: axk2-distributed-poc
-display_name: serve-tp8-pp2-2xND96amsr-A100
+display_name: serve-staged-tp8-pp2-2xND96amsr-A100
 description: >-
-  Full 61-layer A.X-K2 (688B, FP8) served as ONE OpenAI-compatible endpoint by vLLM on a Ray
-  cluster of two 8xA100-80GB low-priority nodes: tensor parallel 8 over NVLink inside each node,
-  pipeline parallel 2 across the nodes. Stock vLLM 0.23.0 image + pinned SKT fork overlay, dense
-  mode (exact DSA semantics up to 2048 tokens of context). Runs functional, accuracy, determinism,
-  long-context and load tests, then shuts down.
+  Variant of native-dsa-bench-nd96-hub.yml for a workspace whose private blob already holds the
+  staged checkpoint (stage-full-weights.yml): the full 61-layer A.X-K2 served as ONE OpenAI-compatible
+  endpoint on a Ray cluster of two 8xA100-80GB nodes (TP=8 inside each node, PP=2 across nodes) in
+  each mode listed in MODES, with the full client suite. No 2-layer rehearsal.
 compute: azureml:a100-nd96-lp
 environment:
   image: docker.io/vllm/vllm-openai:v0.23.0-cu129
@@ -26,18 +25,18 @@ distribution:
   process_count_per_instance: 1
 environment_variables:
   AXK2_SRC_B64: "__AXK2_SRC_B64__"
-  SUITE: full
+  MODES: "native dense"
   TP: "8"
   PP: "2"
-  MAX_MODEL_LEN: "8192"
-  MAX_NUM_SEQS: "64"
-  GPU_MEM_UTIL: "0.90"
-  EAGER: "0"
-  HEALTH_TIMEOUT: "5400"
+  FULL_MAX_MODEL_LEN: "65536"
+  FULL_MAX_NUM_SEQS: "128"
+  FULL_GPU_MEM_UTIL: "0.90"
+  FULL_HEALTH_TIMEOUT: "3600"
+  RUN_KERNEL_TESTS: "0"
   JOIN_TIMEOUT: "5400"
   NCCL_IB_DISABLE: "1"
 command: >-
   mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
-  bash /tmp/axk2src/entry.sh ${{inputs.model}}
+  bash /tmp/axk2src/entry.sh none ${{inputs.model}}
 limits:
-  timeout: 10800
+  timeout: 14400

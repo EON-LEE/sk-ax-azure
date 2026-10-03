@@ -1,0 +1,1283 @@
+{
+  "scope": "Full 61-layer skt/A.X-K2 (688B total / 33B active, FP8, revision 2287ca45) served as ONE OpenAI-compatible endpoint by vLLM 0.23.0 + the pinned SKT fork + the TRITON_MLA_SPARSE port on a Ray cluster of 2 x Standard_ND96amsr_A100_v4 (16 x A100-SXM4-80GB): TP8 over NVLink inside each node, PP2 across nodes over NCCL/TCP. Same allocation, same settings, two attention modes: native (published config, DeepSeek Sparse Attention) and dense (indexer removed). Azure ML low-priority (Spot), italynorth.",
+  "job": "great_boniato_1kj9zkkgn1 (italynorth, 2026-10-03)",
+  "settings": {
+    "max_model_len": 65536,
+    "max_num_seqs": 128,
+    "gpu_memory_utilization": 0.9,
+    "prefix_caching": "vLLM default (on)",
+    "cuda_graphs": "vLLM default",
+    "nccl": "TCP, InfiniBand disabled"
+  },
+  "environment": {
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "driver": "580.95.05",
+    "torch": "2.11.0+cu129",
+    "vllm": "0.23.0+cu129",
+    "ray": "2.59.0",
+    "ray_nodes": [
+      {
+        "ip": "10.8.0.7",
+        "gpus": 8.0
+      },
+      {
+        "ip": "10.8.0.6",
+        "gpus": 8.0
+      }
+    ]
+  },
+  "download_seconds_per_node": [
+    568,
+    926
+  ],
+  "backend_selection_from_vllm_logs": {
+    "full-dense-tp8-pp2": [
+      "INFO [__init__.py:546] Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod",
+      "INFO [cuda.py:471] Using TRITON_MLA attention backend out of potential backends: ['TRITON_MLA'].",
+      "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+      "INFO [fp8.py:406] Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU'].",
+      "INFO [default_loader.py:397] Loading weights took 42.14 seconds",
+      "INFO [default_loader.py:397] Loading weights took 42.79 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 41.68 GiB memory and 59.073894 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 41.75 GiB memory and 55.848561 seconds",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 26.75 GiB",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 27.32 GiB",
+      "INFO [kv_cache_utils.py:1744] GPU KV cache size: 821,312 tokens",
+      "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 56.97 s (compilation: 35.15 s)"
+    ],
+    "full-native-tp8-pp2": [
+      "INFO [__init__.py:546] Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod",
+      "WARNING [sparse_attn_indexer.py:483] DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+      "INFO [cuda.py:471] Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+      "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+      "INFO [fp8.py:406] Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU'].",
+      "INFO [default_loader.py:397] Loading weights took 60.08 seconds",
+      "INFO [default_loader.py:397] Loading weights took 62.06 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 42.14 GiB memory and 90.044191 seconds",
+      "INFO [gpu_model_runner.py:5202] Model loading took 42.23 GiB memory and 92.000346 seconds",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 26.35 GiB",
+      "INFO [kv_cache_utils.py:1744] GPU KV cache size: 724,544 tokens",
+      "INFO [gpu_worker.py:480] Available KV cache memory: 26.86 GiB",
+      "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 141.01 s (compilation: 58.72 s)"
+    ]
+  },
+  "modes": {
+    "native": {
+      "startup_seconds_to_healthy": 302,
+      "summary": {
+        "functional_passed": 6,
+        "functional_total": 6,
+        "reasoning_passed": true,
+        "arithmetic": "14/20",
+        "deterministic": false,
+        "needle_found": "12/12",
+        "speed": {
+          "latency-in1024": {
+            "output_throughput": 48.6,
+            "median_ttft_ms": 355.3,
+            "median_tpot_ms": 19.2
+          },
+          "latency-in8192": {
+            "output_throughput": 37.9,
+            "median_ttft_ms": 1647.1,
+            "median_tpot_ms": 20.0
+          },
+          "latency-in32768": {
+            "output_throughput": 20.3,
+            "median_ttft_ms": 7211.3,
+            "median_tpot_ms": 21.1
+          },
+          "throughput-c1": {
+            "output_throughput": 49.7,
+            "median_ttft_ms": 338.2,
+            "median_tpot_ms": 19.2
+          },
+          "throughput-c8": {
+            "output_throughput": 216.4,
+            "median_ttft_ms": 1512.9,
+            "median_tpot_ms": 31.0
+          },
+          "throughput-c32": {
+            "output_throughput": 359.6,
+            "median_ttft_ms": 1830.2,
+            "median_tpot_ms": 76.7
+          },
+          "throughput-c64": {
+            "output_throughput": 617.8,
+            "median_ttft_ms": 1697.6,
+            "median_tpot_ms": 90.3
+          },
+          "throughput-c128": {
+            "output_throughput": 812.3,
+            "median_ttft_ms": 2937.6,
+            "median_tpot_ms": 145.5
+          },
+          "long16k-c4": {
+            "output_throughput": 52.6,
+            "median_ttft_ms": 6303.9,
+            "median_tpot_ms": 43.5
+          },
+          "long16k-c16": {
+            "output_throughput": 50.9,
+            "median_ttft_ms": 25376.4,
+            "median_tpot_ms": 208.0
+          }
+        }
+      },
+      "functional": [
+        {
+          "name": "ko_capital",
+          "passed": true,
+          "content": "서울",
+          "seconds": 3.0,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "en_multiply",
+          "passed": true,
+          "content": "391",
+          "seconds": 0.16,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "ko_fruit",
+          "passed": true,
+          "content": "6",
+          "seconds": 0.11,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "en_red_planet",
+          "passed": true,
+          "content": "Mars",
+          "seconds": 0.09,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "ko_translate",
+          "passed": true,
+          "content": "I drank coffee this morning.",
+          "seconds": 0.19,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "code_is_prime",
+          "passed": true,
+          "content": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+          "seconds": 2.03,
+          "finish_reason": "stop"
+        }
+      ],
+      "reasoning_mode": {
+        "passed": true,
+        "content": "The average speed is calculated by dividing the total distance traveled by the total time taken.\n\nDistance = 120 km  \nTime = 1.5 hours  \n\nAverage speed = 120 km / 1.5 h = 80 km/h\n\n80",
+        "reasoning_chars": 256,
+        "reasoning_head": "We are asked: \"A train travels 120 km in 1.5 hours. What is its average speed in km/h? Give the final answer as a number.\"\n\nWe need to compute average speed = total distance / total time = 120 km / 1.5 h = 80 km/h.\n\nThe final answer should be a number: 80.",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 41,
+          "total_tokens": 181,
+          "completion_tokens": 140,
+          "prompt_tokens_details": null
+        },
+        "seconds": 2.75
+      },
+      "arithmetic": {
+        "correct": 14,
+        "total": 20,
+        "items": [
+          {
+            "question": "25 * 7 + 74",
+            "expected": 249,
+            "content": "249",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "75 * 3 + 38",
+            "expected": 263,
+            "content": "263",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "86 * 8 + 83",
+            "expected": 771,
+            "content": "761",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "80 * 9 + 85",
+            "expected": 805,
+            "content": "720 + 85 = 805",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "66 * 5 + 10",
+            "expected": 340,
+            "content": "340",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "88 * 3 + 24",
+            "expected": 288,
+            "content": "288",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "46 * 3 + 67",
+            "expected": 205,
+            "content": "205",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "11 * 9 + 96",
+            "expected": 195,
+            "content": "207",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "50 * 5 + 60",
+            "expected": 310,
+            "content": "310",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "42 * 7 + 55",
+            "expected": 349,
+            "content": "349",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "58 * 3 + 53",
+            "expected": 227,
+            "content": "227",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "21 * 6 + 46",
+            "expected": 172,
+            "content": "172",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "68 * 4 + 92",
+            "expected": 364,
+            "content": "364",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "83 * 6 + 13",
+            "expected": 511,
+            "content": "511",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "57 * 7 + 69",
+            "expected": 468,
+            "content": "468",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "64 * 3 + 61",
+            "expected": 253,
+            "content": "253",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "84 * 9 + 24",
+            "expected": 780,
+            "content": "777",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "64 * 9 + 60",
+            "expected": 636,
+            "content": "616",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "77 * 6 + 63",
+            "expected": 525,
+            "content": "505",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "82 * 9 + 75",
+            "expected": 813,
+            "content": "747",
+            "finish_reason": "stop",
+            "correct": false
+          }
+        ]
+      },
+      "determinism": {
+        "identical": false,
+        "sample": "The Han River cuts through the heart of Seoul, serving as both a vital water source and a central artery for transportation and recreation. Its banks are lined with parks, walking paths, and bridges that offer stunning views of the city's modern skyline against the river's calm waters. By day, it is"
+      },
+      "needle": [
+        {
+          "target_tokens": 1400,
+          "depth": 0.1,
+          "prompt_tokens": 1435,
+          "found": true,
+          "content": "BLUE-9486",
+          "seconds": 0.6
+        },
+        {
+          "target_tokens": 1400,
+          "depth": 0.5,
+          "prompt_tokens": 1422,
+          "found": true,
+          "content": "BLUE-8644",
+          "seconds": 0.58
+        },
+        {
+          "target_tokens": 1400,
+          "depth": 0.9,
+          "prompt_tokens": 1419,
+          "found": true,
+          "content": "BLUE-6739",
+          "seconds": 0.58
+        },
+        {
+          "target_tokens": 8000,
+          "depth": 0.1,
+          "prompt_tokens": 8011,
+          "found": true,
+          "content": "BLUE-5342",
+          "seconds": 2.12
+        },
+        {
+          "target_tokens": 8000,
+          "depth": 0.5,
+          "prompt_tokens": 7979,
+          "found": true,
+          "content": "BLUE-3048",
+          "seconds": 1.83
+        },
+        {
+          "target_tokens": 8000,
+          "depth": 0.9,
+          "prompt_tokens": 8002,
+          "found": true,
+          "content": "BLUE-2967",
+          "seconds": 1.84
+        },
+        {
+          "target_tokens": 30000,
+          "depth": 0.1,
+          "prompt_tokens": 30027,
+          "found": true,
+          "content": "BLUE-3303",
+          "seconds": 7.57
+        },
+        {
+          "target_tokens": 30000,
+          "depth": 0.5,
+          "prompt_tokens": 29996,
+          "found": true,
+          "content": "BLUE-2203",
+          "seconds": 7.56
+        },
+        {
+          "target_tokens": 30000,
+          "depth": 0.9,
+          "prompt_tokens": 30025,
+          "found": true,
+          "content": "BLUE-5628",
+          "seconds": 7.57
+        },
+        {
+          "target_tokens": 60000,
+          "depth": 0.1,
+          "prompt_tokens": 60136,
+          "found": true,
+          "content": "BLUE-9339",
+          "seconds": 19.71
+        },
+        {
+          "target_tokens": 60000,
+          "depth": 0.5,
+          "prompt_tokens": 59687,
+          "found": true,
+          "content": "BLUE-5323",
+          "seconds": 19.43
+        },
+        {
+          "target_tokens": 60000,
+          "depth": 0.9,
+          "prompt_tokens": 59938,
+          "found": true,
+          "content": "BLUE-4845",
+          "seconds": 19.52
+        }
+      ],
+      "streaming_single_user": {
+        "ttft_seconds": 0.091,
+        "chunks": 256,
+        "total_seconds": 4.96,
+        "decode_chunks_per_second": 52.38
+      },
+      "benchmarks": [
+        {
+          "name": "latency-in1024",
+          "concurrency": 1,
+          "num_prompts": 3,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 27.4,
+          "completed": 3,
+          "request_throughput": 0.18979330763606003,
+          "output_throughput": 48.58708675483137,
+          "total_token_throughput": 242.93543377415685,
+          "mean_ttft_ms": 364.80921800011856,
+          "median_ttft_ms": 355.3375480005343,
+          "p99_ttft_ms": 401.0180077203586,
+          "mean_tpot_ms": 19.23063771895363,
+          "median_tpot_ms": 19.228844309801904,
+          "p99_tpot_ms": 19.234844692234237,
+          "median_itl_ms": 19.232818000091356,
+          "p99_itl_ms": 19.46424432004278,
+          "median_e2el_ms": 5258.69284700002
+        },
+        {
+          "name": "latency-in8192",
+          "concurrency": 1,
+          "num_prompts": 3,
+          "input_len": 8192,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 31.8,
+          "completed": 3,
+          "request_throughput": 0.14794269424017625,
+          "output_throughput": 37.87332972548512,
+          "total_token_throughput": 1249.819880941009,
+          "mean_ttft_ms": 1664.5320526668002,
+          "median_ttft_ms": 1647.0642519998364,
+          "p99_ttft_ms": 1699.2154008403486,
+          "mean_tpot_ms": 19.978683197384978,
+          "median_tpot_ms": 19.978453580391513,
+          "p99_tpot_ms": 19.981591348235998,
+          "median_itl_ms": 20.000984000034805,
+          "p99_itl_ms": 20.345429519729805,
+          "median_e2el_ms": 6741.574319000392
+        },
+        {
+          "name": "latency-in32768",
+          "concurrency": 1,
+          "num_prompts": 3,
+          "input_len": 32768,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 50.2,
+          "completed": 3,
+          "request_throughput": 0.07925951894399372,
+          "output_throughput": 20.29043684966239,
+          "total_token_throughput": 2617.4663536064486,
+          "mean_ttft_ms": 7228.969328332823,
+          "median_ttft_ms": 7211.296570999366,
+          "p99_ttft_ms": 7269.264717599763,
+          "mean_tpot_ms": 21.127291437909175,
+          "median_tpot_ms": 21.121551058825514,
+          "p99_tpot_ms": 21.140626989411878,
+          "median_itl_ms": 21.23666899933596,
+          "p99_itl_ms": 21.85497919974296,
+          "median_e2el_ms": 12597.292090999872
+        },
+        {
+          "name": "throughput-c1",
+          "concurrency": 1,
+          "num_prompts": 8,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 54.3,
+          "completed": 8,
+          "request_throughput": 0.1939643376074449,
+          "output_throughput": 49.65487042750589,
+          "total_token_throughput": 248.27435213752946,
+          "mean_ttft_ms": 248.38037025006088,
+          "median_ttft_ms": 338.2260545004101,
+          "p99_ttft_ms": 340.4464320893385,
+          "mean_tpot_ms": 19.242691224020497,
+          "median_tpot_ms": 19.230871729411653,
+          "p99_tpot_ms": 19.32737912858754,
+          "median_itl_ms": 19.237881999742967,
+          "p99_itl_ms": 19.99739458031399,
+          "median_e2el_ms": 5241.732001500623
+        },
+        {
+          "name": "throughput-c8",
+          "concurrency": 8,
+          "num_prompts": 24,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 40.1,
+          "completed": 24,
+          "request_throughput": 0.8453347270042858,
+          "output_throughput": 216.40569011309717,
+          "total_token_throughput": 1082.0284505654859,
+          "mean_ttft_ms": 1482.2255694998983,
+          "median_ttft_ms": 1512.9200494998258,
+          "p99_ttft_ms": 2532.228956789677,
+          "mean_tpot_ms": 31.22321753153628,
+          "median_tpot_ms": 30.979202862744938,
+          "p99_tpot_ms": 36.743055178667234,
+          "median_itl_ms": 28.671466000105283,
+          "p99_itl_ms": 30.28656628023787,
+          "median_e2el_ms": 9414.089642999897
+        },
+        {
+          "name": "throughput-c32",
+          "concurrency": 32,
+          "num_prompts": 96,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 80.7,
+          "completed": 96,
+          "request_throughput": 1.4047852706075696,
+          "output_throughput": 359.6250292755378,
+          "total_token_throughput": 1798.1251463776891,
+          "mean_ttft_ms": 2728.5248111978526,
+          "median_ttft_ms": 1830.2332404996378,
+          "p99_ttft_ms": 8971.274447200085,
+          "mean_tpot_ms": 78.2207156920753,
+          "median_tpot_ms": 76.68338826470597,
+          "p99_tpot_ms": 93.81847114823411,
+          "median_itl_ms": 61.47878049978317,
+          "p99_itl_ms": 597.3926150294574,
+          "median_e2el_ms": 21639.22928450029
+        },
+        {
+          "name": "throughput-c64",
+          "concurrency": 64,
+          "num_prompts": 192,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 93.3,
+          "completed": 192,
+          "request_throughput": 2.4132653698447126,
+          "output_throughput": 617.7959346802464,
+          "total_token_throughput": 3088.979673401232,
+          "mean_ttft_ms": 3948.5773591719303,
+          "median_ttft_ms": 1697.6358914998855,
+          "p99_ttft_ms": 10302.733573609621,
+          "mean_tpot_ms": 87.74674942066984,
+          "median_tpot_ms": 90.2691504686296,
+          "p99_tpot_ms": 120.7677974144338,
+          "median_itl_ms": 59.517177500310936,
+          "p99_itl_ms": 598.7239940805921,
+          "median_e2el_ms": 25035.278524000205
+        },
+        {
+          "name": "throughput-c128",
+          "concurrency": 128,
+          "num_prompts": 384,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 136.2,
+          "completed": 384,
+          "request_throughput": 3.1731669983540205,
+          "output_throughput": 812.3307515786292,
+          "total_token_throughput": 4061.653757893146,
+          "mean_ttft_ms": 7142.218012658858,
+          "median_ttft_ms": 2937.5730779997866,
+          "p99_ttft_ms": 19062.422439440143,
+          "mean_tpot_ms": 128.00933991103966,
+          "median_tpot_ms": 145.4914560451007,
+          "p99_tpot_ms": 204.84251544984545,
+          "median_itl_ms": 83.2236890000786,
+          "p99_itl_ms": 577.5315062398294,
+          "median_e2el_ms": 39893.76349650002
+        },
+        {
+          "name": "long16k-c4",
+          "concurrency": 4,
+          "num_prompts": 8,
+          "input_len": 16384,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 51.9,
+          "completed": 8,
+          "request_throughput": 0.2054336942919358,
+          "output_throughput": 52.59102573873557,
+          "total_token_throughput": 3418.4166730178117,
+          "mean_ttft_ms": 8015.365826999982,
+          "median_ttft_ms": 6303.920793499856,
+          "p99_ttft_ms": 20291.42594655016,
+          "mean_tpot_ms": 44.43714835784329,
+          "median_tpot_ms": 43.46198599215652,
+          "p99_tpot_ms": 86.8233566102346,
+          "median_itl_ms": 23.64168449958015,
+          "p99_itl_ms": 803.4740362098637,
+          "median_e2el_ms": 19293.047019999904
+        },
+        {
+          "name": "long16k-c16",
+          "concurrency": 16,
+          "num_prompts": 32,
+          "input_len": 16384,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 177.6,
+          "completed": 32,
+          "request_throughput": 0.19893073209801568,
+          "output_throughput": 50.92626741709201,
+          "total_token_throughput": 3310.2073821109807,
+          "mean_ttft_ms": 27880.832386062535,
+          "median_ttft_ms": 25376.358910999897,
+          "p99_ttft_ms": 60371.56085012048,
+          "mean_tpot_ms": 202.80149318995134,
+          "median_tpot_ms": 208.0128563098037,
+          "p99_tpot_ms": 369.78332333196124,
+          "median_itl_ms": 33.24097700033235,
+          "p99_itl_ms": 910.2334181200331,
+          "median_e2el_ms": 80254.36886499984
+        }
+      ]
+    },
+    "dense": {
+      "startup_seconds_to_healthy": 171,
+      "summary": {
+        "functional_passed": 6,
+        "functional_total": 6,
+        "reasoning_passed": true,
+        "arithmetic": "14/20",
+        "deterministic": false,
+        "needle_found": "12/12",
+        "speed": {
+          "latency-in1024": {
+            "output_throughput": 60.3,
+            "median_ttft_ms": 198.8,
+            "median_tpot_ms": 15.8
+          },
+          "latency-in8192": {
+            "output_throughput": 49.9,
+            "median_ttft_ms": 854.3,
+            "median_tpot_ms": 16.7
+          },
+          "latency-in32768": {
+            "output_throughput": 31.2,
+            "median_ttft_ms": 3328.7,
+            "median_tpot_ms": 19.1
+          },
+          "throughput-c1": {
+            "output_throughput": 61.3,
+            "median_ttft_ms": 196.9,
+            "median_tpot_ms": 15.8
+          },
+          "throughput-c8": {
+            "output_throughput": 243.1,
+            "median_ttft_ms": 1091.0,
+            "median_tpot_ms": 28.4
+          },
+          "throughput-c32": {
+            "output_throughput": 494.3,
+            "median_ttft_ms": 989.7,
+            "median_tpot_ms": 58.1
+          },
+          "throughput-c64": {
+            "output_throughput": 707.3,
+            "median_ttft_ms": 761.5,
+            "median_tpot_ms": 85.8
+          },
+          "throughput-c128": {
+            "output_throughput": 898.1,
+            "median_ttft_ms": 1200.5,
+            "median_tpot_ms": 132.9
+          },
+          "long16k-c4": {
+            "output_throughput": 68.7,
+            "median_ttft_ms": 4923.4,
+            "median_tpot_ms": 37.5
+          },
+          "long16k-c16": {
+            "output_throughput": 83.8,
+            "median_ttft_ms": 13134.6,
+            "median_tpot_ms": 139.8
+          }
+        }
+      },
+      "functional": [
+        {
+          "name": "ko_capital",
+          "passed": true,
+          "content": "서울",
+          "seconds": 0.29,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "en_multiply",
+          "passed": true,
+          "content": "391",
+          "seconds": 0.12,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "ko_fruit",
+          "passed": true,
+          "content": "6",
+          "seconds": 0.09,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "en_red_planet",
+          "passed": true,
+          "content": "Mars",
+          "seconds": 0.07,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "ko_translate",
+          "passed": true,
+          "content": "I drank coffee this morning.",
+          "seconds": 0.13,
+          "finish_reason": "stop"
+        },
+        {
+          "name": "code_is_prime",
+          "passed": true,
+          "content": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+          "seconds": 1.57,
+          "finish_reason": "stop"
+        }
+      ],
+      "reasoning_mode": {
+        "passed": true,
+        "content": "The average speed is calculated by dividing the total distance traveled by the total time taken.\n\nDistance = 120 km  \nTime = 1.5 hours  \n\nAverage speed = 120 km / 1.5 h = 80 km/h\n\n80",
+        "reasoning_chars": 256,
+        "reasoning_head": "We are asked: \"A train travels 120 km in 1.5 hours. What is its average speed in km/h? Give the final answer as a number.\"\n\nWe need to compute average speed = total distance / total time = 120 km / 1.5 h = 80 km/h.\n\nThe final answer should be a number: 80.",
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 41,
+          "total_tokens": 181,
+          "completion_tokens": 140,
+          "prompt_tokens_details": null
+        },
+        "seconds": 2.13
+      },
+      "arithmetic": {
+        "correct": 14,
+        "total": 20,
+        "items": [
+          {
+            "question": "25 * 7 + 74",
+            "expected": 249,
+            "content": "249",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "75 * 3 + 38",
+            "expected": 263,
+            "content": "263",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "86 * 8 + 83",
+            "expected": 771,
+            "content": "761",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "80 * 9 + 85",
+            "expected": 805,
+            "content": "720 + 85 = 805",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "66 * 5 + 10",
+            "expected": 340,
+            "content": "340",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "88 * 3 + 24",
+            "expected": 288,
+            "content": "288",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "46 * 3 + 67",
+            "expected": 205,
+            "content": "205",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "11 * 9 + 96",
+            "expected": 195,
+            "content": "207",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "50 * 5 + 60",
+            "expected": 310,
+            "content": "310",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "42 * 7 + 55",
+            "expected": 349,
+            "content": "349",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "58 * 3 + 53",
+            "expected": 227,
+            "content": "227",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "21 * 6 + 46",
+            "expected": 172,
+            "content": "172",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "68 * 4 + 92",
+            "expected": 364,
+            "content": "364",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "83 * 6 + 13",
+            "expected": 511,
+            "content": "511",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "57 * 7 + 69",
+            "expected": 468,
+            "content": "468",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "64 * 3 + 61",
+            "expected": 253,
+            "content": "253",
+            "finish_reason": "stop",
+            "correct": true
+          },
+          {
+            "question": "84 * 9 + 24",
+            "expected": 780,
+            "content": "777",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "64 * 9 + 60",
+            "expected": 636,
+            "content": "616",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "77 * 6 + 63",
+            "expected": 525,
+            "content": "505",
+            "finish_reason": "stop",
+            "correct": false
+          },
+          {
+            "question": "82 * 9 + 75",
+            "expected": 813,
+            "content": "747",
+            "finish_reason": "stop",
+            "correct": false
+          }
+        ]
+      },
+      "determinism": {
+        "identical": false,
+        "sample": "The Han River cuts through the heart of Seoul, serving as both a vital water source and a central artery for transportation and recreation. Its banks are lined with parks, walking paths, and bridges that come alive with the city's lights at night. The river reflects Seoul's dynamic blend of natural "
+      },
+      "needle": [
+        {
+          "target_tokens": 1400,
+          "depth": 0.1,
+          "prompt_tokens": 1435,
+          "found": true,
+          "content": "BLUE-9486",
+          "seconds": 0.37
+        },
+        {
+          "target_tokens": 1400,
+          "depth": 0.5,
+          "prompt_tokens": 1422,
+          "found": true,
+          "content": "BLUE-8644",
+          "seconds": 0.36
+        },
+        {
+          "target_tokens": 1400,
+          "depth": 0.9,
+          "prompt_tokens": 1419,
+          "found": true,
+          "content": "BLUE-6739",
+          "seconds": 0.36
+        },
+        {
+          "target_tokens": 8000,
+          "depth": 0.1,
+          "prompt_tokens": 8011,
+          "found": true,
+          "content": "BLUE-5342",
+          "seconds": 0.98
+        },
+        {
+          "target_tokens": 8000,
+          "depth": 0.5,
+          "prompt_tokens": 7979,
+          "found": true,
+          "content": "BLUE-3048",
+          "seconds": 0.96
+        },
+        {
+          "target_tokens": 8000,
+          "depth": 0.9,
+          "prompt_tokens": 8002,
+          "found": true,
+          "content": "BLUE-2967",
+          "seconds": 0.97
+        },
+        {
+          "target_tokens": 30000,
+          "depth": 0.1,
+          "prompt_tokens": 30027,
+          "found": true,
+          "content": "BLUE-3303",
+          "seconds": 3.56
+        },
+        {
+          "target_tokens": 30000,
+          "depth": 0.5,
+          "prompt_tokens": 29996,
+          "found": true,
+          "content": "BLUE-2203",
+          "seconds": 3.56
+        },
+        {
+          "target_tokens": 30000,
+          "depth": 0.9,
+          "prompt_tokens": 30025,
+          "found": true,
+          "content": "BLUE-5628",
+          "seconds": 3.56
+        },
+        {
+          "target_tokens": 60000,
+          "depth": 0.1,
+          "prompt_tokens": 60136,
+          "found": true,
+          "content": "BLUE-9339",
+          "seconds": 8.77
+        },
+        {
+          "target_tokens": 60000,
+          "depth": 0.5,
+          "prompt_tokens": 59687,
+          "found": true,
+          "content": "BLUE-5323",
+          "seconds": 8.73
+        },
+        {
+          "target_tokens": 60000,
+          "depth": 0.9,
+          "prompt_tokens": 59938,
+          "found": true,
+          "content": "BLUE-4845",
+          "seconds": 8.74
+        }
+      ],
+      "streaming_single_user": {
+        "ttft_seconds": 0.061,
+        "chunks": 256,
+        "total_seconds": 3.86,
+        "decode_chunks_per_second": 67.19
+      },
+      "benchmarks": [
+        {
+          "name": "latency-in1024",
+          "concurrency": 1,
+          "num_prompts": 3,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 24.2,
+          "completed": 3,
+          "request_throughput": 0.23569658944598781,
+          "output_throughput": 60.33832689817288,
+          "total_token_throughput": 301.6916344908644,
+          "mean_ttft_ms": 210.6101699998059,
+          "median_ttft_ms": 198.76020699939545,
+          "p99_ttft_ms": 234.93663064022257,
+          "mean_tpot_ms": 15.810900376470507,
+          "median_tpot_ms": 15.793694431372653,
+          "p99_tpot_ms": 15.853013262585733,
+          "median_itl_ms": 15.821871000298415,
+          "p99_itl_ms": 17.146282359753968,
+          "median_e2el_ms": 4226.152286999422
+        },
+        {
+          "name": "latency-in8192",
+          "concurrency": 1,
+          "num_prompts": 3,
+          "input_len": 8192,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 27.1,
+          "completed": 3,
+          "request_throughput": 0.194972582121996,
+          "output_throughput": 49.91298102323098,
+          "total_token_throughput": 1647.1283737666222,
+          "mean_ttft_ms": 874.7230329997061,
+          "median_ttft_ms": 854.318525999588,
+          "p99_ttft_ms": 916.9493763792343,
+          "mean_tpot_ms": 16.68183894640499,
+          "median_tpot_ms": 16.673916584313346,
+          "p99_tpot_ms": 16.701479018980855,
+          "median_itl_ms": 16.701188000297407,
+          "p99_itl_ms": 17.529509320374927,
+          "median_e2el_ms": 5106.167254999491
+        },
+        {
+          "name": "latency-in32768",
+          "concurrency": 1,
+          "num_prompts": 3,
+          "input_len": 32768,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 37.1,
+          "completed": 3,
+          "request_throughput": 0.12172252854176042,
+          "output_throughput": 31.16096730669067,
+          "total_token_throughput": 4019.7647825630966,
+          "mean_ttft_ms": 3344.7459796664893,
+          "median_ttft_ms": 3328.659800999958,
+          "p99_ttft_ms": 3388.410940000049,
+          "mean_tpot_ms": 19.099586373855356,
+          "median_tpot_ms": 19.096640384312053,
+          "p99_tpot_ms": 19.10663297929404,
+          "median_itl_ms": 19.199834999199084,
+          "p99_itl_ms": 19.590772159790504,
+          "median_e2el_ms": 8198.303098999531
+        },
+        {
+          "name": "throughput-c1",
+          "concurrency": 1,
+          "num_prompts": 8,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 44.9,
+          "completed": 8,
+          "request_throughput": 0.23928886112107633,
+          "output_throughput": 61.25794844699554,
+          "total_token_throughput": 306.2897422349777,
+          "mean_ttft_ms": 149.85049787480875,
+          "median_ttft_ms": 196.88567549974323,
+          "p99_ttft_ms": 199.92969650958912,
+          "mean_tpot_ms": 15.799549741177543,
+          "median_tpot_ms": 15.789477556864215,
+          "p99_tpot_ms": 15.890463222001143,
+          "median_itl_ms": 15.793814000062412,
+          "p99_itl_ms": 16.58703652020449,
+          "median_e2el_ms": 4223.965352500272
+        },
+        {
+          "name": "throughput-c8",
+          "concurrency": 8,
+          "num_prompts": 24,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 37.0,
+          "completed": 24,
+          "request_throughput": 0.9496332828750175,
+          "output_throughput": 243.10612041600447,
+          "total_token_throughput": 1215.5306020800224,
+          "mean_ttft_ms": 1086.2720294167048,
+          "median_ttft_ms": 1090.9776640000928,
+          "p99_ttft_ms": 1787.7282817502692,
+          "mean_tpot_ms": 28.70805194999962,
+          "median_tpot_ms": 28.410938194116955,
+          "p99_tpot_ms": 33.19652710231304,
+          "median_itl_ms": 27.178465999895707,
+          "p99_itl_ms": 29.380766450103692,
+          "median_e2el_ms": 8395.431572999769
+        },
+        {
+          "name": "throughput-c32",
+          "concurrency": 32,
+          "num_prompts": 96,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 62.0,
+          "completed": 96,
+          "request_throughput": 1.9306982763201412,
+          "output_throughput": 494.25875873795616,
+          "total_token_throughput": 2471.293793689781,
+          "mean_ttft_ms": 1512.4607553124747,
+          "median_ttft_ms": 989.6849344995644,
+          "p99_ttft_ms": 4814.24132839943,
+          "mean_tpot_ms": 58.71083638190368,
+          "median_tpot_ms": 58.057859817647255,
+          "p99_tpot_ms": 66.91434500039362,
+          "median_itl_ms": 50.04726649985969,
+          "p99_itl_ms": 327.8135762202419,
+          "median_e2el_ms": 15953.57958700015
+        },
+        {
+          "name": "throughput-c64",
+          "concurrency": 64,
+          "num_prompts": 192,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 82.8,
+          "completed": 192,
+          "request_throughput": 2.7629692714940144,
+          "output_throughput": 707.3201335024677,
+          "total_token_throughput": 3536.600667512338,
+          "mean_ttft_ms": 2084.0040216250536,
+          "median_ttft_ms": 761.5472914999373,
+          "p99_ttft_ms": 5522.878334950492,
+          "mean_tpot_ms": 81.75948021352127,
+          "median_tpot_ms": 85.77965003333506,
+          "p99_tpot_ms": 101.42236522619487,
+          "median_itl_ms": 70.97603000011077,
+          "p99_itl_ms": 327.9813000000104,
+          "median_e2el_ms": 23364.619242000117
+        },
+        {
+          "name": "throughput-c128",
+          "concurrency": 128,
+          "num_prompts": 384,
+          "input_len": 1024,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 124.3,
+          "completed": 384,
+          "request_throughput": 3.5082142593864782,
+          "output_throughput": 898.1028504029384,
+          "total_token_throughput": 4490.514252014692,
+          "mean_ttft_ms": 3949.0669470859625,
+          "median_ttft_ms": 1200.4576224999255,
+          "p99_ttft_ms": 10645.175478820516,
+          "mean_tpot_ms": 125.04790699692592,
+          "median_tpot_ms": 132.94081216862847,
+          "p99_tpot_ms": 161.31379431568192,
+          "median_itl_ms": 106.01663799934613,
+          "p99_itl_ms": 334.5504548001918,
+          "median_e2el_ms": 35614.061190999564
+        },
+        {
+          "name": "long16k-c4",
+          "concurrency": 4,
+          "num_prompts": 8,
+          "input_len": 16384,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 42.8,
+          "completed": 8,
+          "request_throughput": 0.26828991877096514,
+          "output_throughput": 68.68221920536708,
+          "total_token_throughput": 4464.34424834886,
+          "mean_ttft_ms": 4693.22665287541,
+          "median_ttft_ms": 4923.412639000162,
+          "p99_ttft_ms": 9786.036328910795,
+          "mean_tpot_ms": 39.60257797646984,
+          "median_tpot_ms": 37.54747242941199,
+          "p99_tpot_ms": 58.716416898781645,
+          "median_itl_ms": 27.730016000532487,
+          "p99_itl_ms": 407.6936434606432,
+          "median_e2el_ms": 14837.630326500403
+        },
+        {
+          "name": "long16k-c16",
+          "concurrency": 16,
+          "num_prompts": 32,
+          "input_len": 16384,
+          "output_len": 256,
+          "returncode": 0,
+          "wall_seconds": 114.5,
+          "completed": 32,
+          "request_throughput": 0.32718027030694946,
+          "output_throughput": 83.75814919857906,
+          "total_token_throughput": 5444.279697907639,
+          "mean_ttft_ms": 13096.583937812171,
+          "median_ttft_ms": 13134.600728501027,
+          "p99_ttft_ms": 25342.99804746892,
+          "mean_tpot_ms": 136.3742256026958,
+          "median_tpot_ms": 139.80736904117757,
+          "p99_tpot_ms": 209.50761064145192,
+          "median_itl_ms": 54.64856299931853,
+          "p99_itl_ms": 453.23857352965206,
+          "median_e2el_ms": 48516.16098649993
+        }
+      ]
+    }
+  },
+  "gpu_peak_memory_used_mib": {
+    "node0": {
+      "0": 81147,
+      "1": 78801,
+      "2": 79819,
+      "3": 78801,
+      "4": 81147,
+      "5": 78801,
+      "6": 78923,
+      "7": 79103
+    },
+    "node1": {
+      "0": 79047,
+      "1": 81143,
+      "2": 81117,
+      "3": 79151,
+      "4": 78287,
+      "5": 81137,
+      "6": 81137,
+      "7": 81151
+    }
+  },
+  "benchmark_method": "vllm bench serve, random token prompts, --ignore-eos, output 256 tokens; latency-inN = one request at a time with N input tokens; throughput-cN = 1024 input tokens at concurrency N; long16k-cN = 16384 input tokens at concurrency N."
+}
