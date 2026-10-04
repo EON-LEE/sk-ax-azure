@@ -107,7 +107,8 @@ class BundleTests(unittest.TestCase):
             names = set(tar.getnames())
             entry = tar.extractfile("entry.sh").read()
         self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "dsa_port.json",
-                         "client_tests.py", "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py"} <= names)
+                         "nvfp4_sm80_port.json", "stage_weights.py", "client_tests.py",
+                         "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py"} <= names)
         self.assertNotIn(b"\r\n", entry)
         self.assertLess(len(render_job.payload()), 100_000, "payload travels in one environment variable")
 
@@ -128,6 +129,9 @@ class BundleTests(unittest.TestCase):
         entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
         handled = set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M))
         self.assertTrue(set(plan) <= handled, set(plan) - handled)
+        for suites in re.findall(r"suites=([a-z0-9,]+)", entry):
+            with self.subTest(suites=suites):
+                self.assertTrue(set(suites.split(",")) <= set(verify_suites.SUITES), suites)
         self.assertIn("--enable-auto-tool-choice", entry)
         self.assertNotIn("NCCL_IB_DISABLE", job, "the IB probe decides the transport")
         diff = json.loads((ROOT / "aml" / "src" / "dsa_port.json").read_text(encoding="utf-8"))[
@@ -140,6 +144,54 @@ class BundleTests(unittest.TestCase):
                 with self.subTest(job=path.name):
                     self.assertIn('IB_PROBE: "1"', text)
                     self.assertNotIn("NCCL_IB_DISABLE", text)
+
+    def test_nvfp4_single_node_plan(self):
+        import re
+        sys.path.insert(0, str(ROOT / "aml" / "src"))
+        try:
+            import apply_overlay
+            import verify_suites
+        finally:
+            sys.path.pop(0)
+        port = json.loads((ROOT / "aml" / "src" / "nvfp4_sm80_port.json").read_text(encoding="utf-8"))
+        self.assertEqual([p["merge_commit"] for p in port["upstream_prs"]],
+                         ["a8c86eeb1695a3d35d0c748a68a1451379ea497a", "9eaacb23ec1826ddac31657e0eab699de6de3c59"])
+        path = "vllm/model_executor/layers/quantization/modelopt.py"
+        self.assertEqual(sorted(port["patched_files"]), [path])
+        item = port["patched_files"][path]
+        self.assertEqual(item["before_sha256"], "1c58627e479e13aea2ad26c5da122a3a65a7335c3a06a812d4a7f5a20e94ef11")
+        self.assertEqual(item["after_sha256"], "10ec868fde521d580b73302facfd7783b455b57f0f1059d41cd1d5bbabcda351")
+        pre_image, active = [], False
+        for line in item["diff"].splitlines(keepends=True):
+            if line.startswith("@@"):
+                pre_image.append("# unrelated code\n")
+                active = True
+            elif active and line[:1] in (" ", "-"):
+                pre_image.append(line[1:])
+        before = "".join(pre_image)
+        after = apply_overlay.apply_unified_diff(before, item["diff"])
+        self.assertEqual(after.count("\n") - before.count("\n"), 7)
+        self.assertIn("        return 89\n", before)
+        self.assertNotIn("        return 89\n", after)
+        self.assertIn("        return 80\n", after)
+        self.assertIn("        layer.orig_dtype = params_dtype\n", after)
+        job = (ROOT / "aml" / "jobs" / "nvfp4-a100-nd96.yml").read_text(encoding="utf-8")
+        for needle in ("instance_count: 1", "FULL_REPO: skt/A.X-K2-NVFP4", 'NVFP4_SM80_PORT: "1"', 'PP: "1"',
+                       "hf:9e2e804e80f8d1b3afba5d7938173cec1ed46b49"):
+            self.assertIn(needle, job)
+        self.assertNotIn("VLLM_USE_FLASHINFER_MOE_FP4", job, "FlashInfer FP4 MoE needs Blackwell")
+        plan = re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split()
+        self.assertEqual(plan, ["nvfp4-tp8", "nvfp4-tp8-b2048"])
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        self.assertTrue(set(plan) <= set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M)))
+        self.assertIn('--repo "${FULL_REPO:-skt/A.X-K2}"', entry)
+        self.assertIn('--max-num-batched-tokens "$batched"', entry)
+        self.assertIn('os.environ.get("NVFP4_SM80_PORT") == "1"',
+                      (ROOT / "aml" / "src" / "apply_overlay.py").read_text(encoding="utf-8"))
+        earlier = json.loads((ROOT / "evidence" / "a100-native-vs-dense-full-model.json").read_text(encoding="utf-8"))
+        self.assertEqual([p[0] for p in verify_suites.benchmark_plan(65536)],
+                         [b["name"] for b in earlier["modes"]["native"]["benchmarks"]],
+                         "the latency suite replays the earlier 16-GPU FP8 table")
 
     def test_verification_evidence(self):
         data = json.loads((ROOT / "evidence" / "a100-verification-and-doc-speed.json").read_text(encoding="utf-8"))

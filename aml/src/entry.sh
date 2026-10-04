@@ -11,6 +11,8 @@
 # MODES (default "native dense"):
 #   native = the published config: DeepSeek Sparse Attention via the TRITON_MLA_SPARSE port
 #   dense  = indexer keys removed; identical to DSA while the context fits in index_topk tokens
+# FULL_REPO (default skt/A.X-K2) selects the Hub repo of hf:<revision>; skt/A.X-K2-NVFP4 together
+# with NVFP4_SM80_PORT=1 serves the official NVFP4 checkpoint (PHASE_PLAN nvfp4-tp8*).
 # Every phase fails softly: the failure is reported and the following phases still run.
 set -uo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,6 +79,7 @@ print(json.dumps({
   "mem_total_gb": round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30, 1),
   "shm_gb": round(shutil.disk_usage("/dev/shm").total / 2**30, 1),
   "smoke_model": "$SMOKE_IN", "full_model": "$FULL_IN", "modes": "$MODES",
+  "full_repo": "${FULL_REPO:-skt/A.X-K2}", "nvfp4_sm80_port": "${NVFP4_SM80_PORT:-0}",
 }))
 EOF
 cat "$OUT/env.json"
@@ -106,8 +109,8 @@ fetch_model() {
         --out "$dest" --work "$PWD/hub-source-shards" > "$OUT/smoke-download.log" 2>&1 || return 1
       echo "$dest" ;;
     hf:*)
-      HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/stage_weights.py" --revision "${spec#*:}" --out "$dest" \
-        > "$OUT/full-download.log" 2>&1 || return 1
+      HF_XET_HIGH_PERFORMANCE=1 python3 "$SRC/stage_weights.py" --repo "${FULL_REPO:-skt/A.X-K2}" \
+        --revision "${spec#*:}" --out "$dest" > "$OUT/full-download.log" 2>&1 || return 1
       echo "$dest" ;;
     *) echo "$spec" ;;
   esac
@@ -310,7 +313,7 @@ wait_healthy() {  # <tag> <timeout seconds>
 }
 
 server_facts() {
-  grep -iE "backend|marlin|fp8|kv cache|maximum concurrency|loading weights took|model loading took|graph|placement|rank|pipeline|torch.compile|sparse|indexer|triton|warning" \
+  grep -iE "backend|marlin|fp8|fp4|modelopt|auto-fit|kv cache|maximum concurrency|loading weights took|model loading took|graph|placement|rank|pipeline|torch.compile|sparse|indexer|triton|warning" \
     "$OUT/vllm-$1.log" | grep -v -E "Avg prompt throughput|NCCL INFO" | tail -n 70 | cut -c1-300
 }
 
@@ -414,12 +417,17 @@ nccl_transport() {
 # tool parser automatically (--enable-auto-tool-choice), and with vLLM's B200/H100 default of
 # 8192 batched tokens per step (vLLM lowers its default to 2048 on A100), so the throughput sweep
 # runs with the same engine settings as the tech report's B200 measurement.
+# nvfp4-*: the official NVFP4 checkpoint (FULL_REPO=skt/A.X-K2-NVFP4, NVFP4_SM80_PORT=1) on ONE
+# node, TP8 without Ray; --max-model-len -1 lets vLLM fit the longest context its KV cache holds.
+# nvfp4-tp8-b2048 keeps vLLM's A100 default of 2048 batched tokens, the setting of the earlier
+# 16-GPU FP8 latency/throughput table, so that table is also compared under equal settings.
 plan_phase() {
-  local name=$1 began model len seqs suites bi=0 rc
+  local name=$1 began model len seqs suites bi=0 rc batched=8192
   began=$(date +%s)
-  local -a args=(--tool-call-parser hermes --enable-auto-tool-choice --max-num-batched-tokens 8192)
+  local -a args=(--tool-call-parser hermes --enable-auto-tool-choice)
   local -a pp2=(--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray)
   local -a tp16=(--tensor-parallel-size 16 --pipeline-parallel-size 1 --distributed-executor-backend ray)
+  local -a tp8=(--tensor-parallel-size 8 --pipeline-parallel-size 1 --distributed-executor-backend mp)
   case "$name" in
     native-pp2) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS
                 suites=tools,niah,determinism,docsweep; args+=("${pp2[@]}") ;;
@@ -431,8 +439,13 @@ plan_phase() {
     dense-tp16-eagle3) model=$FULL_DENSE; len=32768; seqs=64; suites=functional,sweepsub,specstats
                        args+=("${tp16[@]}" --speculative-config
                               "{\"method\": \"eagle3\", \"model\": \"$EAGLE3_DIR\", \"num_speculative_tokens\": 3}") ;;
+    nvfp4-tp8) model=$FULL_NATIVE; len=-1; seqs=$FULL_MAX_NUM_SEQS
+               suites=functional,tools,latency,docsweep32k,niah; args+=("${tp8[@]}") ;;
+    nvfp4-tp8-b2048) model=$FULL_NATIVE; len=-1; seqs=$FULL_MAX_NUM_SEQS; suites=latency; batched=2048
+                     args+=("${tp8[@]}") ;;
     *) phase_result "$name" failed "$began" "unknown phase"; return 1 ;;
   esac
+  args+=(--max-num-batched-tokens "$batched")
   if [[ "$name" == *eagle3 ]] && [ ! -f /tmp/axk2-eagle3.ready ]; then
     phase_result "$name" failed "$began" "EAGLE3 drafter not downloaded"; return 1
   fi
@@ -445,8 +458,16 @@ plan_phase() {
   report "node0.$name.engine_config" --text "$(engine_config "$name")"
   report "node0.$name.nccl" --text "$(nccl_transport "$name")"
   report "node0.$name.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$name.seconds"), \"nccl_ib\": \"$IB_MODE\"}"
+  if [ "$len" = -1 ]; then
+    len=$(python3 -c "import json, urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/v1/models', timeout=30))['data'][0]['max_model_len'])" 2>/dev/null)
+    report "node0.$name.max_model_len" --text "{\"auto_fit\": ${len:-null}, \"max_num_batched_tokens\": $batched}"
+    if [ -z "$len" ]; then
+      phase_result "$name" failed "$began" "could not read the auto-fitted max_model_len"
+      stop_server; return 1
+    fi
+  fi
   AXK2_REPORT_PKGS="$PKGS" python3 "$SRC/verify_suites.py" --tag "$name" --suites "$suites" --tokenizer "$model" \
-    --max-model-len "$len" --out-dir "$OUT/verify" > "$OUT/client-$name.log" 2>&1
+    --max-model-len "$len" --max-num-batched-tokens "$batched" --out-dir "$OUT/verify" > "$OUT/client-$name.log" 2>&1
   rc=$?
   if [ "$rc" = 0 ]; then
     phase_result "$name" passed "$began"
