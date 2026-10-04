@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 PATTERNS = re.compile(
-    r"marlin|backend|kv cache|maximum concurrency|loading weights took|model loading took|"
+    r"marlin|backend|fp4|modelopt|auto-fit|kv cache|maximum concurrency|loading weights took|model loading took|"
     r"weights took|available kv|gpu kv|fp8|quantiz|prefill|mla|pipeline|placement|"
     r"torch.compile|cuda graph|graph capturing|memory profiling|init engine|sparse|indexer|deepgemm|"
     r"speculat|eagle|draft|invarian|tool|runner|error|exception|assert|not supported|unsupported", re.IGNORECASE)
@@ -41,6 +41,13 @@ def facts(log):
     return "\n".join(kept)
 
 
+def clip(text, limit=24000):
+    """Keep both ends: kernel selection is logged at start-up, failures at the end."""
+    if len(text) <= limit:
+        return text
+    return text[:limit // 2] + "\n[...]\n" + text[-limit // 2:]
+
+
 def first_error_window(log):
     """Text around the first error that is not Ray shutdown noise (the root cause of a failed start)."""
     text = log.read_text(errors="replace")
@@ -59,7 +66,7 @@ def main():
     report("collect.files", json.dumps(found[:400]))
     node0 = root / "node0"
     for log in sorted(node0.glob("vllm-*.log")):
-        report(f"facts.{log.stem}", facts(log)[-24000:])
+        report(f"facts.{log.stem}", clip(facts(log)))
         window = first_error_window(log)
         if window:
             report(f"error.{log.stem}", window)

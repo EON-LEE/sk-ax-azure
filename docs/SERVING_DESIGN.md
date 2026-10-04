@@ -1,6 +1,6 @@
 # A.X-K2 serving design: standard multi-node inference on A100
 
-Snapshot: 2026-10-03. This supersedes the "blocked" conclusion in
+Snapshot: 2026-10-04. This supersedes the "blocked" conclusion in
 [the handoff](HANDOFF.md) for the A100 path. Results of each stage are in
 section 8 and in `evidence/`.
 
@@ -53,7 +53,8 @@ Best practice, which this design follows:
 low-priority capable for Azure ML in swedencentral, westus2, uksouth,
 francecentral, italynorth and polandcentral. Two nodes (192 vCPU, 16 GPUs,
 1280 GB) hold the ~656 GiB FP8 weights at ~41 GiB per GPU and leave room for
-KV cache. Azure ML retired low-priority VMs on 2026-03-31; such clusters are
+KV cache. SKT's 4-bit NVFP4 checkpoint (371 GiB) fits on one node (8.4).
+Azure ML retired low-priority VMs on 2026-03-31; such clusters are
 now allocated and billed as **Spot**: preemptible, never above pay-as-you-go,
 and the price cannot be capped. The Sweden Spot rate was USD 10.55 per node-hour.
 See `evidence/azure-capacity-snapshot.json`.
@@ -204,12 +205,27 @@ BF16 KV-cache default. Every difference from that reference:
 | Loader and limits | `fastsafetensors`, 64 sequences | Default loader; 64 sequences; 8,192 batched tokens per step, vLLM's B200 default (its A100 default is 2,048) | Load time only |
 | Determinism | Not batch-invariant by default | Same, and batch-invariant mode cannot start on A100: no FP8 MoE kernel for SM80 supports it (8.1) | Identical greedy requests diverge after 68-264 characters |
 | Speculative decoding | `skt/A.X-K2-EAGLE3` drafter: +23-30% in tech report Fig. 8 | Not usable: EAGLE3 cannot run with PP, and on TP16 the A100 MLA decode kernel cannot verify multi-token drafts (8.1) | No speed-up option on A100 |
-| 4-bit weights | `skt/A.X-K2-NVFP4` on 4 x B200 | Not possible: vLLM requires compute capability 8.9 for this format, and FP4 tensor cores exist only on Blackwell | FP8 only |
+| 4-bit weights | `skt/A.X-K2-NVFP4` on 4 x B200: routed experts W4A4 on FP4 tensor cores | Not used by this two-node deployment. The checkpoint does run on A100, on one node, after a backported upstream vLLM change; its experts then run W4A16 (8.4) | The one-node NVFP4 option halves the GPUs at about the same short-input speed; 8.4 lists its limits |
 | Quality evidence | SKT's published evaluations | Functional probes, needles to 253K tokens, tool calls, 2-layer log-probability comparison | Benchmark parity not measured |
-| Speed | Tech report Fig. 7: one B200 node, concurrency 32, 1K output | Same benchmark on 16 A100s: 0.43-0.51x of the B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K (native) | About a quarter of B200 throughput per GPU at short inputs; less at long inputs |
+| Speed | Tech report Fig. 7: one B200 node, concurrency 32, 1K output | Same benchmark on 16 A100s: 0.43-0.51x of the B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K (native) | About a quarter of B200 throughput per GPU at short inputs; less at long inputs. The one-node NVFP4 option reaches about half per GPU (8.4) |
 
 The `persistent_topk` fix #49139 is missing from every vLLM 0.23 build,
 including SKT's own fork, so it is not an A100-specific gap.
+
+**One-node NVFP4 variant (8.4).** SKT's 4-bit checkpoint changes these rows;
+the others stay as in the table:
+
+- Weights: `skt/A.X-K2-NVFP4` revision 9e2e804e (398 GB), unmodified.
+- MoE matmuls: the NVFP4 routed experts run with BF16 activations (Marlin
+  W4A16), where B200 runs them W4A4 on FP4 tensor cores. The FP8 layers run
+  as in the table.
+- Engine code: also the backported capability check (`NVFP4_SM80_PORT=1`).
+- Parallelism and network: one node, TP8, multiprocessing executor; nothing
+  crosses nodes.
+- KV cache and context: 254,016 tokens with 8,192 batched tokens, so the
+  context auto-fits to that; 272,960 with 2,048, so the full 262,144 fits.
+- Speed: as fast as the FP8 checkpoint on 16 A100 up to concurrency 32,
+  0.81-0.86x at 64-128, with slower prefill.
 
 ## 6. Subscription policy constraints (MCAPS)
 
@@ -241,6 +257,7 @@ The design works within it and does not bypass it:
 | B3. Same cut on the target nodes: vLLM native DSA and dense, single-node TP8, then native over Ray TP8 x PP2 | The exact launch path, overlay, DSA port and SM80 kernels on real weights; agreement with B1 inside and beyond `index_topk` | minutes of the C allocation |
 | C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2, native and dense | Load and serve all 61 layers; functional, reasoning, accuracy, determinism, needles to 60K tokens, latency and throughput sweeps | ~USD 26/hour |
 | D. Same allocation, six server configurations in sequence (`verify-remaining-nd96-hub.yml`) | InfiniBand vs TCP; tool calling; SKT's needle test to 256K; determinism with and without batch-invariant mode; the tech report's Fig. 7 sweep; TP16 and EAGLE3 | ~4.7 hours |
+| E. SKT's NVFP4 checkpoint on one ND96amsr_A100_v4, TP8 (`nvfp4-a100-nd96.yml`) | The capability-check port; functional, tools, needles to the auto-fitted context, the C latency table and the Fig. 7 sweep on half the GPUs | ~2.1 hours of one node |
 
 `aml/jobs/native-dsa-bench-nd96-hub.yml` runs B2, B3 and C in one allocation.
 Both nodes download the full checkpoint from the Hub in the background while
@@ -248,7 +265,7 @@ B2 and B3 run. `aml/jobs/full-native-dense-nd96-hub.yml` runs only C. Spot
 capacity was scarce, so the same job was queued in up to 12 regions.
 `aml/first_capacity_wins.sh` picks the first region that holds both nodes,
 cancels every other job and deletes any loser cluster that already holds
-nodes.
+nodes. For the one-node `nvfp4-a100-nd96.yml`, run it with `NODES=1`.
 
 ## 8. Results
 
@@ -272,7 +289,7 @@ batched tokens per step.
 | Tech report Fig. 7 conditions, native | 0.43-0.51x of one B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K |
 | TP16 across both nodes, dense | 12-41% faster than TP8 x PP2 at 1K-8K inputs; half the KV cache |
 | EAGLE3 drafter | Not usable: CUDA-graph start-up fails; the eager fallback is 4-5x slower and accepts 1.05 tokens per step |
-| NVFP4 checkpoint | Not possible on A100 |
+| NVFP4 checkpoint | Not attempted here, and wrongly called impossible: it runs on one A100 node (8.4) |
 
 **InfiniBand.** The job containers expose the eight 200 Gb/s InfiniBand HCAs
 of each node, and the vLLM image already ships the RDMA userland. Memlock is
@@ -416,9 +433,10 @@ It was used because EAGLE3 cannot run with PP.
 
 **Not attempted:**
 
-- the NVFP4 checkpoint, which needs hardware this deployment lacks: vLLM's
-  ModelOpt mixed-precision method requires compute capability 8.9
-  (`quantization/modelopt.py:2219`);
+- the NVFP4 checkpoint: vLLM 0.23's ModelOpt mixed-precision method
+  requires compute capability 8.9 (`quantization/modelopt.py:2219`). This
+  section first read that as missing hardware. It is a software check, and
+  8.4 runs the checkpoint on A100 after a backported upstream change;
 - EAGLE3 on the native sparse port, a software limit: with drafts, vLLM 0.23
   passes per-token sequence lengths to the indexer, but the port's decode
   indexer kernel reads one length per request.
@@ -568,6 +586,158 @@ Everything was deleted afterwards. The native-DSA round (8.2) cost about
 USD 71 more, mostly 2.5 hours of the italynorth cluster; it was deleted too.
 The verification run (8.1) cost about USD 80-125.
 
+### 8.4 SKT's NVFP4 checkpoint on one A100 node (2026-10-04, uksouth)
+
+Evidence: `evidence/a100-nvfp4-single-node.json`. The job
+`aml/jobs/nvfp4-a100-nd96.yml` served SKT's 4-bit checkpoint
+`skt/A.X-K2-NVFP4` (revision 9e2e804e, all 61 layers) on **one**
+Standard_ND96amsr_A100_v4: 8 x A100 80GB, TP8, native DSA, one
+OpenAI-compatible endpoint. The server ran twice, with 8,192 and with 2,048
+batched tokens per step. Every phase passed.
+
+**Correction.** 8.1 first reported this checkpoint as impossible on A100
+because it needs compute capability 8.9. That was wrong. The 8.9 is a
+software check in vLLM 0.23 (`ModelOptMixedPrecisionConfig.get_min_capability()`),
+not a hardware requirement: both kinds of quantized layer in the checkpoint
+already have SM80 kernels. Upstream vLLM lowered the check to 8.0 in
+[#45306](https://github.com/vllm-project/vllm/pull/45306), released in v0.24.0.
+
+**Checkpoint.** ModelOpt mixed precision, used unmodified. The routed experts
+of the 60 MoE layers (46,080 linear layers) are NVFP4: 4-bit, group size 16.
+Attention including the DSA indexer, the shared experts and layer 0's dense
+MLP stay FP8. Embeddings, LM head, norms and the MoE router stay BF16. The
+checkpoint is 398 GB, against 694 GB for the FP8 checkpoint.
+
+**Engine change.** `aml/src/nvfp4_sm80_port.json` carries two upstream
+commits onto SKT's fork of vLLM 0.23.0: all of #45306 (capability 89 to 80),
+and the one `modelopt.py` line of
+[#45295](https://github.com/vllm-project/vllm/pull/45295) that sets
+`layer.orig_dtype` on FP8 linear layers, which the Marlin FP8 path reads. The
+rest of #45295, Marlin tile padding, is not needed: every per-rank matrix
+shape at TP8 is already aligned. `apply_overlay.py` applies the port only
+when `NVFP4_SM80_PORT=1` and checks the file's SHA-256 before and after, so
+other jobs are unchanged. vLLM 0.24.0 and later contain both changes; SKT's
+fork is still based on 0.23.0.
+
+**Numerics.**
+
+| Layers | B200 (SKT: 4 x B200, TP4 + expert parallel) | This run on A100 |
+| --- | --- | --- |
+| Routed experts (NVFP4) | W4A4 on FP4 tensor cores | Marlin W4A16: 4-bit weights expanded in the kernel, BF16 activations (`MARLIN` NvFp4 MoE backend) |
+| Other quantized layers (FP8) | W8A8 on FP8 tensor cores | Marlin W8A16, as in 8.1-8.3 |
+| Sparse attention | FlashInfer sparse MLA | `TRITON_MLA_SPARSE` (PR #38476 port), as in 8.1-8.2 |
+| KV cache | BF16 | BF16 |
+
+vLLM's log says so: "Your GPU does not have native support for FP4
+computation ... Weight-only FP4 compression will be used leveraging the
+Marlin kernel." The activations are not quantized, so the arithmetic is at
+least as precise as B200's W4A4 path on the same 4-bit weights, but not
+bit-identical. vLLM also logs a `W4A16_NVFP4` detection. It always builds
+that configuration beside the declared one (`modelopt.py` lines 2281-2300 in
+v0.23.0); this checkpoint's experts declare NVFP4.
+
+**Results.**
+
+| Item | Result |
+| --- | --- |
+| Download from the Hub | 398 GB in 404 s |
+| Weights per GPU | 48.5 GiB (FP8 checkpoint: 41.7 GiB on each of 16 GPUs) |
+| Healthy after launch | 433 s with 8,192 batched tokens, 352 s with 2,048 |
+| KV cache | 18.53 GiB per GPU, 254,016 tokens, with 8,192 batched tokens; 19.91 GiB, 272,960 tokens, with 2,048. Two FP8 nodes: 673,792 tokens |
+| Context length (`--max-model-len -1`, auto-fit) | 254,016 with 8,192 batched tokens; the full 262,144 with 2,048 |
+| Functional checks (Korean, English, translation, code) | 4/4 |
+| Tool calling, the 9 cases of 8.1 | 9/9 |
+| SKT's needle test at 32K / 128K / 256K | 9/9, at 31,597 / 126,368 / 244,898 prompt tokens (the 256K prompts were sized to the 254,016-token context) |
+| Peak GPU memory | 77,411 MiB on each GPU (`gpu_memory_utilization` 0.92) |
+
+**Speed against the FP8 checkpoint on 16 A100.** The commands are those of
+the table in 8.2, which served the FP8 checkpoint on 16 A100 (TP8 x PP2, over
+TCP) with 2,048 batched tokens. The NVFP4 numbers below use the same setting.
+
+| Scenario | NVFP4, 8 A100: output tok/s | Median TTFT | Median TPOT | FP8, 16 A100: output tok/s | Median TTFT | Median TPOT | Output ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 request, 1K input | 49 | 349 ms | 19.0 ms | 49 | 355 ms | 19.2 ms | 1.01 |
+| 1 request, 8K input | 34 | 2.44 s | 19.7 ms | 38 | 1.65 s | 20.0 ms | 0.90 |
+| 1 request, 32K input | 15 | 11.56 s | 20.9 ms | 20 | 7.21 s | 21.1 ms | 0.74 |
+| 1K input, concurrency 8 | 229 | 0.94 s | 30.5 ms | 216 | 1.51 s | 31.0 ms | 1.06 |
+| 1K input, concurrency 32 | 363 | 1.83 s | 75.6 ms | 360 | 1.83 s | 76.7 ms | 1.01 |
+| 1K input, concurrency 64 | 533 | 1.65 s | 112.9 ms | 618 | 1.70 s | 90.3 ms | 0.86 |
+| 1K input, concurrency 128 | 655 | 3.06 s | 181.1 ms | 812 | 2.94 s | 145.5 ms | 0.81 |
+| 16K input, concurrency 4 | 34 | 10.57 s | 76.6 ms | 53 | 6.30 s | 43.5 ms | 0.64 |
+| 16K input, concurrency 16 | 50 | 25.4 s | 219 ms | 51 | 25.4 s | 208 ms | 0.98 |
+
+With 8,192 batched tokens, decode was slightly slower (TPOT 20.4 ms for one
+1K request) and concurrency 128 reached 673 tok/s. The evidence file has
+both runs.
+
+**Under the tech report's Fig. 7 conditions** (concurrency 32, 1,024 output
+tokens, 8,192 batched tokens, as in 8.1):
+
+| Input tokens | NVFP4, 8 A100: total tok/s | Median TTFT | Peak requests running | vs one B200 node | vs FP8 on 16 A100 | Per GPU vs FP8 on 16 A100 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1K | 925 | 5.0 s | 32 | 0.49x | 1.14x | 2.27x |
+| 2K | 1,309 | 6.5 s | 32 | 0.48x | 1.12x | 2.25x |
+| 4K | 1,683 | 14.1 s | 32 | 0.47x | 0.99x | 1.98x |
+| 8K | 1,703 | 23.0 s | 30 | 0.35x | 0.70x | 1.41x |
+| 16K | 1,875 | 163 s | 15 | 0.30x | 0.82x | 1.65x |
+| 32K | 1,674 | 317 s | 7 | 0.20x | 0.87x | 1.73x |
+
+A B200 node also has 8 GPUs, so the "vs one B200 node" column is also the
+per-GPU ratio: about half at 1K-4K inputs, against 0.21-0.24 for the FP8
+checkpoint on 16 A100 (8.1).
+
+**Cost per million output tokens.** Measured throughput and Azure retail
+prices for Standard_ND96amsr_A100_v4 in uksouth, in USD per node-hour: on
+demand 40.96, 1-year reserved 26.22, 3-year reserved 18.02, Spot 12.89, low
+priority 8.19. Each cell lists the five prices in that order.
+
+| Workload | NVFP4, 1 node | FP8, 2 nodes | Change |
+| --- | --- | --- | ---: |
+| Concurrency 32, 1K in, 1K out (Fig. 7, 8,192 batched tokens) | 24.60 / 15.75 / 10.82 / 7.74 / 4.92 | 55.87 / 35.76 / 24.58 / 17.58 / 11.17 | -56% |
+| Concurrency 128, 1K in, 256 out (2,048 batched tokens) | 17.38 / 11.12 / 7.64 / 5.47 / 3.47 | 28.01 / 17.93 / 12.32 / 8.82 / 5.60 | -38% |
+
+With 8,192 batched tokens the second NVFP4 cell is 40% lower than FP8
+(16.90 on demand).
+
+**What this means.**
+
+- Decode at low and moderate concurrency is limited by reading weights, and
+  the routed experts are most of those bytes. NVFP4 halves them, so 8 A100
+  decode as fast as 16 A100 with the FP8 checkpoint: 1.01-1.06x the output
+  tok/s at concurrency 1-32.
+- With more requests in flight, compute and attention dominate and the
+  halved GPU count shows: 0.86x at concurrency 64 and 0.81x at 128.
+- Prefill is compute-bound, and A100 has neither FP8 nor FP4 tensor cores,
+  so prefill is BF16 arithmetic with either checkpoint, here on half the
+  GPUs. One 32K-token prompt waits 11.6 s for its first token, against 7.2 s.
+- The KV cache limits long inputs. The BF16 MLA cache is replicated on every
+  TP rank, so one node holds 254,016 tokens against 673,792 on two. Under the
+  Fig. 7 conditions only 15 of 32 requests ran at once with 16K inputs, and
+  7 with 32K.
+- The rest of the gap to B200 is hardware: 3.9 times the memory bandwidth
+  (8 against 2.0 TB/s) and FP8/FP4 tensor cores (4,500 / 9,000 dense TFLOPS,
+  against 312 BF16 TFLOPS on A100). On B200, SKT runs the experts W4A4.
+  Software cannot close that gap on A100.
+- Two NVFP4 replicas on the two nodes that the FP8 deployment uses, behind a
+  load balancer, would give about twice its short-input throughput and two
+  independent KV caches. This is an estimate from the one-node numbers, not
+  a measurement.
+
+**Limits.** The capability change is our backport of upstream commits onto
+vLLM 0.23. Prefer vLLM 0.24 or later, or an SKT fork rebased on it, and
+re-run this job after any engine change. Quality was checked only with the
+functional checks, tool calls and needles above. SKT reports NVFP4 quality
+comparable to FP8; that was not re-measured on A100. Determinism, EAGLE3 and
+NVFP4 across two nodes were not tested.
+
+**Cost.** `first_capacity_wins.sh` with `NODES=1` queued the job in the same
+12 regions. uksouth held its node at 13:32Z. francecentral and italynorth
+also allocated one node each, and the watcher deleted both within minutes.
+The uksouth node ran for about 2.1 hours, so the run used at most about 2.4
+node-hours: about USD 20 at the low-priority meter or USD 31 at the Spot
+meter. The GPU cluster was deleted at 15:36Z and the resource group at
+15:51Z.
+
 ## 9. Known limits and next steps
 
 - Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
@@ -578,6 +748,10 @@ The verification run (8.1) cost about USD 80-125.
   overlay. Re-validate (kernel tests plus the 2-layer comparison in
   `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
   prefer upstream support once it lands.
+- The one-node NVFP4 variant needs a backport of two upstream vLLM commits
+  (`aml/src/nvfp4_sm80_port.json`); vLLM 0.24.0 and later include them. Its
+  quality was checked only with functional checks, tool calls and needles.
+  Evaluate it on the customer's data before choosing it over FP8 (8.4).
 - The v0.23 `persistent_topk` decode kernel lacks upstream fix #49139 (two
   sequences longer than 32K tokens batched around a shorter one). Serving
   many concurrent sequences longer than 32K tokens should wait for a vLLM
@@ -590,14 +764,18 @@ The verification run (8.1) cost about USD 80-125.
   TP rank, so the 16 GPUs hold about 674K tokens: 20 concurrent 32K requests,
   10 at 64K, 5 at 120K. Add data-parallel replicas (another 2-node group per
   replica) to serve more long requests. Data-parallel attention with expert
-  parallelism avoids the replication but was not tested.
+  parallelism avoids the replication but was not tested. The one-node NVFP4
+  variant holds 254,016-272,960 tokens (8.4).
 - Output is not bitwise reproducible across identical requests, and vLLM
   0.23's batch-invariant mode cannot start on A100 for this FP8 MoE model.
   Exact reproducibility needs FP8-capable GPUs (compute capability 8.9 or
   newer) and has to be verified there.
 - Speed is about half of one B200 node at short inputs and 10-36% from 16K
-  upward (8.1). EAGLE3 and NVFP4, the tech report's two speed-ups, are not
-  available on A100 with vLLM 0.23.
+  upward (8.1). Of the tech report's two speed-ups, EAGLE3 is not usable on
+  A100. NVFP4 runs on one A100 node at about the same short-input speed as
+  the two FP8 nodes, which is about half of B200 per GPU instead of a
+  quarter. A100 has no FP4 tensor cores, so its experts run W4A16, and the
+  rest of the gap is hardware (8.4).
 - Every configuration now uses InfiniBand for NCCL when the start-up probe
   confirms it (`aml/src/ib_probe.py`). Azure's NDv4 topology file is fetched
   from the azhpc-images repository and used only if it matches the VM.

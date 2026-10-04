@@ -193,6 +193,53 @@ class BundleTests(unittest.TestCase):
                          [b["name"] for b in earlier["modes"]["native"]["benchmarks"]],
                          "the latency suite replays the earlier 16-GPU FP8 table")
 
+    def test_nvfp4_single_node_evidence(self):
+        import re
+
+        text = (ROOT / "evidence" / "a100-nvfp4-single-node.json").read_text(encoding="utf-8")
+        self.assertNotIn("onmicrosoft", text)
+        self.assertNotIn("b0af194e", text)
+        self.assertNotIn("PENDING", text)
+        self.assertIsNone(re.search(r"/subscriptions/(?!0{8}-)", text))
+        data = json.loads(text)
+        self.assertTrue(data["checkpoint"]["revision"].startswith("9e2e804e"))
+        self.assertEqual(data["engine_change"]["applied_in_run"]["mixed_precision_min_capability"], 80)
+        self.assertEqual((data["environment"]["compute_capability"], data["environment"]["gpus"]), ([8, 0], 8))
+        self.assertEqual({p["phase"]: p["status"] for p in data["phases"]},
+                         {"full_download": "passed", "nvfp4-tp8": "passed", "nvfp4-tp8-b2048": "passed"})
+        main = data["per_phase"]["nvfp4-tp8"]
+        self.assertEqual(main["max_model_len"]["auto_fit"], 254016)
+        self.assertEqual(data["per_phase"]["nvfp4-tp8-b2048"]["max_model_len"]["auto_fit"], 262144)
+        self.assertEqual((main["functional"]["passed"], main["functional"]["total"]), (4, 4))
+        self.assertEqual((main["tools"]["passed"], main["tools"]["total"]), (9, 9))
+        self.assertEqual((main["niah"]["hits"], main["niah"]["total"]), (9, 9))
+        points = data["doc_fig7_conditions"]["points"]
+        self.assertEqual([p["input_tokens"] for p in points], [1024, 2048, 4096, 8192, 16384, 32768])
+        for point in points[:3]:
+            with self.subTest(isl=point["input_tokens"]):
+                self.assertGreater(point["total_vs_doc_b200"], 0.45)
+                self.assertGreater(point["per_gpu_total_vs_fp8_16_a100"], 1.9)
+        matched = {p["name"]: p for p in data["latency_and_throughput_vs_fp8_16_gpus"]["nvfp4-tp8-b2048"]["points"]}
+        self.assertGreaterEqual(matched["throughput-c32"]["output_tok_s_ratio"], 1.0)
+        self.assertLess(matched["throughput-c128"]["output_tok_s_ratio"], 0.9)
+        logs = data["from_vllm_logs"]
+        self.assertEqual(logs["nvfp4-tp8"]["kv_cache_tokens"], 254016)
+        self.assertEqual(logs["nvfp4-tp8-b2048"]["kv_cache_tokens"], 272960)
+        selection = "\n".join(logs["nvfp4-tp8"]["selection"])
+        self.assertIn("'MARLIN' NvFp4", selection)
+        self.assertIn("TRITON_MLA_SPARSE", selection)
+        cost = data["cost_per_million_output_tokens_usd"]
+        c32, c128 = cost["concurrency_32_input_1k_output_1k"], cost["concurrency_128_input_1k_output_256"]
+        for nvfp4, fp8 in ((c32["nvfp4_1_node"], c32["fp8_2_nodes"]),
+                           (c128["nvfp4_1_node_batched_2048"], c128["fp8_2_nodes_batched_2048"])):
+            for meter, price in nvfp4.items():
+                self.assertLess(price, fp8[meter])
+        verification = json.loads((ROOT / "evidence" / "a100-verification-and-doc-speed.json").read_text(encoding="utf-8"))
+        self.assertIn("nvfp4_checkpoint", verification["not_possible_on_a100"], "the original record is kept")
+        correction = verification["corrections"][0]
+        self.assertEqual(correction["field"], "not_possible_on_a100.nvfp4_checkpoint")
+        self.assertEqual(correction["evidence"], "evidence/a100-nvfp4-single-node.json")
+
     def test_verification_evidence(self):
         data = json.loads((ROOT / "evidence" / "a100-verification-and-doc-speed.json").read_text(encoding="utf-8"))
         for node in ("node0", "node1"):
