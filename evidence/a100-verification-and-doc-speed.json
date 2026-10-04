@@ -1,5 +1,15 @@
 {
   "scope": "Verification run of the full 61-layer skt/A.X-K2 (FP8, revision 2287ca45) on one allocation of 2 x Standard_ND96amsr_A100_v4 (16 x A100-SXM4-80GB, Azure ML low priority): the items left open by the earlier runs (tool calling, SKT's NIAH up to 256K, determinism with and without vLLM batch-invariant mode, InfiniBand, the tech report's Fig. 7 throughput conditions, a TP16 layout and the published EAGLE3 drafter). One OpenAI-compatible endpoint per configuration; the configurations ran one after another on the same two nodes.",
+  "corrections": [
+    {
+      "date": "2026-10-04",
+      "field": "not_possible_on_a100.nvfp4_checkpoint",
+      "status": "wrong; the original text is kept unchanged below as recorded on 2026-10-03",
+      "correction": "The compute capability 8.9 minimum is a software check in vLLM 0.23, not a hardware requirement. Upstream vLLM lowered it to 8.0 (vllm-project/vllm#45306, merged as a8c86eeb) because both formats in the checkpoint already have SM80 kernels: NVFP4 experts through Marlin W4A16 and FP8 layers through Marlin W8A16. With that change backported (aml/src/nvfp4_sm80_port.json, NVFP4_SM80_PORT=1), skt/A.X-K2-NVFP4 served on one 8 x A100 node. A100 still has no FP4 or FP8 tensor cores, so these layers compute with BF16 activations.",
+      "evidence": "evidence/a100-nvfp4-single-node.json",
+      "doc": "docs/SERVING_DESIGN.md section 8.4"
+    }
+  ],
   "job": "wheat_yak_fq7rn5533b (uksouth, 2026-10-03)",
   "settings": {
     "max_model_len": "262144 (PP2 phases), 32768 (batch-invariant and TP16 phases)",

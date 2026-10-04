@@ -1,6 +1,38 @@
 # Development environment handoff
 
-Snapshot: 2026-10-03. Read this before allocating any GPU.
+Snapshot: 2026-10-04. Read this before allocating any GPU.
+
+## 2026-10-04: SKT's NVFP4 checkpoint on one A100 node
+
+The 2026-10-03 entry below said NVFP4 cannot run on A100. That was wrong:
+the required compute capability 8.9 is a software check in vLLM 0.23, which
+upstream vLLM lowered to 8.0 in v0.24.0. With that change backported
+(`aml/src/nvfp4_sm80_port.json`, opt-in `NVFP4_SM80_PORT=1`), SKT's
+`skt/A.X-K2-NVFP4` was served on **one** ND96amsr (8 x A100, TP8, native
+DSA) in uksouth, job `frank_nail_jp9txc21y1`. SERVING_DESIGN.md section 8.4
+has the results; the evidence is `evidence/a100-nvfp4-single-node.json`.
+
+- **Checks:** functional 4/4, tool calls 9/9, SKT's needle test 9/9 up to
+  244,898 tokens. Weights take 48.5 GiB per GPU. The KV cache holds 254,016
+  tokens, or 272,960 with 2,048 batched tokens, which fits the full
+  262,144-token context.
+- **Kernels:** the NVFP4 experts run W4A16 through Marlin, because A100 has
+  no FP4 tensor cores (B200 runs them W4A4). FP8 layers and attention run as
+  before.
+- **Speed:** the same output tok/s as the FP8 checkpoint on 16 A100 with 1K
+  inputs up to concurrency 32 (1.01-1.06x), 0.81-0.86x at 64-128, and
+  0.64-0.98x with 8K-32K inputs, where prefill is slower. Under the tech report's Fig. 7
+  conditions it reaches 0.47-0.49x of one B200 node at 1K-4K inputs, about
+  half of B200 per GPU instead of a quarter, and 0.20-0.35x at 8K-32K.
+- **Cost:** 38-56% less per million output tokens than FP8 on two nodes.
+- **Limits:** it relies on the backport, so use vLLM 0.24 or later in
+  production. Quality was checked only with the probes above. The KV cache
+  holds 38-41% of the two FP8 nodes' 673,792 tokens.
+
+Azure state: everything was deleted again (resource group
+`rg-axk2-nvfp4-208d24c1`, 15:51Z). Workspace names with `-r4-` are now
+soft-deleted for 14 days. The run used at most about 2.4 node-hours, about
+USD 20-31.
 
 ## 2026-10-03 (third update): verification run and the tech report's speed
 
@@ -27,7 +59,9 @@ results; the evidence is `evidence/a100-verification-and-doc-speed.json`.
 - **EAGLE3:** not usable. It cannot run with PP. On TP16 the A100 MLA decode
   kernel cannot verify multi-token drafts: start-up with CUDA graphs fails,
   and eager mode is 4-5x slower.
-- **NVFP4:** not possible on A100 (needs compute capability 8.9).
+- **NVFP4:** reported as not possible on A100 (needs compute capability 8.9).
+  **Corrected on 2026-10-04:** that is a software check, and the checkpoint
+  runs on one A100 node (see the entry above).
 
 Azure state: everything was deleted again (resource group
 `rg-axk2-aml-208d24c1`). Workspace names with `-r3-` are now soft-deleted for
@@ -239,6 +273,8 @@ Potential paths, all unverified end-to-end:
   compatibility evidence is not transferable.
 - Additional 4-bit quantization is a separate accuracy/kernel project,
   not a lossless storage change or a known-supported A.X-K2 configuration.
+  SKT has since published `skt/A.X-K2-NVFP4`; SERVING_DESIGN.md section 8.4
+  serves it on one A100 node.
 
 Acquire a complete minimum viable fleet within an explicit deadline; delete
 partial allocations if the fleet cannot be formed. Do not hold many T4 VMs

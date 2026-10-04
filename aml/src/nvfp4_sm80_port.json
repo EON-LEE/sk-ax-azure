@@ -1,0 +1,25 @@
+{
+  "upstream_prs": [
+    {
+      "pr": "https://github.com/vllm-project/vllm/pull/45306",
+      "merge_commit": "a8c86eeb1695a3d35d0c748a68a1451379ea497a",
+      "title": "[Quant] Support modelopt_mixed on Ampere (SM80/SM86)",
+      "taken": "whole PR: ModelOptMixedPrecisionConfig.get_min_capability 89 -> 80"
+    },
+    {
+      "pr": "https://github.com/vllm-project/vllm/pull/45295",
+      "merge_commit": "9eaacb23ec1826ddac31657e0eab699de6de3c59",
+      "title": "[Kernel] Consolidate Marlin thread-tile padding across all dense Marlin paths",
+      "taken": "only its modelopt.py line: ModelOptFp8LinearMethod.create_weights sets layer.orig_dtype, which prepare_fp8_layer_for_marlin reads. The tile-padding part is not needed because every A.X-K2 per-rank GEMM shape at TP8 is already Marlin-aligned (N % 64 == 0, K % 128 == 0)."
+    }
+  ],
+  "applied_on": "SKT-AI/vllm axk2-v0.23.0 @ 023bc76025459d6356c5885f271b9b95c50f93b6 (its modelopt.py is byte-identical to upstream v0.23.0)",
+  "note": "Opt-in (NVFP4_SM80_PORT=1). Lets the official skt/A.X-K2-NVFP4 checkpoint (modelopt MIXED_PRECISION: NVFP4 routed experts, FP8 per-tensor attention/shared-expert/dense layers, BF16 embeddings/LM head) load on A100. SM80 has no FP4/FP8 tensor cores, so vLLM selects Marlin for both: routed experts run W4A16 (FP4 weights dequantized inside the kernel, BF16 activations) and FP8 layers run W8A16 (MarlinFP8ScaledMMLinearKernel). Blackwell runs the same checkpoint W4A4/W8A8 on FP4/FP8 tensor cores. Kernel selection on SM89+ is unchanged. Diff context is 8 lines because the 3-line context of the capability hunk also matches ModelOptFp8Config.",
+  "patched_files": {
+    "vllm/model_executor/layers/quantization/modelopt.py": {
+      "before_sha256": "1c58627e479e13aea2ad26c5da122a3a65a7335c3a06a812d4a7f5a20e94ef11",
+      "after_sha256": "10ec868fde521d580b73302facfd7783b455b57f0f1059d41cd1d5bbabcda351",
+      "diff": "diff --git a/vllm/model_executor/layers/quantization/modelopt.py b/vllm/model_executor/layers/quantization/modelopt.py\nindex eabaf62..e618c63 100644\n--- a/vllm/model_executor/layers/quantization/modelopt.py\n+++ b/vllm/model_executor/layers/quantization/modelopt.py\n@@ -463,16 +463,17 @@ class ModelOptFp8LinearMethod(LinearMethodBase):\n         **extra_weight_attrs,\n     ):\n         del input_size, output_size\n         output_size_per_partition = sum(output_partition_sizes)\n         weight_loader = extra_weight_attrs.get(\"weight_loader\")\n         layer.logical_widths = output_partition_sizes\n         layer.input_size_per_partition = input_size_per_partition\n         layer.output_size_per_partition = output_size_per_partition\n+        layer.orig_dtype = params_dtype\n         weight_dtype = (\n             torch.float8_e4m3fn\n             if self.quant_config.is_checkpoint_fp8_serialized\n             else params_dtype\n         )\n         weight = ModelWeightParameter(\n             data=torch.empty(\n                 output_size_per_partition, input_size_per_partition, dtype=weight_dtype\n@@ -2212,17 +2213,23 @@ class ModelOptMixedPrecisionConfig(ModelOptQuantConfigBase):\n     def get_name(self) -> QuantizationMethods:\n         return \"modelopt_mixed\"\n \n     def get_supported_act_dtypes(self) -> list[torch.dtype]:\n         return [torch.bfloat16, torch.half]\n \n     @classmethod\n     def get_min_capability(cls) -> int:\n-        return 89\n+        # Ampere (SM80/SM86): NVFP4 routed experts run via Marlin W4A16, and FP8\n+        # weight-only dense layers run via MarlinFP8 (W8A16, compute in\n+        # bf16/fp16). FP8 MoE, if present, also routes to Marlin because\n+        # TritonExperts gates its FP8 schemes behind supports_fp8() (cc>=89).\n+        # None of these paths require native FP8 tensor cores, so SM80 is\n+        # sufficient.\n+        return 80\n \n     @classmethod\n     def override_quantization_method(\n         cls, hf_quant_cfg, user_quant, hf_config=None\n     ) -> QuantizationMethods | None:\n         algo = cls._extract_modelopt_quant_algo(hf_quant_cfg)\n         if algo is not None and algo == \"MIXED_PRECISION\":\n             return \"modelopt_mixed\"\n"
+    }
+  }
+}

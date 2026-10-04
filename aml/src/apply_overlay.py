@@ -9,10 +9,15 @@ Native DeepSeek Sparse Attention (DSA) on A100: the port of upstream vLLM PR #38
 (TRITON_MLA_SPARSE backend + Triton MQA-logits indexer) described in dsa_port.json is applied on top.
 New files come from the PR commit and are hash-checked; modified files must match the expected base
 hash, receive exact-context hunks, and must then match the expected result hash.
+
+Official NVFP4 checkpoint on A100 (opt-in, NVFP4_SM80_PORT=1): the port of upstream vLLM PRs #45306
+and #45295 described in nvfp4_sm80_port.json lets ModelOpt mixed-precision checkpoints load on SM80,
+where NVFP4 experts run as Marlin W4A16 and FP8 layers as Marlin W8A16. Same hash-checked mechanism.
 """
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -90,17 +95,35 @@ def apply_dsa_port(site, tests_dir):
             raise SystemExit(f"unexpected existing file {item['path']}")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    for path, item in port["patched_files"].items():
+    apply_patched_files(site, port["patched_files"], "DSA port")
+    return {"pr": port["upstream_pr"], "pr_commit": port["pr_commit"],
+            "new_files": len(port["new_files"]), "patched_files": len(port["patched_files"])}
+
+
+def apply_patched_files(site, patched_files, label):
+    for path, item in patched_files.items():
         target = site / path
         data = target.read_bytes()
         if sha256(data) != item["before_sha256"]:
-            raise SystemExit(f"{path} differs from the DSA port base")
+            raise SystemExit(f"{path} differs from the {label} base")
         patched = apply_unified_diff(data.decode(), item["diff"]).encode()
         if sha256(patched) != item["after_sha256"]:
-            raise SystemExit(f"{path} DSA port result hash mismatch")
+            raise SystemExit(f"{path} {label} result hash mismatch")
         target.write_bytes(patched)
-    return {"pr": port["upstream_pr"], "pr_commit": port["pr_commit"],
-            "new_files": len(port["new_files"]), "patched_files": len(port["patched_files"])}
+
+
+def apply_nvfp4_sm80_port(site):
+    port = json.loads(Path(__file__).with_name("nvfp4_sm80_port.json").read_text())
+    apply_patched_files(site, port["patched_files"], "NVFP4 SM80 port")
+    probe = ("from vllm.model_executor.layers.quantization.modelopt import ModelOptMixedPrecisionConfig as M;"
+             "print(M.get_min_capability())")
+    check = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=600)
+    lines = check.stdout.strip().splitlines()
+    min_capability = lines[-1] if lines else None
+    if min_capability != "80":
+        raise SystemExit(f"NVFP4 SM80 port not active: {min_capability!r} {check.stderr[-1500:]}")
+    return {"prs": [item["pr"] for item in port["upstream_prs"]],
+            "patched_files": sorted(port["patched_files"]), "mixed_precision_min_capability": 80}
 
 
 def main():
@@ -144,6 +167,8 @@ def main():
         target.write_text(text.replace(old, new))
         result["patches"].append({"path": path, "sha256_after": sha256(target.read_bytes())})
     result["dsa_port"] = apply_dsa_port(site, Path(args.tests_dir))
+    if os.environ.get("NVFP4_SM80_PORT") == "1":
+        result["nvfp4_sm80_port"] = apply_nvfp4_sm80_port(site)
     probe = ("import importlib;"
              "from vllm.model_executor.models.registry import ModelRegistry;"
              "from vllm.transformers_utils.configs import AXK2Config;"

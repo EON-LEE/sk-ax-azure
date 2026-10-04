@@ -10,7 +10,10 @@ determinism  Greedy output of one request: twice computed fresh, once from the p
 docsweep     The tech report's serving benchmark (Fig. 7): vllm bench serve, random dataset,
              concurrency 32, 1,024 output tokens, input 1K-120K, with peak running/waiting
              requests and KV-cache usage sampled from /metrics.
+docsweep32k  The same at input 1K-32K (for single-node runs, where 64K/120K would dominate the bill).
 sweepsub     The same at input 1K/4K/8K only (for alternative layouts).
+latency      The plan of the earlier 16-GPU FP8 latency/throughput table (client_tests.benchmark_plan):
+             1 request at 1K/8K/32K input, 1K input at concurrency 1-128, 16K input at 4 and 16.
 functional   Short Korean/English/arithmetic/code checks.
 specstats    Speculative-decoding acceptance from /metrics.
 
@@ -28,6 +31,8 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+
+from client_tests import benchmark_plan
 
 MODEL = "axk2"
 REPORT = Path(__file__).with_name("report.py")
@@ -404,9 +409,11 @@ def sweep(args, isls, prompts_for, suite):
             record["doc_fig8_b200_eagle3_total_tok_s"] = DOC_FIG8_TOTAL[isl]
         points.append(record)
         emit(args.out_dir, args.tag, f"{suite}-isl{isl}", record)
+    batched = args.max_num_batched_tokens
+    note = ("(vLLM's B200 default); same conditions as the tech report Fig. 7 (B200 single node)"
+            if batched == 8192 else "(the tech report's B200 run used 8192)")
     return {"method": "vllm bench serve --dataset-name random --ignore-eos, concurrency 32, output 1024 tokens, "
-                      "server --max-num-batched-tokens 8192 (vLLM's B200 default); same conditions as the tech "
-                      "report Fig. 7 (B200 single node)",
+                      f"server --max-num-batched-tokens {batched} {note}",
             "points": points}
 
 
@@ -415,8 +422,25 @@ def suite_docsweep(args):
     return sweep(args, isls, lambda isl: 64 if isl <= 16384 else 32, "docsweep")
 
 
+def suite_docsweep32k(args):
+    isls = [1024, 2048, 4096, 8192, 16384, 32768]
+    return sweep(args, isls, lambda isl: 64 if isl <= 16384 else 32, "docsweep32k")
+
+
 def suite_sweepsub(args):
     return sweep(args, [1024, 4096, 8192], lambda isl: 64, "sweepsub")
+
+
+def suite_latency(args):
+    points = []
+    for name, concurrency, prompts, input_len, output_len in benchmark_plan(args.max_model_len):
+        record = bench(args, name, concurrency, prompts, input_len, output_len, 3600)
+        points.append(record)
+        emit(args.out_dir, args.tag, f"bench-{name}", record)
+    return {"method": "client_tests.benchmark_plan, the plan of the earlier 16-GPU FP8 table: vllm bench serve "
+                      "--dataset-name random --ignore-eos --seed 2026, 256 output tokens; server "
+                      f"--max-num-batched-tokens {args.max_num_batched_tokens}",
+            "points": points}
 
 
 def suite_functional(args):
@@ -453,8 +477,10 @@ def suite_specstats(args):
 
 
 SUITES = {"tools": suite_tools, "niah": suite_niah, "determinism": suite_determinism,
-          "docsweep": suite_docsweep, "sweepsub": suite_sweepsub, "functional": suite_functional,
-          "specstats": suite_specstats}
+          "docsweep": suite_docsweep, "docsweep32k": suite_docsweep32k, "sweepsub": suite_sweepsub,
+          "latency": suite_latency, "functional": suite_functional, "specstats": suite_specstats}
+SUMMARY_KEYS = ("name", "returncode", "output_throughput", "total_token_throughput", "median_ttft_ms",
+                "median_tpot_ms", "ratio_total_vs_doc", "peak_running_requests")
 
 
 def main():
@@ -464,6 +490,7 @@ def main():
     parser.add_argument("--suites", required=True, help="comma-separated: " + ",".join(SUITES))
     parser.add_argument("--tokenizer", required=True)
     parser.add_argument("--max-model-len", type=int, required=True)
+    parser.add_argument("--max-num-batched-tokens", type=int, default=8192, help="the server's setting, recorded only")
     parser.add_argument("--niah-lengths", default="32768,131072,262144")
     parser.add_argument("--out-dir", required=True)
     args = parser.parse_args()
@@ -474,12 +501,10 @@ def main():
         try:
             data = SUITES[name](args)
             data["suite_seconds"] = round(time.time() - began, 1)
-            if name not in ("docsweep", "sweepsub"):
+            if "points" not in data:
                 emit(args.out_dir, args.tag, name, data)
             else:
-                summary = [{k: p.get(k) for k in ("name", "returncode", "output_throughput", "total_token_throughput",
-                                                   "ratio_total_vs_doc", "peak_running_requests")}
-                           for p in data["points"]]
+                summary = [{k: p.get(k) for k in SUMMARY_KEYS} for p in data["points"]]
                 emit(args.out_dir, args.tag, name, {"method": data["method"], "summary": summary,
                                                     "suite_seconds": data["suite_seconds"]})
         except Exception as exc:

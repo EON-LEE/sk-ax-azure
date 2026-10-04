@@ -1,0 +1,41 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-distributed-poc
+display_name: nvfp4-1xND96amsr-A100
+description: >-
+  SKT's official NVFP4 checkpoint (skt/A.X-K2-NVFP4, 398 GB) on ONE 8xA100-80GB node, TP=8 without
+  pipeline parallelism, native DSA. A100 has no FP4/FP8 tensor cores: with upstream vLLM PR 45306
+  (+ the orig_dtype line of PR 45295) ported onto SKT's fork, vLLM serves the NVFP4 experts and the
+  FP8 layers through Marlin weight-only kernels (W4A16 / W8A16, BF16 activations). The context
+  length is auto-fitted to the KV cache. Phase nvfp4-tp8 (8192 batched tokens, the tech report's
+  setting): functional checks, tool calling, the earlier 16-GPU FP8 latency/throughput plan, the
+  tech report's Fig. 7 sweep at 1K-32K input, SKT's NIAH. Phase nvfp4-tp8-b2048 repeats the
+  latency/throughput plan at vLLM's A100 default of 2048 batched tokens, the earlier table's setting.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: user_identity
+resources:
+  instance_count: 1
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+  FULL_REPO: skt/A.X-K2-NVFP4
+  NVFP4_SM80_PORT: "1"
+  PHASE_PLAN: "nvfp4-tp8 nvfp4-tp8-b2048"
+  FULL_MAX_NUM_SEQS: "128"
+  FULL_GPU_MEM_UTIL: "0.92"
+  FULL_HEALTH_TIMEOUT: "3600"
+  DOWNLOAD_TIMEOUT: "3600"
+  RUN_KERNEL_TESTS: "0"
+  TP: "8"
+  PP: "1"
+command: >-
+  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  bash /tmp/axk2src/entry.sh none hf:9e2e804e80f8d1b3afba5d7938173cec1ed46b49
+limits:
+  timeout: 16200

@@ -1,4 +1,5 @@
-"""Stage the pinned skt/A.X-K2 checkpoint into a local folder or an Azure ML job output.
+"""Stage a pinned A.X-K2 checkpoint (default skt/A.X-K2; --repo skt/A.X-K2-NVFP4 for the official
+NVFP4 variant) into a local folder or an Azure ML job output.
 
 Downloads run in a child process under a watchdog: hf_xet transfers were observed to stall forever
 part-way (68% of the files, no progress for 50 minutes) on Azure ML nodes. When the folder stops
@@ -14,7 +15,6 @@ import shutil
 import time
 from pathlib import Path
 
-REPO = "skt/A.X-K2"
 PATTERNS = ["*.safetensors", "*.json", "*.jinja", "README.md", ".gitattributes"]
 
 
@@ -34,15 +34,16 @@ def tree_bytes(*roots):
     return total
 
 
-def _download(revision, out, workers):
+def _download(repo, revision, out, workers):
     from huggingface_hub import snapshot_download
-    snapshot_download(REPO, revision=revision, local_dir=out, allow_patterns=PATTERNS, max_workers=workers)
+    snapshot_download(repo, revision=revision, local_dir=out, allow_patterns=PATTERNS, max_workers=workers)
 
 
-def download_with_watchdog(revision, out, workers, stall_seconds, attempts):
+def download_with_watchdog(repo, revision, out, workers, stall_seconds, attempts):
     cache = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     for attempt in range(1, attempts + 1):
-        child = multiprocessing.get_context("spawn").Process(target=_download, args=(revision, str(out), workers))
+        child = multiprocessing.get_context("spawn").Process(target=_download,
+                                                             args=(repo, revision, str(out), workers))
         child.start()
         last_size, last_change, last_print = -1, time.time(), 0.0
         while child.is_alive():
@@ -69,6 +70,7 @@ def download_with_watchdog(revision, out, workers, stall_seconds, attempts):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", default="skt/A.X-K2")
     parser.add_argument("--revision", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--workers", type=int, default=16)
@@ -79,12 +81,13 @@ def main():
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     from huggingface_hub import HfApi
 
-    info = HfApi().model_info(REPO, revision=args.revision, files_metadata=True)
+    info = HfApi().model_info(args.repo, revision=args.revision, files_metadata=True)
     expected = {s.rfilename: s.size for s in info.siblings if wanted(s.rfilename)}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     began = time.time()
-    attempts = download_with_watchdog(args.revision, out, args.workers, args.stall_seconds, args.attempts)
+    attempts = download_with_watchdog(args.repo, args.revision, out, args.workers, args.stall_seconds,
+                                      args.attempts)
     seconds = time.time() - began
     shutil.rmtree(out / ".cache", ignore_errors=True)
     present = {p.name: p.stat().st_size for p in out.iterdir() if p.is_file()}
@@ -92,7 +95,7 @@ def main():
     wrong_size = sorted(n for n in expected if n in present and present[n] != expected[n])
     total = sum(present.get(n, 0) for n in expected)
     report = {
-        "repo": REPO, "revision": args.revision, "sha_reported_by_hub": info.sha,
+        "repo": args.repo, "revision": args.revision, "sha_reported_by_hub": info.sha,
         "files_expected": len(expected), "files_present": len(present),
         "missing": missing, "wrong_size": wrong_size, "bytes": total,
         "download_seconds": round(seconds, 1), "download_attempts": attempts,

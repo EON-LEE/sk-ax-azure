@@ -1,0 +1,1516 @@
+{
+  "scope": "SKT's official 4-bit checkpoint skt/A.X-K2-NVFP4 (full 61 layers) served on ONE Standard_ND96amsr_A100_v4 node (8 x A100-SXM4-80GB, Azure ML low priority), tensor parallel 8, native DSA, one OpenAI-compatible endpoint; compared with the FP8 checkpoint on two nodes (16 x A100, TP8 x PP2) and with the tech report's Fig. 7 (FP8 on one 8 x B200 node).",
+  "job": "frank_nail_jp9txc21y1 (uksouth, 2026-10-04)",
+  "checkpoint": {
+    "repo": "skt/A.X-K2-NVFP4",
+    "revision": "9e2e804e80f8d1b3afba5d7938173cec1ed46b49",
+    "size_gb": 398.3,
+    "fp8_checkpoint_size_gb": 694.4,
+    "quantization": "ModelOpt MIXED_PRECISION (producer modelopt 0.44.0-axk2-mixed-fp8-nvfp4experts), from hf_quant_config.json: the routed experts of the 60 MoE layers (256 experts x gate/up/down = 46,080 linears) NVFP4 with group size 16; attention including the DSA indexer (wq_b, wk), the shared experts and layer 0's dense MLP FP8; excluded (BF16): lm_head, embed_tokens, norms and the MoE router (*.mlp.gate); no KV-cache quantization",
+    "skt_documented_setup": "4 x B200, TP4 + expert parallel, FLASHINFER_MLA_SPARSE, VLLM_USE_FLASHINFER_MOE_FP4=1",
+    "skt_model_card_claims": "routed experts NVFP4 W4A4; 'retains performance comparable to the FP8 checkpoint while reducing the model memory footprint by approximately half'; NIAH 100 at every length and depth to 512K (YaRN) after NVFP4 quantization. Not re-measured here beyond the needle test below."
+  },
+  "engine_change": {
+    "why": "vLLM 0.23 (and SKT's fork) refuses this checkpoint below compute capability 8.9: ModelOptMixedPrecisionConfig.get_min_capability() returns 89. Upstream vLLM lowered it to 80 because both halves already have SM80 paths: NVFP4 experts through Marlin W4A16 and FP8 layers through Marlin W8A16.",
+    "upstream_prs": [
+      {
+        "pr": "https://github.com/vllm-project/vllm/pull/45306",
+        "merge_commit": "a8c86eeb1695a3d35d0c748a68a1451379ea497a",
+        "title": "[Quant] Support modelopt_mixed on Ampere (SM80/SM86)",
+        "taken": "whole PR: ModelOptMixedPrecisionConfig.get_min_capability 89 -> 80"
+      },
+      {
+        "pr": "https://github.com/vllm-project/vllm/pull/45295",
+        "merge_commit": "9eaacb23ec1826ddac31657e0eab699de6de3c59",
+        "title": "[Kernel] Consolidate Marlin thread-tile padding across all dense Marlin paths",
+        "taken": "only its modelopt.py line: ModelOptFp8LinearMethod.create_weights sets layer.orig_dtype, which prepare_fp8_layer_for_marlin reads. The tile-padding part is not needed because every A.X-K2 per-rank GEMM shape at TP8 is already Marlin-aligned (N % 64 == 0, K % 128 == 0)."
+      }
+    ],
+    "applied_on": "SKT-AI/vllm axk2-v0.23.0 @ 023bc76025459d6356c5885f271b9b95c50f93b6 (its modelopt.py is byte-identical to upstream v0.23.0)",
+    "patched_files": [
+      {
+        "path": "vllm/model_executor/layers/quantization/modelopt.py",
+        "before_sha256": "1c58627e479e13aea2ad26c5da122a3a65a7335c3a06a812d4a7f5a20e94ef11",
+        "after_sha256": "10ec868fde521d580b73302facfd7783b455b57f0f1059d41cd1d5bbabcda351"
+      }
+    ],
+    "applied_in_run": {
+      "prs": [
+        "https://github.com/vllm-project/vllm/pull/45306",
+        "https://github.com/vllm-project/vllm/pull/45295"
+      ],
+      "patched_files": [
+        "vllm/model_executor/layers/quantization/modelopt.py"
+      ],
+      "mixed_precision_min_capability": 80
+    },
+    "opt_in": "NVFP4_SM80_PORT=1 (aml/jobs/nvfp4-a100-nd96.yml); other jobs are unchanged"
+  },
+  "numerics_on_a100": {
+    "routed_experts": "NVFP4 weights, BF16 activations (Marlin W4A16); B200 runs FP4 x FP4 (W4A4) on FP4 tensor cores",
+    "fp8_linear_layers": "FP8 weights, BF16 activations (Marlin W8A16); B200 runs W8A8 on FP8 tensor cores",
+    "kv_cache": "BF16 (as in the tech report's measurements)",
+    "attention": "native DSA: ported Triton indexer and sparse MLA (TRITON_MLA_SPARSE), as in the FP8 runs",
+    "accuracy_note": "activations stay in BF16, so the arithmetic is at least as precise as B200's W4A4 path; the weights are the same 4-bit values. Not bit-identical to B200."
+  },
+  "settings": {
+    "tensor_parallel": 8,
+    "pipeline_parallel": 1,
+    "executor": "multiprocessing (one node)",
+    "interconnect": "one node: tensor-parallel all-reduces stay on NVLink and nothing crosses nodes; per_phase.*.startup.nccl_ib names the unused inter-node mode",
+    "max_model_len": "auto-fit (--max-model-len -1)",
+    "max_num_seqs": 128,
+    "gpu_memory_utilization": 0.92,
+    "max_num_batched_tokens": {
+      "nvfp4-tp8": 8192,
+      "nvfp4-tp8-b2048": 2048
+    },
+    "server_flags": "--reasoning-parser deepseek_v3 --tool-call-parser hermes --enable-auto-tool-choice"
+  },
+  "environment": {
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "gpus": 8,
+    "driver": "580.95.05",
+    "compute_capability": [
+      8,
+      0
+    ],
+    "torch": "2.11.0+cu129",
+    "cuda": "12.9",
+    "vllm": "0.23.0+cu129",
+    "flashinfer-python": "0.6.12",
+    "triton": "3.6.0",
+    "nvidia-nccl-cu12": "2.28.9",
+    "skt_fork_sha": "023bc76025459d6356c5885f271b9b95c50f93b6"
+  },
+  "download_seconds": [
+    412
+  ],
+  "phases": [
+    {
+      "phase": "full_download",
+      "status": "passed",
+      "seconds": 404,
+      "note": ""
+    },
+    {
+      "phase": "nvfp4-tp8",
+      "status": "passed",
+      "seconds": 4690,
+      "note": ""
+    },
+    {
+      "phase": "nvfp4-tp8-b2048",
+      "status": "passed",
+      "seconds": 1226,
+      "note": ""
+    }
+  ],
+  "per_phase": {
+    "nvfp4-tp8": {
+      "status": {
+        "phase": "nvfp4-tp8",
+        "status": "passed",
+        "seconds": 4690,
+        "note": ""
+      },
+      "startup": {
+        "seconds_to_healthy": 433,
+        "nccl_ib": "tcp"
+      },
+      "max_model_len": {
+        "auto_fit": 254016,
+        "max_num_batched_tokens": 8192
+      },
+      "engine_config": {
+        "dtype": "torch.bfloat16",
+        "tensor_parallel_size": "8",
+        "pipeline_parallel_size": "1",
+        "quantization": "modelopt_mixed",
+        "kv_cache_dtype": "auto",
+        "enable_prefix_caching": "True",
+        "enable_chunked_prefill": "True"
+      },
+      "functional": {
+        "passed": 4,
+        "total": 4,
+        "checks": [
+          {
+            "name": "ko_capital",
+            "passed": true,
+            "content": "서울"
+          },
+          {
+            "name": "en_multiply",
+            "passed": true,
+            "content": "391"
+          },
+          {
+            "name": "ko_translate",
+            "passed": true,
+            "content": "I drank coffee this morning."
+          },
+          {
+            "name": "code_is_prime",
+            "passed": true,
+            "content": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```"
+          }
+        ],
+        "suite_seconds": 3.9
+      },
+      "tools": {
+        "server_flags": "--tool-call-parser hermes --enable-auto-tool-choice --reasoning-parser deepseek_v3",
+        "passed": 9,
+        "total": 9,
+        "cases": [
+          {
+            "name": "single_ko",
+            "passed": true,
+            "calls": [
+              {
+                "name": "get_weather",
+                "arguments": {
+                  "city": "Seoul",
+                  "unit": "celsius"
+                },
+                "id": "chatcmpl-tool-9952d6d27bf8d35c"
+              }
+            ],
+            "content": "",
+            "finish_reason": "tool_calls"
+          },
+          {
+            "name": "parallel_ko",
+            "passed": true,
+            "calls": [
+              {
+                "name": "get_weather",
+                "arguments": {
+                  "city": "Seoul",
+                  "unit": "celsius"
+                },
+                "id": "chatcmpl-tool-962ba7efca1d34a7"
+              },
+              {
+                "name": "get_weather",
+                "arguments": {
+                  "city": "Busan",
+                  "unit": "celsius"
+                },
+                "id": "chatcmpl-tool-8b86636c0a2c08d6"
+              }
+            ],
+            "content": ""
+          },
+          {
+            "name": "multi_argument_en",
+            "passed": true,
+            "calls": [
+              {
+                "name": "search_flights",
+                "arguments": {
+                  "origin": "Seoul",
+                  "destination": "Tokyo",
+                  "date": "2026-11-20"
+                },
+                "id": "chatcmpl-tool-844652909d4c091c"
+              }
+            ],
+            "content": ""
+          },
+          {
+            "name": "thinking_plus_tool",
+            "passed": true,
+            "calls": [
+              {
+                "name": "get_weather",
+                "arguments": {
+                  "city": "Seoul"
+                },
+                "id": "chatcmpl-tool-8c86bd1a93c1eae9"
+              }
+            ],
+            "content": "",
+            "reasoning_chars": 97,
+            "reasoning_head": "사용자가 서울의 현재 날씨를 요청했습니다. get_weather 도구를 사용해야 하며, city는 \"Seoul\"로 지정하고 unit은 기본값인 celsius를 사용하겠습니다."
+          },
+          {
+            "name": "no_tool_needed",
+            "passed": true,
+            "content": "Seoul",
+            "tool_calls": []
+          },
+          {
+            "name": "multi_turn_tool_result",
+            "passed": true,
+            "content": "서울의 현재 날씨는 **맑음**이며, 기온은 **21°C**입니다."
+          },
+          {
+            "name": "streaming",
+            "passed": true,
+            "calls": [
+              {
+                "name": "get_weather",
+                "arguments": {
+                  "city": "Seoul",
+                  "unit": "celsius"
+                }
+              }
+            ],
+            "content": "",
+            "chunks": 18
+          },
+          {
+            "name": "named_tool_choice",
+            "passed": true,
+            "calls": [
+              {
+                "name": "get_weather",
+                "arguments": {
+                  "city": "Busan",
+                  "unit": "celsius"
+                },
+                "id": "chatcmpl-tool-b1cc5293afe4fb8b"
+              }
+            ]
+          },
+          {
+            "name": "required_tool_choice",
+            "passed": true,
+            "calls": [
+              {
+                "name": "search_flights",
+                "arguments": {
+                  "origin": "인천",
+                  "destination": "오사카",
+                  "date": "2026-12-01"
+                },
+                "id": "chatcmpl-tool-87e160b650d943f3"
+              }
+            ]
+          }
+        ],
+        "suite_seconds": 7.6
+      },
+      "niah": {
+        "method": "SKT-AI/A.X-K2 examples/vllm/niah_test.py (same needle, filler, question, depths, codes); one request at a time, temperature 0, 32 output tokens, thinking off",
+        "hits": 9,
+        "total": 9,
+        "by_length": {
+          "32768": {
+            "hits": 3,
+            "total": 3
+          },
+          "131072": {
+            "hits": 3,
+            "total": 3
+          },
+          "262144": {
+            "hits": 3,
+            "total": 3
+          }
+        },
+        "cases": [
+          {
+            "length": 32768,
+            "depth": 0.15,
+            "prompt_tokens": 31597,
+            "built_tokens": 31597,
+            "code": "KX-32K-0007",
+            "hit": true,
+            "answer": "KX-32K-0007",
+            "seconds": 14.1
+          },
+          {
+            "length": 32768,
+            "depth": 0.5,
+            "prompt_tokens": 31597,
+            "built_tokens": 31597,
+            "code": "KX-32K-1117",
+            "hit": true,
+            "answer": "KX-32K-1117",
+            "seconds": 12.5
+          },
+          {
+            "length": 32768,
+            "depth": 0.85,
+            "prompt_tokens": 31597,
+            "built_tokens": 31597,
+            "code": "KX-32K-2227",
+            "hit": true,
+            "answer": "KX-32K-2227",
+            "seconds": 8.6
+          },
+          {
+            "length": 131072,
+            "depth": 0.15,
+            "prompt_tokens": 126368,
+            "built_tokens": 126368,
+            "code": "KX-128K-0007",
+            "hit": true,
+            "answer": "KX-128K-0007",
+            "seconds": 101.0
+          },
+          {
+            "length": 131072,
+            "depth": 0.5,
+            "prompt_tokens": 126368,
+            "built_tokens": 126368,
+            "code": "KX-128K-1117",
+            "hit": true,
+            "answer": "KX-128K-1117",
+            "seconds": 97.2
+          },
+          {
+            "length": 131072,
+            "depth": 0.85,
+            "prompt_tokens": 126368,
+            "built_tokens": 126368,
+            "code": "KX-128K-2227",
+            "hit": true,
+            "answer": "KX-128K-2227",
+            "seconds": 70.5
+          },
+          {
+            "length": 262144,
+            "depth": 0.15,
+            "prompt_tokens": 244898,
+            "built_tokens": 244898,
+            "code": "KX-256K-0007",
+            "hit": true,
+            "answer": "KX-256K-0007",
+            "seconds": 315.0
+          },
+          {
+            "length": 262144,
+            "depth": 0.5,
+            "prompt_tokens": 244898,
+            "built_tokens": 244898,
+            "code": "KX-256K-1117",
+            "hit": true,
+            "answer": "KX-256K-1117",
+            "seconds": 308.6
+          },
+          {
+            "length": 262144,
+            "depth": 0.85,
+            "prompt_tokens": 244898,
+            "built_tokens": 244898,
+            "code": "KX-256K-2227",
+            "hit": true,
+            "answer": "KX-256K-2227",
+            "seconds": 229.9
+          }
+        ],
+        "suite_seconds": 1162.4
+      }
+    },
+    "nvfp4-tp8-b2048": {
+      "status": {
+        "phase": "nvfp4-tp8-b2048",
+        "status": "passed",
+        "seconds": 1226,
+        "note": ""
+      },
+      "startup": {
+        "seconds_to_healthy": 352,
+        "nccl_ib": "tcp"
+      },
+      "max_model_len": {
+        "auto_fit": 262144,
+        "max_num_batched_tokens": 2048
+      },
+      "engine_config": {
+        "dtype": "torch.bfloat16",
+        "tensor_parallel_size": "8",
+        "pipeline_parallel_size": "1",
+        "quantization": "modelopt_mixed",
+        "kv_cache_dtype": "auto",
+        "enable_prefix_caching": "True",
+        "enable_chunked_prefill": "True"
+      }
+    }
+  },
+  "latency_and_throughput_vs_fp8_16_gpus": {
+    "method": "client_tests.benchmark_plan, the same commands as the earlier FP8 table: vllm bench serve, random dataset, --ignore-eos, seed 2026, 256 output tokens; latency-inN = one request with N input tokens; throughput-cN = 1024 input tokens at concurrency N; long16k-cN = 16384 input tokens",
+    "fp8_reference": "evidence/a100-native-vs-dense-full-model.json, native mode: 16 x A100, TP8 x PP2 over Ray and TCP, max_num_batched_tokens 2048, max_model_len 65536, max_num_seqs 128",
+    "matched_comparison": "nvfp4-tp8-b2048 (same 2048 batched tokens as the FP8 reference)",
+    "nvfp4-tp8": {
+      "max_num_batched_tokens": 8192,
+      "points": [
+        {
+          "name": "latency-in1024",
+          "nvfp4_8_gpus": {
+            "completed": 3,
+            "duration": 16.6,
+            "output_throughput": 46.1,
+            "total_token_throughput": 230.7,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 336.8,
+            "p99_ttft_ms": 397.0,
+            "median_tpot_ms": 20.4,
+            "p99_tpot_ms": 20.4,
+            "median_itl_ms": 20.4,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 3,
+            "output_throughput": 48.6,
+            "total_token_throughput": 242.9,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 355.3,
+            "p99_ttft_ms": 401.0,
+            "median_tpot_ms": 19.2,
+            "p99_tpot_ms": 19.2,
+            "median_itl_ms": 19.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.95,
+          "per_gpu_output_ratio": 1.9,
+          "median_ttft_ratio": 0.95,
+          "median_tpot_ratio": 1.06
+        },
+        {
+          "name": "latency-in8192",
+          "nvfp4_8_gpus": {
+            "completed": 3,
+            "duration": 23.0,
+            "output_throughput": 33.3,
+            "total_token_throughput": 1100.2,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 2281.4,
+            "p99_ttft_ms": 2338.9,
+            "median_tpot_ms": 21.1,
+            "p99_tpot_ms": 21.1,
+            "median_itl_ms": 21.1,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 3,
+            "output_throughput": 37.9,
+            "total_token_throughput": 1249.8,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 1647.1,
+            "p99_ttft_ms": 1699.2,
+            "median_tpot_ms": 20.0,
+            "p99_tpot_ms": 20.0,
+            "median_itl_ms": 20.0,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.88,
+          "per_gpu_output_ratio": 1.76,
+          "median_ttft_ratio": 1.39,
+          "median_tpot_ratio": 1.06
+        },
+        {
+          "name": "latency-in32768",
+          "nvfp4_8_gpus": {
+            "completed": 3,
+            "duration": 53.0,
+            "output_throughput": 14.5,
+            "total_token_throughput": 1868.3,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 11973.2,
+            "p99_ttft_ms": 12030.3,
+            "median_tpot_ms": 22.3,
+            "p99_tpot_ms": 22.3,
+            "median_itl_ms": 22.4,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.1,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 3,
+            "output_throughput": 20.3,
+            "total_token_throughput": 2617.5,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 7211.3,
+            "p99_ttft_ms": 7269.3,
+            "median_tpot_ms": 21.1,
+            "p99_tpot_ms": 21.1,
+            "median_itl_ms": 21.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.71,
+          "per_gpu_output_ratio": 1.43,
+          "median_ttft_ratio": 1.66,
+          "median_tpot_ratio": 1.06
+        },
+        {
+          "name": "throughput-c1",
+          "nvfp4_8_gpus": {
+            "completed": 8,
+            "duration": 43.5,
+            "output_throughput": 47.1,
+            "total_token_throughput": 235.3,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 336.5,
+            "p99_ttft_ms": 340.3,
+            "median_tpot_ms": 20.4,
+            "p99_tpot_ms": 20.5,
+            "median_itl_ms": 20.4,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 8,
+            "output_throughput": 49.7,
+            "total_token_throughput": 248.3,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 338.2,
+            "p99_ttft_ms": 340.4,
+            "median_tpot_ms": 19.2,
+            "p99_tpot_ms": 19.3,
+            "median_itl_ms": 19.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.95,
+          "per_gpu_output_ratio": 1.9,
+          "median_ttft_ratio": 0.99,
+          "median_tpot_ratio": 1.06
+        },
+        {
+          "name": "throughput-c8",
+          "nvfp4_8_gpus": {
+            "completed": 24,
+            "duration": 27.9,
+            "output_throughput": 219.9,
+            "total_token_throughput": 1099.3,
+            "request_throughput": 0.9,
+            "median_ttft_ms": 2200.5,
+            "p99_ttft_ms": 2202.9,
+            "median_tpot_ms": 29.6,
+            "p99_tpot_ms": 36.8,
+            "median_itl_ms": 29.6,
+            "peak_running_requests": 8.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 24,
+            "output_throughput": 216.4,
+            "total_token_throughput": 1082.0,
+            "request_throughput": 0.8,
+            "median_ttft_ms": 1512.9,
+            "p99_ttft_ms": 2532.2,
+            "median_tpot_ms": 31.0,
+            "p99_tpot_ms": 36.7,
+            "median_itl_ms": 28.7,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 1.02,
+          "per_gpu_output_ratio": 2.03,
+          "median_ttft_ratio": 1.45,
+          "median_tpot_ratio": 0.95
+        },
+        {
+          "name": "throughput-c32",
+          "nvfp4_8_gpus": {
+            "completed": 96,
+            "duration": 67.8,
+            "output_throughput": 362.6,
+            "total_token_throughput": 1813.1,
+            "request_throughput": 1.4,
+            "median_ttft_ms": 3059.1,
+            "p99_ttft_ms": 8414.2,
+            "median_tpot_ms": 70.9,
+            "p99_tpot_ms": 93.8,
+            "median_itl_ms": 62.5,
+            "peak_running_requests": 32.0,
+            "peak_waiting_requests": 19.0,
+            "peak_kv_cache_usage": 0.2,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 96,
+            "output_throughput": 359.6,
+            "total_token_throughput": 1798.1,
+            "request_throughput": 1.4,
+            "median_ttft_ms": 1830.2,
+            "p99_ttft_ms": 8971.3,
+            "median_tpot_ms": 76.7,
+            "p99_tpot_ms": 93.8,
+            "median_itl_ms": 61.5,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 1.01,
+          "per_gpu_output_ratio": 2.02,
+          "median_ttft_ratio": 1.67,
+          "median_tpot_ratio": 0.92
+        },
+        {
+          "name": "throughput-c64",
+          "nvfp4_8_gpus": {
+            "completed": 192,
+            "duration": 91.4,
+            "output_throughput": 537.6,
+            "total_token_throughput": 2688.2,
+            "request_throughput": 2.1,
+            "median_ttft_ms": 1692.2,
+            "p99_ttft_ms": 10555.8,
+            "median_tpot_ms": 109.2,
+            "p99_tpot_ms": 138.1,
+            "median_itl_ms": 83.5,
+            "peak_running_requests": 64.0,
+            "peak_waiting_requests": 23.0,
+            "peak_kv_cache_usage": 0.3,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 192,
+            "output_throughput": 617.8,
+            "total_token_throughput": 3089.0,
+            "request_throughput": 2.4,
+            "median_ttft_ms": 1697.6,
+            "p99_ttft_ms": 10302.7,
+            "median_tpot_ms": 90.3,
+            "p99_tpot_ms": 120.8,
+            "median_itl_ms": 59.5,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.87,
+          "per_gpu_output_ratio": 1.74,
+          "median_ttft_ratio": 1.0,
+          "median_tpot_ratio": 1.21
+        },
+        {
+          "name": "throughput-c128",
+          "nvfp4_8_gpus": {
+            "completed": 384,
+            "duration": 146.0,
+            "output_throughput": 673.4,
+            "total_token_throughput": 3367.1,
+            "request_throughput": 2.6,
+            "median_ttft_ms": 3031.4,
+            "p99_ttft_ms": 19092.0,
+            "median_tpot_ms": 179.2,
+            "p99_tpot_ms": 237.9,
+            "median_itl_ms": 119.8,
+            "peak_running_requests": 128.0,
+            "peak_waiting_requests": 48.0,
+            "peak_kv_cache_usage": 0.6,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 384,
+            "output_throughput": 812.3,
+            "total_token_throughput": 4061.7,
+            "request_throughput": 3.2,
+            "median_ttft_ms": 2937.6,
+            "p99_ttft_ms": 19062.4,
+            "median_tpot_ms": 145.5,
+            "p99_tpot_ms": 204.8,
+            "median_itl_ms": 83.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.83,
+          "per_gpu_output_ratio": 1.66,
+          "median_ttft_ratio": 1.03,
+          "median_tpot_ratio": 1.23
+        },
+        {
+          "name": "long16k-c4",
+          "nvfp4_8_gpus": {
+            "completed": 8,
+            "duration": 60.5,
+            "output_throughput": 33.9,
+            "total_token_throughput": 2200.9,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 15773.4,
+            "p99_ttft_ms": 23067.6,
+            "median_tpot_ms": 56.5,
+            "p99_tpot_ms": 94.3,
+            "median_itl_ms": 28.0,
+            "peak_running_requests": 4.0,
+            "peak_waiting_requests": 2.0,
+            "peak_kv_cache_usage": 0.3,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 8,
+            "output_throughput": 52.6,
+            "total_token_throughput": 3418.4,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 6303.9,
+            "p99_ttft_ms": 20291.4,
+            "median_tpot_ms": 43.5,
+            "p99_tpot_ms": 86.8,
+            "median_itl_ms": 23.6,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.64,
+          "per_gpu_output_ratio": 1.29,
+          "median_ttft_ratio": 2.5,
+          "median_tpot_ratio": 1.3
+        },
+        {
+          "name": "long16k-c16",
+          "nvfp4_8_gpus": {
+            "completed": 32,
+            "duration": 166.8,
+            "output_throughput": 49.1,
+            "total_token_throughput": 3192.1,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 26079.7,
+            "p99_ttft_ms": 57432.7,
+            "median_tpot_ms": 211.5,
+            "p99_tpot_ms": 352.9,
+            "median_itl_ms": 44.7,
+            "peak_running_requests": 15.0,
+            "peak_waiting_requests": 7.0,
+            "peak_kv_cache_usage": 1.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 32,
+            "output_throughput": 50.9,
+            "total_token_throughput": 3310.2,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 25376.4,
+            "p99_ttft_ms": 60371.6,
+            "median_tpot_ms": 208.0,
+            "p99_tpot_ms": 369.8,
+            "median_itl_ms": 33.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.96,
+          "per_gpu_output_ratio": 1.93,
+          "median_ttft_ratio": 1.03,
+          "median_tpot_ratio": 1.02
+        }
+      ]
+    },
+    "nvfp4-tp8-b2048": {
+      "max_num_batched_tokens": 2048,
+      "points": [
+        {
+          "name": "latency-in1024",
+          "nvfp4_8_gpus": {
+            "completed": 3,
+            "duration": 15.6,
+            "output_throughput": 49.1,
+            "total_token_throughput": 245.5,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 349.1,
+            "p99_ttft_ms": 411.3,
+            "median_tpot_ms": 19.0,
+            "p99_tpot_ms": 19.0,
+            "median_itl_ms": 19.0,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 3,
+            "output_throughput": 48.6,
+            "total_token_throughput": 242.9,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 355.3,
+            "p99_ttft_ms": 401.0,
+            "median_tpot_ms": 19.2,
+            "p99_tpot_ms": 19.2,
+            "median_itl_ms": 19.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 1.01,
+          "per_gpu_output_ratio": 2.02,
+          "median_ttft_ratio": 0.98,
+          "median_tpot_ratio": 0.99
+        },
+        {
+          "name": "latency-in8192",
+          "nvfp4_8_gpus": {
+            "completed": 3,
+            "duration": 22.4,
+            "output_throughput": 34.2,
+            "total_token_throughput": 1129.2,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 2438.8,
+            "p99_ttft_ms": 2499.4,
+            "median_tpot_ms": 19.7,
+            "p99_tpot_ms": 19.7,
+            "median_itl_ms": 19.7,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 3,
+            "output_throughput": 37.9,
+            "total_token_throughput": 1249.8,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 1647.1,
+            "p99_ttft_ms": 1699.2,
+            "median_tpot_ms": 20.0,
+            "p99_tpot_ms": 20.0,
+            "median_itl_ms": 20.0,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.9,
+          "per_gpu_output_ratio": 1.8,
+          "median_ttft_ratio": 1.48,
+          "median_tpot_ratio": 0.98
+        },
+        {
+          "name": "latency-in32768",
+          "nvfp4_8_gpus": {
+            "completed": 3,
+            "duration": 50.7,
+            "output_throughput": 15.1,
+            "total_token_throughput": 1953.4,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 11558.7,
+            "p99_ttft_ms": 11612.9,
+            "median_tpot_ms": 20.9,
+            "p99_tpot_ms": 20.9,
+            "median_itl_ms": 21.0,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.1,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 3,
+            "output_throughput": 20.3,
+            "total_token_throughput": 2617.5,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 7211.3,
+            "p99_ttft_ms": 7269.3,
+            "median_tpot_ms": 21.1,
+            "p99_tpot_ms": 21.1,
+            "median_itl_ms": 21.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.74,
+          "per_gpu_output_ratio": 1.49,
+          "median_ttft_ratio": 1.6,
+          "median_tpot_ratio": 0.99
+        },
+        {
+          "name": "throughput-c1",
+          "nvfp4_8_gpus": {
+            "completed": 8,
+            "duration": 40.7,
+            "output_throughput": 50.3,
+            "total_token_throughput": 251.5,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 333.1,
+            "p99_ttft_ms": 336.7,
+            "median_tpot_ms": 19.0,
+            "p99_tpot_ms": 19.1,
+            "median_itl_ms": 19.0,
+            "peak_running_requests": 1.0,
+            "peak_waiting_requests": 0.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 8,
+            "output_throughput": 49.7,
+            "total_token_throughput": 248.3,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 338.2,
+            "p99_ttft_ms": 340.4,
+            "median_tpot_ms": 19.2,
+            "p99_tpot_ms": 19.3,
+            "median_itl_ms": 19.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 1.01,
+          "per_gpu_output_ratio": 2.02,
+          "median_ttft_ratio": 0.98,
+          "median_tpot_ratio": 0.99
+        },
+        {
+          "name": "throughput-c8",
+          "nvfp4_8_gpus": {
+            "completed": 24,
+            "duration": 26.9,
+            "output_throughput": 228.7,
+            "total_token_throughput": 1143.7,
+            "request_throughput": 0.9,
+            "median_ttft_ms": 941.7,
+            "p99_ttft_ms": 2438.7,
+            "median_tpot_ms": 30.5,
+            "p99_tpot_ms": 36.1,
+            "median_itl_ms": 28.3,
+            "peak_running_requests": 8.0,
+            "peak_waiting_requests": 3.0,
+            "peak_kv_cache_usage": 0.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 24,
+            "output_throughput": 216.4,
+            "total_token_throughput": 1082.0,
+            "request_throughput": 0.8,
+            "median_ttft_ms": 1512.9,
+            "p99_ttft_ms": 2532.2,
+            "median_tpot_ms": 31.0,
+            "p99_tpot_ms": 36.7,
+            "median_itl_ms": 28.7,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 1.06,
+          "per_gpu_output_ratio": 2.11,
+          "median_ttft_ratio": 0.62,
+          "median_tpot_ratio": 0.98
+        },
+        {
+          "name": "throughput-c32",
+          "nvfp4_8_gpus": {
+            "completed": 96,
+            "duration": 67.7,
+            "output_throughput": 363.1,
+            "total_token_throughput": 1815.6,
+            "request_throughput": 1.4,
+            "median_ttft_ms": 1829.2,
+            "p99_ttft_ms": 9348.5,
+            "median_tpot_ms": 75.6,
+            "p99_tpot_ms": 92.8,
+            "median_itl_ms": 60.6,
+            "peak_running_requests": 32.0,
+            "peak_waiting_requests": 23.0,
+            "peak_kv_cache_usage": 0.2,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 96,
+            "output_throughput": 359.6,
+            "total_token_throughput": 1798.1,
+            "request_throughput": 1.4,
+            "median_ttft_ms": 1830.2,
+            "p99_ttft_ms": 8971.3,
+            "median_tpot_ms": 76.7,
+            "p99_tpot_ms": 93.8,
+            "median_itl_ms": 61.5,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 1.01,
+          "per_gpu_output_ratio": 2.02,
+          "median_ttft_ratio": 1.0,
+          "median_tpot_ratio": 0.99
+        },
+        {
+          "name": "throughput-c64",
+          "nvfp4_8_gpus": {
+            "completed": 192,
+            "duration": 92.2,
+            "output_throughput": 533.2,
+            "total_token_throughput": 2665.8,
+            "request_throughput": 2.1,
+            "median_ttft_ms": 1649.5,
+            "p99_ttft_ms": 10436.6,
+            "median_tpot_ms": 112.9,
+            "p99_tpot_ms": 145.0,
+            "median_itl_ms": 81.4,
+            "peak_running_requests": 64.0,
+            "peak_waiting_requests": 28.0,
+            "peak_kv_cache_usage": 0.3,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 192,
+            "output_throughput": 617.8,
+            "total_token_throughput": 3089.0,
+            "request_throughput": 2.4,
+            "median_ttft_ms": 1697.6,
+            "p99_ttft_ms": 10302.7,
+            "median_tpot_ms": 90.3,
+            "p99_tpot_ms": 120.8,
+            "median_itl_ms": 59.5,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.86,
+          "per_gpu_output_ratio": 1.73,
+          "median_ttft_ratio": 0.97,
+          "median_tpot_ratio": 1.25
+        },
+        {
+          "name": "throughput-c128",
+          "nvfp4_8_gpus": {
+            "completed": 384,
+            "duration": 150.1,
+            "output_throughput": 654.8,
+            "total_token_throughput": 3274.2,
+            "request_throughput": 2.6,
+            "median_ttft_ms": 3062.4,
+            "p99_ttft_ms": 19942.1,
+            "median_tpot_ms": 181.1,
+            "p99_tpot_ms": 241.6,
+            "median_itl_ms": 118.4,
+            "peak_running_requests": 128.0,
+            "peak_waiting_requests": 57.0,
+            "peak_kv_cache_usage": 0.6,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 384,
+            "output_throughput": 812.3,
+            "total_token_throughput": 4061.7,
+            "request_throughput": 3.2,
+            "median_ttft_ms": 2937.6,
+            "p99_ttft_ms": 19062.4,
+            "median_tpot_ms": 145.5,
+            "p99_tpot_ms": 204.8,
+            "median_itl_ms": 83.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.81,
+          "per_gpu_output_ratio": 1.61,
+          "median_ttft_ratio": 1.04,
+          "median_tpot_ratio": 1.24
+        },
+        {
+          "name": "long16k-c4",
+          "nvfp4_8_gpus": {
+            "completed": 8,
+            "duration": 60.9,
+            "output_throughput": 33.6,
+            "total_token_throughput": 2186.4,
+            "request_throughput": 0.1,
+            "median_ttft_ms": 10570.2,
+            "p99_ttft_ms": 23745.7,
+            "median_tpot_ms": 76.6,
+            "p99_tpot_ms": 93.9,
+            "median_itl_ms": 26.6,
+            "peak_running_requests": 4.0,
+            "peak_waiting_requests": 3.0,
+            "peak_kv_cache_usage": 0.2,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 8,
+            "output_throughput": 52.6,
+            "total_token_throughput": 3418.4,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 6303.9,
+            "p99_ttft_ms": 20291.4,
+            "median_tpot_ms": 43.5,
+            "p99_tpot_ms": 86.8,
+            "median_itl_ms": 23.6,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.64,
+          "per_gpu_output_ratio": 1.28,
+          "median_ttft_ratio": 1.68,
+          "median_tpot_ratio": 1.76
+        },
+        {
+          "name": "long16k-c16",
+          "nvfp4_8_gpus": {
+            "completed": 32,
+            "duration": 164.3,
+            "output_throughput": 49.9,
+            "total_token_throughput": 3241.3,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 25417.0,
+            "p99_ttft_ms": 53277.4,
+            "median_tpot_ms": 218.9,
+            "p99_tpot_ms": 368.8,
+            "median_itl_ms": 43.8,
+            "peak_running_requests": 16.0,
+            "peak_waiting_requests": 8.0,
+            "peak_kv_cache_usage": 1.0,
+            "returncode": 0
+          },
+          "fp8_16_gpus": {
+            "completed": 32,
+            "output_throughput": 50.9,
+            "total_token_throughput": 3310.2,
+            "request_throughput": 0.2,
+            "median_ttft_ms": 25376.4,
+            "p99_ttft_ms": 60371.6,
+            "median_tpot_ms": 208.0,
+            "p99_tpot_ms": 369.8,
+            "median_itl_ms": 33.2,
+            "returncode": 0
+          },
+          "output_tok_s_ratio": 0.98,
+          "per_gpu_output_ratio": 1.96,
+          "median_ttft_ratio": 1.0,
+          "median_tpot_ratio": 1.05
+        }
+      ]
+    }
+  },
+  "doc_fig7_conditions": {
+    "reference": "A.X K2 tech report Fig. 7: vllm bench serve, random dataset, concurrency 32, 1,024 output tokens, FP8 weights, BF16 KV cache, one B200 node (8 GPUs)",
+    "fp8_16_a100_reference": "evidence/a100-verification-and-doc-speed.json, native over InfiniBand, 8192 batched tokens",
+    "this_run": "nvfp4-tp8: 8 x A100, NVFP4 checkpoint, 8192 batched tokens; inputs 1K-32K",
+    "points": [
+      {
+        "input_tokens": 1024,
+        "nvfp4_8_a100": {
+          "completed": 64,
+          "duration": 141.7,
+          "output_throughput": 462.5,
+          "total_token_throughput": 924.9,
+          "request_throughput": 0.5,
+          "median_ttft_ms": 5002.0,
+          "p99_ttft_ms": 8244.1,
+          "median_tpot_ms": 63.2,
+          "p99_tpot_ms": 69.3,
+          "median_itl_ms": 62.7,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 23.0,
+          "peak_kv_cache_usage": 0.3,
+          "returncode": 0
+        },
+        "fp8_16_a100_native_ib": {
+          "output_throughput": 407.2967455158891,
+          "total_token_throughput": 814.5934910317782,
+          "median_ttft_ms": 6217.772910999884,
+          "median_tpot_ms": 72.29707565982419,
+          "peak_running_requests": 32.0
+        },
+        "doc_b200_8_gpus_total_tok_s": 1900,
+        "doc_b200_8_gpus_output_tok_s": 965,
+        "total_vs_doc_b200": 0.49,
+        "output_vs_doc_b200": 0.48,
+        "total_vs_fp8_16_a100": 1.14,
+        "per_gpu_total_vs_fp8_16_a100": 2.27
+      },
+      {
+        "input_tokens": 2048,
+        "nvfp4_8_a100": {
+          "completed": 64,
+          "duration": 150.2,
+          "output_throughput": 436.3,
+          "total_token_throughput": 1308.9,
+          "request_throughput": 0.4,
+          "median_ttft_ms": 6537.8,
+          "p99_ttft_ms": 7952.6,
+          "median_tpot_ms": 67.6,
+          "p99_tpot_ms": 72.6,
+          "median_itl_ms": 65.4,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 23.0,
+          "peak_kv_cache_usage": 0.4,
+          "returncode": 0
+        },
+        "fp8_16_a100_native_ib": {
+          "output_throughput": 388.1989766509513,
+          "total_token_throughput": 1164.596929952854,
+          "median_ttft_ms": 6551.894771500201,
+          "median_tpot_ms": 76.1000483592376,
+          "peak_running_requests": 32.0
+        },
+        "doc_b200_8_gpus_total_tok_s": 2700,
+        "doc_b200_8_gpus_output_tok_s": 897,
+        "total_vs_doc_b200": 0.48,
+        "output_vs_doc_b200": 0.49,
+        "total_vs_fp8_16_a100": 1.12,
+        "per_gpu_total_vs_fp8_16_a100": 2.25
+      },
+      {
+        "input_tokens": 4096,
+        "nvfp4_8_a100": {
+          "completed": 64,
+          "duration": 194.7,
+          "output_throughput": 336.6,
+          "total_token_throughput": 1682.8,
+          "request_throughput": 0.3,
+          "median_ttft_ms": 14104.8,
+          "p99_ttft_ms": 25579.2,
+          "median_tpot_ms": 79.9,
+          "p99_tpot_ms": 100.1,
+          "median_itl_ms": 67.4,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 27.0,
+          "peak_kv_cache_usage": 0.6,
+          "returncode": 0
+        },
+        "fp8_16_a100_native_ib": {
+          "output_throughput": 339.7325740090119,
+          "total_token_throughput": 1698.6628700450594,
+          "median_ttft_ms": 9678.180142500196,
+          "median_tpot_ms": 84.54878917546421,
+          "peak_running_requests": 32.0
+        },
+        "doc_b200_8_gpus_total_tok_s": 3600,
+        "doc_b200_8_gpus_output_tok_s": 724,
+        "total_vs_doc_b200": 0.47,
+        "output_vs_doc_b200": 0.46,
+        "total_vs_fp8_16_a100": 0.99,
+        "per_gpu_total_vs_fp8_16_a100": 1.98
+      },
+      {
+        "input_tokens": 8192,
+        "nvfp4_8_a100": {
+          "completed": 64,
+          "duration": 346.3,
+          "output_throughput": 189.2,
+          "total_token_throughput": 1703.1,
+          "request_throughput": 0.2,
+          "median_ttft_ms": 22978.5,
+          "p99_ttft_ms": 156789.5,
+          "median_tpot_ms": 132.6,
+          "p99_tpot_ms": 185.8,
+          "median_itl_ms": 69.4,
+          "peak_running_requests": 30.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 1.0,
+          "returncode": 0
+        },
+        "fp8_16_a100_native_ib": {
+          "output_throughput": 269.36688002107917,
+          "total_token_throughput": 2424.3019201897123,
+          "median_ttft_ms": 10705.567325499942,
+          "median_tpot_ms": 109.38454190273706,
+          "peak_running_requests": 32.0
+        },
+        "doc_b200_8_gpus_total_tok_s": 4800,
+        "doc_b200_8_gpus_output_tok_s": 540,
+        "total_vs_doc_b200": 0.35,
+        "output_vs_doc_b200": 0.35,
+        "total_vs_fp8_16_a100": 0.7,
+        "per_gpu_total_vs_fp8_16_a100": 1.41
+      },
+      {
+        "input_tokens": 16384,
+        "nvfp4_8_a100": {
+          "completed": 64,
+          "duration": 594.3,
+          "output_throughput": 110.3,
+          "total_token_throughput": 1874.5,
+          "request_throughput": 0.1,
+          "median_ttft_ms": 162508.9,
+          "p99_ttft_ms": 278875.9,
+          "median_tpot_ms": 113.8,
+          "p99_tpot_ms": 145.7,
+          "median_itl_ms": 44.9,
+          "peak_running_requests": 15.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 1.0,
+          "returncode": 0
+        },
+        "fp8_16_a100_native_ib": {
+          "output_throughput": 133.82632991265677,
+          "total_token_throughput": 2275.047608515165,
+          "median_ttft_ms": 50089.491080000014,
+          "median_tpot_ms": 207.48763377614875,
+          "peak_running_requests": 32.0
+        },
+        "doc_b200_8_gpus_total_tok_s": 6300,
+        "doc_b200_8_gpus_output_tok_s": 367,
+        "total_vs_doc_b200": 0.3,
+        "output_vs_doc_b200": 0.3,
+        "total_vs_fp8_16_a100": 0.82,
+        "per_gpu_total_vs_fp8_16_a100": 1.65
+      },
+      {
+        "input_tokens": 32768,
+        "nvfp4_8_a100": {
+          "completed": 32,
+          "duration": 645.9,
+          "output_throughput": 50.7,
+          "total_token_throughput": 1674.0,
+          "request_throughput": 0.0,
+          "median_ttft_ms": 317238.8,
+          "p99_ttft_ms": 611009.2,
+          "median_tpot_ms": 114.7,
+          "p99_tpot_ms": 121.9,
+          "median_itl_ms": 37.6,
+          "peak_running_requests": 7.0,
+          "peak_waiting_requests": 31.0,
+          "peak_kv_cache_usage": 0.9,
+          "returncode": 0
+        },
+        "fp8_16_a100_native_ib": {
+          "output_throughput": 58.477166305446,
+          "total_token_throughput": 1929.746488079718,
+          "median_ttft_ms": 225374.4414549999,
+          "median_tpot_ms": 273.67579658504417,
+          "peak_running_requests": 20.0
+        },
+        "doc_b200_8_gpus_total_tok_s": 8200,
+        "doc_b200_8_gpus_output_tok_s": 247,
+        "total_vs_doc_b200": 0.2,
+        "output_vs_doc_b200": 0.21,
+        "total_vs_fp8_16_a100": 0.87,
+        "per_gpu_total_vs_fp8_16_a100": 1.73
+      }
+    ]
+  },
+  "cost_per_million_output_tokens_usd": {
+    "prices_usd_per_node_hour": {
+      "on_demand": 40.96,
+      "reserved_1_year": 26.22,
+      "reserved_3_years": 18.02,
+      "spot": 12.89,
+      "low_priority": 8.19
+    },
+    "price_source": "Azure retail prices API, Standard_ND96amsr_A100_v4, uksouth, Linux",
+    "formula": "price per node-hour x nodes / (measured output tokens per second x 3600) x 1,000,000",
+    "concurrency_32_input_1k_output_1k": {
+      "nvfp4_1_node": {
+        "on_demand": 24.6,
+        "reserved_1_year": 15.75,
+        "reserved_3_years": 10.82,
+        "spot": 7.74,
+        "low_priority": 4.92
+      },
+      "fp8_2_nodes": {
+        "on_demand": 55.87,
+        "reserved_1_year": 35.76,
+        "reserved_3_years": 24.58,
+        "spot": 17.58,
+        "low_priority": 11.17
+      }
+    },
+    "concurrency_128_input_1k_output_256": {
+      "nvfp4_1_node_batched_8192": {
+        "on_demand": 16.9,
+        "reserved_1_year": 10.82,
+        "reserved_3_years": 7.43,
+        "spot": 5.32,
+        "low_priority": 3.38
+      },
+      "nvfp4_1_node_batched_2048": {
+        "on_demand": 17.38,
+        "reserved_1_year": 11.12,
+        "reserved_3_years": 7.64,
+        "spot": 5.47,
+        "low_priority": 3.47
+      },
+      "fp8_2_nodes_batched_2048": {
+        "on_demand": 28.01,
+        "reserved_1_year": 17.93,
+        "reserved_3_years": 12.32,
+        "spot": 8.82,
+        "low_priority": 5.6
+      }
+    }
+  },
+  "gpu_peak_memory_used_mib": {
+    "0": 77411,
+    "1": 77411,
+    "2": 77411,
+    "3": 77411,
+    "4": 77411,
+    "5": 77411,
+    "6": 77411,
+    "7": 77411
+  },
+  "from_vllm_logs": {
+    "nvfp4-tp8": {
+      "kv_cache_tokens": 254016,
+      "selection": [
+        "WARNING [modelopt.py:1023] Detected ModelOpt NVFP4 checkpoint (quant_algo=NVFP4). Please note that the format is experimental and could change in future.",
+        "WARNING [modelopt.py:1023] Detected ModelOpt NVFP4 checkpoint (quant_algo=W4A16_NVFP4). Please note that the format is experimental and could change in future.",
+        "INFO [__init__.py:577] Selected MarlinFP8ScaledMMLinearKernel for ModelOptFp8LinearMethod",
+        "INFO [cuda.py:471] Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+        "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+        "INFO [nvfp4.py:326] Using 'MARLIN' NvFp4 MoE backend out of potential backends: ['FLASHINFER_TRTLLM', 'FLASHINFER_CUTEDSL', 'FLASHINFER_CUTEDSL_BATCHED', 'FLASHINFER_CUTLASS', 'VLLM_CUTLASS', 'MARLIN', 'EMULATION'].",
+        "WARNING [marlin_utils_fp8.py:97] Your GPU does not have native support for FP8 computation but FP8 quantization is being used. Weight-only FP8 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.",
+        "WARNING [marlin_utils_fp4.py:300] Your GPU does not have native support for FP4 computation but FP4 quantization is being used. Weight-only FP4 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.",
+        "INFO [nvfp4.py:537] Using MoEPrepareAndFinalizeNoDPEPModular",
+        "INFO [gpu_model_runner.py:5202] Model loading took 48.54 GiB memory and 121.036789 seconds",
+        "INFO [monitor.py:53] torch.compile took 132.16 s in total",
+        "INFO [marlin_utils.py:461] Marlin kernel can achieve better performance for small size_n with experimental use_atomic_add feature. You can consider set environment variable VLLM_MARLIN_USE_ATOMIC_ADD to 1 if possible.",
+        "INFO [gpu_worker.py:480] Available KV cache memory: 18.53 GiB",
+        "INFO [kv_cache_utils.py:1905] Auto-fit max_model_len: reduced from 262144 to 254016 to fit in available GPU memory (18.53 GiB available for KV cache)",
+        "INFO [kv_cache_utils.py:1744] GPU KV cache size: 254,016 tokens",
+        "INFO [gpu_model_runner.py:6610] Graph capturing finished in 42 secs, took 1.84 GiB",
+        "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 198.46 s (compilation: 132.59 s)"
+      ]
+    },
+    "nvfp4-tp8-b2048": {
+      "kv_cache_tokens": 272960,
+      "selection": [
+        "WARNING [modelopt.py:1023] Detected ModelOpt NVFP4 checkpoint (quant_algo=NVFP4). Please note that the format is experimental and could change in future.",
+        "WARNING [modelopt.py:1023] Detected ModelOpt NVFP4 checkpoint (quant_algo=W4A16_NVFP4). Please note that the format is experimental and could change in future.",
+        "INFO [__init__.py:577] Selected MarlinFP8ScaledMMLinearKernel for ModelOptFp8LinearMethod",
+        "INFO [cuda.py:471] Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+        "INFO [selector.py:163] Using FLASH_ATTN MLA prefill backend.",
+        "INFO [nvfp4.py:326] Using 'MARLIN' NvFp4 MoE backend out of potential backends: ['FLASHINFER_TRTLLM', 'FLASHINFER_CUTEDSL', 'FLASHINFER_CUTEDSL_BATCHED', 'FLASHINFER_CUTLASS', 'VLLM_CUTLASS', 'MARLIN', 'EMULATION'].",
+        "WARNING [marlin_utils_fp8.py:97] Your GPU does not have native support for FP8 computation but FP8 quantization is being used. Weight-only FP8 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.",
+        "WARNING [marlin_utils_fp4.py:300] Your GPU does not have native support for FP4 computation but FP4 quantization is being used. Weight-only FP4 compression will be used leveraging the Marlin kernel. This may degrade performance for compute-heavy workloads.",
+        "INFO [nvfp4.py:537] Using MoEPrepareAndFinalizeNoDPEPModular",
+        "INFO [gpu_model_runner.py:5202] Model loading took 48.5 GiB memory and 77.520754 seconds",
+        "INFO [monitor.py:53] torch.compile took 111.73 s in total",
+        "INFO [marlin_utils.py:461] Marlin kernel can achieve better performance for small size_n with experimental use_atomic_add feature. You can consider set environment variable VLLM_MARLIN_USE_ATOMIC_ADD to 1 if possible.",
+        "INFO [gpu_worker.py:480] Available KV cache memory: 19.91 GiB",
+        "INFO [kv_cache_utils.py:1897] Auto-fit max_model_len: full model context length 262144 fits in available GPU memory",
+        "INFO [kv_cache_utils.py:1744] GPU KV cache size: 272,960 tokens",
+        "INFO [gpu_model_runner.py:6610] Graph capturing finished in 49 secs, took 1.85 GiB",
+        "INFO [core.py:306] init engine (profile, create kv cache, warmup model) took 174.69 s (compilation: 113.62 s)"
+      ]
+    }
+  },
+  "deployment": {
+    "capacity_search": {
+      "method": "aml/first_capacity_wins.sh with NODES=1: the same job queued in 12 workspaces, one per region, each with a low-priority Standard_ND96amsr_A100_v4 cluster (min 0, max 1 node). The first job to hold its node wins; every other job is cancelled and any other cluster that already holds a node is deleted.",
+      "regions": [
+        "australiaeast",
+        "canadaeast",
+        "francecentral",
+        "italynorth",
+        "norwayeast",
+        "polandcentral",
+        "southafricanorth",
+        "swedencentral",
+        "switzerlandnorth",
+        "uaenorth",
+        "uksouth",
+        "westus2"
+      ],
+      "winner": "uksouth: job created 13:27:37Z, node held by 13:32:20Z",
+      "duplicates": "francecentral and italynorth had also allocated one node each; the watcher cancelled both jobs and deleted both clusters within minutes. The other nine jobs were cancelled while still queued."
+    },
+    "gpu_job": {
+      "name": "frank_nail_jp9txc21y1",
+      "region": "uksouth",
+      "status": "Completed",
+      "created": "2026-10-04T13:27:37Z",
+      "script_started": "2026-10-04T13:37:14Z",
+      "script_finished": "2026-10-04T15:31:09Z",
+      "gpu_cluster_deleted": "2026-10-04T15:36:30Z"
+    },
+    "log_collection_job": {
+      "name": "heroic_dolphin_qp15d5pbmg",
+      "compute": "cpu-lp, low priority Standard_E32ds_v5",
+      "purpose": "aml/src/collect_run_outputs.py read the GPU job's private outputs (vLLM server logs) from inside the managed VNet; from_vllm_logs comes from it"
+    },
+    "node_hours": {
+      "uksouth": 2.07,
+      "francecentral_and_italynorth": "at most about 0.3 together",
+      "total": "at most about 2.4"
+    },
+    "cost_usd": {
+      "low_priority_meter": "about 20 (2.4 node-hours x 8.19)",
+      "spot_meter": "about 31 (2.4 node-hours x 12.89)",
+      "note": "Azure ML low priority has been allocated and billed as Spot since 2026-03-31. The CPU log job and the workspaces' storage, Key Vault and Log Analytics add well under USD 1."
+    },
+    "cleanup": "GPU cluster a100-nd96-lp (uksouth) deleted at 15:36:30Z. Resource group rg-axk2-nvfp4-208d24c1 (the 12 workspaces with their storage, Key Vaults, private endpoints and clusters) deleted from 15:43:07Z to 15:51:23Z; az group exists returned false, and no resource group with axk2 in its name remains. Workspace names ending -r4-208d24c1 stay soft-deleted for 14 days."
+  },
+  "log_notes": [
+    "vLLM logs 'Detected ModelOpt NVFP4 checkpoint' twice, once with quant_algo=NVFP4 and once with quant_algo=W4A16_NVFP4. ModelOptMixedPrecisionConfig always builds a sibling W4A16_NVFP4 config for layers that declare that algorithm (vllm v0.23.0 modelopt.py:2281-2300). This checkpoint's routed experts declare NVFP4; on SM80 the NVFP4 MoE method selects the MARLIN backend, which runs them weight-only (FP4 weights, BF16 activations), as the 'does not have native support for FP4 computation' line states.",
+    "With 8,192 batched tokens the KV cache got 18.53 GiB per GPU (254,016 tokens), so --max-model-len -1 auto-fitted the context to 254,016. With 2,048 batched tokens the activation reserve is smaller: 19.91 GiB, 272,960 tokens, and the full 262,144-token context fits.",
+    "Weights take 48.5 GiB per GPU on 8 GPUs (FP8 checkpoint: 41.7 GiB per GPU on 16 GPUs). Peak GPU memory was 77,411 MiB on every GPU (gpu_memory_utilization 0.92)."
+  ],
+  "interpretation": [
+    "Decode at low and moderate concurrency is bound by reading weights. NVFP4 halves the bytes of the routed experts, which dominate a decode step, so 8 A100s decode as fast as 16 A100s with the FP8 checkpoint: one request at 1K input runs at 19.0 ms per output token against 19.2 ms, and concurrency 8-32 at 1.01-1.06x the output tok/s (matched comparison, 2,048 batched tokens on both sides).",
+    "With more requests in flight the step becomes compute- and attention-heavy and half the GPUs show: 0.86x at concurrency 64 and 0.81x at 128.",
+    "Prefill is compute-bound. A100 has no FP4 or FP8 tensor cores, so prefill runs BF16 math with either checkpoint, on half as many GPUs here: one 32K-token prompt takes 11.6 s to the first token against 7.2 s.",
+    "The BF16 MLA KV cache is replicated on every tensor-parallel rank. One node holds 254,016 tokens (8,192 batched tokens) against 673,792 on the two FP8 nodes, so under the tech report's Fig. 7 conditions 15 of 32 requests ran at 16K inputs and 7 at 32K.",
+    "Against Fig. 7 (FP8 on one 8 x B200 node) the 8 A100s reach 0.47-0.49x at 1K-4K inputs, about twice the per-GPU throughput of the FP8 checkpoint on 16 A100s (0.21-0.24x per GPU), and 0.20-0.35x at 8K-32K, where the KV cache and prefill limit them.",
+    "The rest of the gap is hardware: B200 has 3.9x the memory bandwidth (8 vs 2.0 TB/s) and FP8/FP4 tensor cores (4,500/9,000 dense TFLOPS against A100's 312 BF16), and on B200 SKT runs the NVFP4 experts W4A4.",
+    "Cost per million output tokens falls by 56% at concurrency 32 (1K in, 1K out) and by about 40% at concurrency 128 (1K in, 256 out) at every price meter, because one node replaces two.",
+    "Two NVFP4 replicas on the two nodes that the FP8 deployment uses, behind one load balancer, would give about twice the short-input throughput of that deployment and two independent KV caches. This is an estimate from the one-node numbers, not a measurement.",
+    "Quality was checked only with the functional probes (4/4), tool calls (9/9) and SKT's needle test (9/9 up to 244,898 prompt tokens). SKT reports NVFP4 quality comparable to FP8; benchmark parity on A100 was not measured."
+  ]
+}
