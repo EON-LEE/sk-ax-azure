@@ -199,6 +199,14 @@ NVFP4 1노드 종량제 $17.38.
   GPU 작업이 프런트엔드로 WebSocket을 먼저 열기 때문에 GPU 쪽에 공개 포트가 없습니다. 채팅 내용은 저장하지 않습니다.
 - 운영 방법: [`demo/README.md`](../../demo/README.md).
 
+아래 화면은 벤치마크 평가가 같은 클러스터에서 도는 중(동시 약 40–56건)에 찍었습니다. 그래도 첫 토큰은 0.6–0.7초였습니다.
+
+| 추론 모드 수학 풀이 | 도구 호출(계산기) |
+|---|---|
+| ![추론 모드](figures/demo-chat-thinking.png) | ![도구 호출](figures/demo-chat-tools.png) |
+
+![클러스터 탭](figures/demo-cluster.png)
+
 ## 10. 재현 방법
 
 | 무엇 | 어디 |
