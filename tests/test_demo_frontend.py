@@ -323,7 +323,7 @@ class AppTests(ServerCase):
             self.assertIn("admin.js", await response.text())
         async with client.get("/api/me") as response:
             self.assertEqual(response.headers["Cache-Control"], "no-store")
-            self.assertEqual(await response.json(), {"demo": False, "admin": False})
+            self.assertEqual(await response.json(), {"demo": False, "admin": False, "open": False})
 
     async def test_passwords_cookies_and_rotation(self):
         anonymous = self.client()
@@ -334,7 +334,7 @@ class AppTests(ServerCase):
             self.assertEqual(response.status, 415)
         demo = await self.login()
         async with demo.get("/api/me") as response:
-            self.assertEqual(await response.json(), {"demo": True, "admin": False})
+            self.assertEqual(await response.json(), {"demo": True, "admin": False, "open": False})
         async with demo.get("/api/status") as response:
             self.assertEqual((await response.json())["power"], "off")
         async with demo.get("/api/results/figure/fig.png") as response:

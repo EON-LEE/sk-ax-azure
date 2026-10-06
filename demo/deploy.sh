@@ -5,7 +5,8 @@
 #   AXK2_SUB=<subscription id> bash demo/deploy.sh
 #
 # Optional: AXK2_RG, AXK2_LOCATION, AXK2_PLAN, AXK2_APP, AXK2_WORKSPACES (region=workspace,...; race order),
-# AXK2_COMPUTE. The GPU clusters and workspaces must already exist (aml/setup_region.sh). On the first run it
+# AXK2_COMPUTE, AXK2_OPEN_DEMO (1 = the chat page needs no password; the admin page still does; default 1).
+# The GPU clusters and workspaces must already exist (aml/setup_region.sh). On the first run it
 # generates the demo and admin passwords, prints them once and keeps a copy in ~/.axk2-demo/passwords (0600).
 # Needs az (logged in), python3 and curl; python builds the zip.
 set -euo pipefail
@@ -19,6 +20,7 @@ APP=${AXK2_APP:-axk2-a100-demo}
 SUFFIX=${RG#rg-axk2-demo-}
 WORKSPACES=${AXK2_WORKSPACES:-uksouth=mlw-axk2-uks-r5-$SUFFIX,italynorth=mlw-axk2-itn-r5-$SUFFIX,francecentral=mlw-axk2-frc-r5-$SUFFIX}
 COMPUTE=${AXK2_COMPUTE:-a100-nd96-lp}
+OPEN_DEMO=${AXK2_OPEN_DEMO:-1}
 KEEP=$HOME/.axk2-demo
 az account set -s "$SUB"
 
@@ -71,7 +73,7 @@ fi
 az webapp config appsettings set -g "$RG" -n "$APP" -o none --settings \
   SCM_DO_BUILD_DURING_DEPLOYMENT=true FORWARDED_ALLOW_IPS='*' WEBSITES_PORT=8000 AXK2_DATA=/home/data \
   AXK2_PUBLIC_URL="https://$HOST" AXK2_SUBSCRIPTION="$SUB" AXK2_RESOURCE_GROUP="$RG" \
-  AXK2_WORKSPACES="$WORKSPACES" AXK2_COMPUTE="$COMPUTE"
+  AXK2_WORKSPACES="$WORKSPACES" AXK2_COMPUTE="$COMPUTE" AXK2_OPEN_DEMO="$OPEN_DEMO"
 OLD=$(az webapp config appsettings list -g "$RG" -n "$APP" --query "[?starts_with(name, 'SPIKE_')].name" -o tsv | tr -d '\r')
 [ -z "$OLD" ] || az webapp config appsettings delete -g "$RG" -n "$APP" -o none --setting-names $OLD
 

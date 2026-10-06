@@ -368,11 +368,25 @@ def write_tables(data, out_dir):
 BENCHMARKS = ROOT / "evidence" / "a100-benchmarks.json"
 
 
-def load_benchmarks(path=BENCHMARKS):
+VERIFICATION = ROOT / "evidence" / "a100-verification-and-doc-speed.json"
+
+
+def _verification_niah(path):
+    """NIAH from the earlier verification run of the serving layout (native DSA, TP8xPP2), if recorded."""
+    path = Path(path)
+    niah = (_read_json(path).get("per_phase", {}).get("native-pp2", {}).get("niah") if path.is_file() else None)
+    if not niah or not niah.get("total"):
+        return None
+    return {"score": niah["hits"] / niah["total"], "hits": niah["hits"], "total": niah["total"],
+            "lengths": sorted(int(k) for k in (niah.get("by_length") or {})), "source": "verification"}
+
+
+def load_benchmarks(path=BENCHMARKS, niah_fallback=None):
     """Rows of the model card's Thinking Mode table, each with our A100 score when that suite was run.
 
     The evidence file is the eval run's final summary as posted by the job ({"run", "plan", "summary", ...});
-    scores there are fractions, the card's are percent.
+    scores there are fractions, the card's are percent. A run stopped early has n_items < items_expected,
+    which the table shows. When the run has no NIAH, niah_fallback (the verification evidence) supplies it.
     """
     published = _read_json(REPORT_DIR / "skt_published.json")["benchmarks"]
     ours = _read_json(Path(path)) if Path(path).is_file() else {}
@@ -385,23 +399,30 @@ def load_benchmarks(path=BENCHMARKS):
         rows.append({**row, "a100": None if score is None else round(100 * score, 1),
                      "a100_ci95": None if half is None else round(100 * half, 1),
                      "n_items": entry.get("n_items") if entry else None,
+                     "items_expected": entry.get("items_expected") if entry else None,
+                     "n_generations": entry.get("n_generations") if entry else None,
+                     "generations_expected": entry.get("generations_expected") if entry else None,
                      "repeats": entry.get("repeats") if entry else None})
-    niah = summary.get("niah")
+    niah = summary.get("niah") or (_verification_niah(niah_fallback) if niah_fallback else None)
     niah_row = {"benchmark": "NIAH", "skt": published["niah"]["skt"], "note": published["niah"]["note"],
                 "a100": None if not niah or niah.get("score") is None else round(100 * niah["score"], 1),
-                "grid": niah.get("grid") if niah else None}
+                "grid": niah.get("grid") if niah else None,
+                "hits": niah.get("hits") if niah else None, "total": niah.get("total") if niah else None,
+                "lengths": niah.get("lengths") if niah else None, "source": niah.get("source") if niah else None}
     return {"run": ours.get("run"), "rows": rows, "niah": niah_row, "reasons": published["reasons"]}
 
 
 def render_benchmarks(bench, out_dir):
     measured = [r for r in bench["rows"] if r["a100"] is not None]
     if bench["niah"]["a100"] is not None:
-        measured.append({"benchmark": "NIAH 8K-256K", "skt": bench["niah"]["skt"], "a100": bench["niah"]["a100"],
+        lengths = bench["niah"].get("lengths") or [8192, 262144]
+        measured.append({"benchmark": f"NIAH {lengths[0] // 1024}K-{lengths[-1] // 1024}K", "skt": bench["niah"]["skt"], "a100": bench["niah"]["a100"],
                          "a100_ci95": None})
     if not measured:
         return False
     plt, ko = _import_matplotlib()
-    fig, ax = plt.subplots(figsize=(9.5, 5.0))
+    fig, ax = plt.subplots(figsize=(9.5, 5.6))
+    fig.subplots_adjust(bottom=0.24)
     xs = list(range(len(measured)))
     width = 0.36
     skt = ax.bar([x - width / 2 for x in xs], [r["skt"] for r in measured], width, label="SKT 공개값 (모델 카드)" if ko else "SKT published (model card)", color="#1f77b4")
@@ -410,35 +431,60 @@ def render_benchmarks(bench, out_dir):
                   label="A100 x16 FP8 native DSA (이번 측정)" if ko else "A100 x16 FP8 native DSA (ours)", color="#d62728")
     ax.bar_label(skt, labels=[f"{r['skt']:.1f}" for r in measured], fontsize=8, padding=2)
     ax.bar_label(ours, labels=[f"{r['a100']:.1f}" for r in measured], fontsize=8, padding=2)
-    ax.set_xticks(xs, [r["benchmark"] for r in measured])
+    ax.set_xticks(xs, [r["benchmark"] + _sample_note(r).replace(" (", "\n(") for r in measured])
     ax.set_ylim(0, 110)
     ax.set_ylabel("점수 (%)" if ko else "Score (%)")
     ax.set_title("모델 카드 벤치마크: SKT 공개값 vs A100 16장" if ko else "Model card benchmarks: SKT published vs A100 x16")
     ax.grid(axis="y", alpha=0.25)
-    ax.legend(fontsize=9, loc="lower right")
-    foot = "Thinking 모드, 공개 데이터·공개 채점. 오차 막대: 95% 신뢰구간. NIAH: thinking 끔, 그리디." if ko else "Thinking mode, public data and scoring. Error bars: 95% CI. NIAH: thinking off, greedy."
+    ax.legend(fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2, frameon=False)
+    foot = "Thinking 모드, 공개 데이터·공개 채점. 오차 막대: 95% 신뢰구간. n=완료/계획(조기 중지, 참고치). NIAH: thinking 끔, 그리디." if ko else "Thinking mode, public data and scoring. Error bars: 95% CI. NIAH: thinking off, greedy."
     fig.text(0.01, 0.015, foot, fontsize=8, color="#444")
     _save(fig, out_dir / "benchmarks-vs-published.png")
     return True
+
+
+def _sample_note(r):
+    """'n=109/200' for a suite stopped before all items, or generations for repeated suites."""
+    if r.get("generations_expected") and r.get("repeats", 1) and r["repeats"] > 1:
+        done, want, unit = r.get("n_generations"), r["generations_expected"], " gen"
+    else:
+        done, want, unit = r.get("n_items"), r.get("items_expected"), ""
+    return f" (n={done}/{want}{unit})" if done is not None and want and done < want else ""
 
 
 def write_benchmark_table(bench, out_dir):
     """The model card's Thinking Mode table with one extra column, ready to paste into a card or report."""
     lines = ["# 모델 카드 Thinking Mode 표 + A100 측정값", "",
              "| Domain | Benchmark | A.X K2 (SKT) | A.X K2 on A100 x16 (ours) |", "| --- | --- | ---: | ---: |"]
+    partial = False
     for r in bench["rows"]:
         if r["a100"] is not None:
-            ours = f"**{r['a100']:.1f}**" + (f" ± {r['a100_ci95']:.1f}" if r["a100_ci95"] is not None else "")
+            note = _sample_note(r)
+            partial = partial or bool(note)
+            ours = f"**{r['a100']:.1f}**" + (f" ± {r['a100_ci95']:.1f}" if r["a100_ci95"] else "") + note
         elif r["suite"]:
             ours = "pending"
         else:
             ours = f"– ({r['not_run']})"
         lines.append(f"| {r['domain']} | {r['benchmark']} | {r['skt']:g} | {ours} |")
     niah = bench["niah"]
-    lines.append(f"| Long context | NIAH | {niah['skt']:g} | " + (f"**{niah['a100']:.1f}**" if niah["a100"] is not None else "pending") + " |")
+    if niah["a100"] is None:
+        ours = "pending"
+    else:
+        ours = f"**{niah['a100']:.1f}**"
+        if niah.get("total"):
+            span = ", ".join(f"{n // 1024}K" for n in niah.get("lengths") or [])
+            ours += f" ({niah['hits']}/{niah['total']}" + (f", {span}" if span else "") + ")"
+    lines.append(f"| Long context | NIAH | {niah['skt']:g} | {ours} |")
     lines += ["", "Not run: " + "; ".join(f"{k} = {v}" for k, v in bench["reasons"].items())]
     if bench["run"]:
         lines.append(f"A100 run: `{bench['run']}`. ± is the 95% confidence half-width over items.")
+    if partial:
+        lines.append("n=done/planned: the run was stopped early; scores are over the items finished so far "
+                     "(a random sample of each suite), so treat them as indicative.")
+    if niah.get("source") == "verification":
+        lines.append("NIAH: from the earlier verification run of the same serving layout "
+                     "(SKT's niah_test.py, thinking off, greedy).")
     with (out_dir / "benchmark-table.md").open("w", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
 
@@ -458,7 +504,7 @@ def render_all(out_dir=DEFAULT_OUT, only="throughput"):
         write_throughput_json(data, out_dir)
         write_tables(data, out_dir)
     if only in ("all", "eval"):
-        bench = load_benchmarks()
+        bench = load_benchmarks(niah_fallback=VERIFICATION)
         render_benchmarks(bench, out_dir)
         write_benchmark_table(bench, out_dir)
     return data

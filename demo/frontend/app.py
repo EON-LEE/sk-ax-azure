@@ -28,7 +28,8 @@ from supervisor import Supervisor, load_module
 
 HERE = Path(__file__).resolve().parent
 COOKIES = {"demo": ("axk2_demo", 24 * 3600), "admin": ("axk2_admin", 12 * 3600)}
-STATIC_FILES = frozenset({"common.js", "markdown.js", "tools.js", "chat.js", "app.js", "admin.js", "style.css"})
+STATIC_FILES = frozenset({"common.js", "markdown.js", "tools.js", "chat.js", "app.js", "admin.js", "style.css",
+                          "chat.css"})
 SUITES = ("aime", "kobalt", "click", "ifbench", "niah")
 REPEATS = re.compile(r"[a-z0-9=,]{0,80}")
 FIGURE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.png")
@@ -89,6 +90,7 @@ class Config:
     session_secret: str = ""
     demo_hash: str = ""
     admin_hash: str = ""
+    open_demo: bool = False  # internal demo: the chat page needs no password (admin still does)
     price: float = 8.192  # USD per node-hour (ND96amsr_A100_v4, low priority)
     prices: dict = field(default_factory=dict)
     max_active: int = 24
@@ -123,6 +125,7 @@ class Config:
                    results_dir=Path(env.get("AXK2_RESULTS_DIR") or HERE / "static" / "results"),
                    session_secret=env.get("AXK2_SESSION_SECRET", ""),
                    demo_hash=env.get("AXK2_DEMO_PASSWORD_HASH", ""), admin_hash=env.get("AXK2_ADMIN_PASSWORD_HASH", ""),
+                   open_demo=env.get("AXK2_OPEN_DEMO", "").lower() in ("1", "true", "yes"),
                    price=number("AXK2_PRICE", 8.192), prices=pairs(env.get("AXK2_PRICES"), float),
                    max_active=number("AXK2_MAX_ACTIVE", 24), max_queue=number("AXK2_MAX_QUEUE", 50),
                    interval=number("AXK2_INTERVAL", 45.0), idle_interval=number("AXK2_IDLE_INTERVAL", 300.0),
@@ -561,8 +564,11 @@ def create_app(config=None, azure=None, start_supervisor=True):
     async def problem(request, exc):
         return JSONResponse({"error": exc.code, "message": exc.message}, status_code=exc.status)
 
+    def is_demo(request):
+        return config.open_demo or auth.has(request, "demo") or auth.has(request, "admin")
+
     def require_demo(request):
-        if not (auth.has(request, "demo") or auth.has(request, "admin")):
+        if not is_demo(request):
             raise Problem(401, "login", "로그인이 필요합니다.")
 
     async def require_admin(request):
@@ -636,7 +642,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
 
     @app.get("/api/me")
     async def me(request: Request):
-        return {"demo": auth.has(request, "demo") or auth.has(request, "admin"), "admin": auth.has(request, "admin")}
+        return {"demo": is_demo(request), "admin": auth.has(request, "admin"), "open": config.open_demo}
 
     @app.get("/api/status")
     async def status(request: Request):
@@ -648,7 +654,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
         require_demo(request)
         body = chat_body(await read_json(request, CHAT_LIMIT))
         if hub.ready_link() is None:
-            raise Problem(503, "not_ready", "GPU 클러스터가 아직 준비되지 않았습니다. 클러스터 탭에서 상태를 확인해 주세요.")
+            raise Problem(503, "not_ready", "모델 서버가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.")
         try:
             relay = ChatRelay(hub, gate, body)
         except Full:

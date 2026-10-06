@@ -1,0 +1,234 @@
+{
+ "run": "ev20261006-095528",
+ "note": "Stopped early by request; partial sampled subset (n_items per suite).",
+ "plan": {
+  "aime": {
+   "items": 30,
+   "repeats": 2,
+   "max_tokens": 131072,
+   "thinking": true,
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.95
+   },
+   "breakdown": []
+  },
+  "kobalt": {
+   "items": 200,
+   "repeats": 1,
+   "max_tokens": 65536,
+   "thinking": true,
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.95
+   },
+   "breakdown": [
+    "class",
+    "level"
+   ]
+  },
+  "click": {
+   "items": 200,
+   "repeats": 1,
+   "max_tokens": 32768,
+   "thinking": true,
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.95
+   },
+   "breakdown": [
+    "group",
+    "category"
+   ]
+  },
+  "ifbench": {
+   "items": 200,
+   "repeats": 1,
+   "max_tokens": 32768,
+   "thinking": true,
+   "sampling": {
+    "temperature": 0.6,
+    "top_p": 0.95
+   },
+   "breakdown": []
+  }
+ },
+ "summary": {
+  "aime": {
+   "n_items": 10,
+   "items_expected": 30,
+   "repeats": 2,
+   "n_generations": 10,
+   "generations_expected": 60,
+   "score": 1.0,
+   "ci95_half": 0.0,
+   "ci95": [
+    1.0,
+    1.0
+   ],
+   "hit_limit": 0,
+   "score_errors": 0,
+   "errors": 0,
+   "missing": 50,
+   "mean_completion_tokens": 5203.7,
+   "mean_seconds": 528.0,
+   "by_rep": {
+    "0": 1.0
+   }
+  },
+  "kobalt": {
+   "n_items": 109,
+   "items_expected": 200,
+   "repeats": 1,
+   "n_generations": 109,
+   "generations_expected": 200,
+   "score": 0.7431192660550459,
+   "ci95_half": 0.0824022785514995,
+   "ci95": [
+    0.6607169875035463,
+    0.8255215446065454
+   ],
+   "hit_limit": 0,
+   "score_errors": 0,
+   "errors": 0,
+   "missing": 91,
+   "mean_completion_tokens": 3478.3,
+   "mean_seconds": 351.1,
+   "by_class": {
+    "Morphology": {
+     "n_items": 6,
+     "score": 0.6666666666666666
+    },
+    "Phonetics/Phonology": {
+     "n_items": 3,
+     "score": 0.0
+    },
+    "Pragmatics": {
+     "n_items": 10,
+     "score": 0.6
+    },
+    "Semantics": {
+     "n_items": 41,
+     "score": 0.6829268292682927
+    },
+    "Syntax": {
+     "n_items": 49,
+     "score": 0.8775510204081632
+    }
+   },
+   "by_level": {
+    "1": {
+     "n_items": 32,
+     "score": 1.0
+    },
+    "2": {
+     "n_items": 35,
+     "score": 0.8285714285714286
+    },
+    "3": {
+     "n_items": 42,
+     "score": 0.47619047619047616
+    }
+   }
+  },
+  "click": {
+   "n_items": 131,
+   "items_expected": 200,
+   "repeats": 1,
+   "n_generations": 131,
+   "generations_expected": 200,
+   "score": 0.8549618320610687,
+   "ci95_half": 0.060533935735450226,
+   "ci95": [
+    0.7944278963256185,
+    0.9154957677965189
+   ],
+   "hit_limit": 0,
+   "score_errors": 0,
+   "errors": 0,
+   "missing": 69,
+   "mean_completion_tokens": 1038.1,
+   "mean_seconds": 101.1,
+   "by_group": {
+    "Culture": {
+     "n_items": 92,
+     "score": 0.8369565217391305
+    },
+    "Language": {
+     "n_items": 39,
+     "score": 0.8974358974358975
+    }
+   },
+   "by_category": {
+    "Economy": {
+     "n_items": 5,
+     "score": 0.8
+    },
+    "Functional": {
+     "n_items": 6,
+     "score": 1.0
+    },
+    "Geography": {
+     "n_items": 11,
+     "score": 0.9090909090909091
+    },
+    "Grammar": {
+     "n_items": 16,
+     "score": 0.875
+    },
+    "History": {
+     "n_items": 16,
+     "score": 0.6875
+    },
+    "Law": {
+     "n_items": 19,
+     "score": 0.8421052631578947
+    },
+    "Politics": {
+     "n_items": 3,
+     "score": 1.0
+    },
+    "Popular": {
+     "n_items": 5,
+     "score": 1.0
+    },
+    "Society": {
+     "n_items": 22,
+     "score": 0.9545454545454546
+    },
+    "Textual": {
+     "n_items": 17,
+     "score": 0.8823529411764706
+    },
+    "Tradition": {
+     "n_items": 11,
+     "score": 0.6363636363636364
+    }
+   }
+  },
+  "ifbench": {
+   "n_items": 112,
+   "items_expected": 200,
+   "repeats": 1,
+   "n_generations": 112,
+   "generations_expected": 200,
+   "score": 0.7857142857142857,
+   "ci95_half": 0.07633496595287788,
+   "ci95": [
+    0.7093793197614078,
+    0.8620492516671636
+   ],
+   "hit_limit": 0,
+   "score_errors": 0,
+   "errors": 0,
+   "missing": 88,
+   "mean_completion_tokens": 2431.8,
+   "mean_seconds": 237.4,
+   "prompt_strict": 0.7767857142857143,
+   "prompt_loose": 0.7857142857142857,
+   "instruction_strict": 0.8062015503875969,
+   "instruction_loose": 0.813953488372093,
+   "n_instructions": 129
+  }
+ }
+}

@@ -2,10 +2,11 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<title>A.X K2 on Azure A100 데모</title>
-<link rel="stylesheet" href="/static/style.css">
+<meta name="color-scheme" content="light dark">
+<title>A.X K2 고객 데모</title>
+<link rel="stylesheet" href="/static/chat.css">
 <script src="/static/common.js" defer></script>
 <script src="/static/markdown.js" defer></script>
 <script src="/static/tools.js" defer></script>
@@ -13,143 +14,59 @@
 <script src="/static/app.js" defer></script>
 </head>
 <body>
-<div id="login" class="overlay hidden">
-  <form id="login-form" class="card login" autocomplete="on">
-    <h1>A.X K2 데모</h1>
-    <p class="muted">Azure의 A100 GPU 16장(2노드)에서 서빙하는 SK텔레콤 A.X K2 체험 페이지입니다. 공유받은 비밀번호를 입력해 주세요.</p>
-    <label for="login-password">비밀번호</label>
-    <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
-    <button type="submit" class="primary">입장</button>
+<!-- shown only when the server is not in open-demo mode -->
+<div id="login" class="login hidden">
+  <form id="login-form" class="login-card" autocomplete="on">
+    <h1>A.X K2 고객 데모</h1>
+    <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="256"
+           placeholder="비밀번호" aria-label="비밀번호" required>
+    <button type="submit" class="primary">시작하기</button>
     <p id="login-error" class="error" role="alert"></p>
   </form>
 </div>
 
-<header class="topbar">
-  <div class="brand">A.X K2 <span class="muted">on Azure A100 × 16</span></div>
-  <nav class="tabs" role="tablist">
-    <button type="button" role="tab" data-tab="chat" aria-selected="true">채팅</button>
-    <button type="button" role="tab" data-tab="cluster" aria-selected="false">클러스터</button>
-    <button type="button" role="tab" data-tab="results" aria-selected="false">결과</button>
-    <button type="button" role="tab" data-tab="about" aria-selected="false">안내</button>
-  </nav>
-  <div class="right">
-    <span id="power" class="badge off" title="GPU 클러스터 상태">확인 중</span>
-    <button type="button" id="logout" class="ghost">로그아웃</button>
-  </div>
-</header>
+<div class="app">
+  <header class="topbar">
+    <div class="title">A.X K2 <span>고객 데모</span><span id="power" class="dot off" title="확인 중"></span></div>
+    <button type="button" id="new-chat" class="icon-btn" title="새 대화" aria-label="새 대화">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+    </button>
+  </header>
 
-<main>
-  <section id="tab-chat" class="tab chat" role="tabpanel">
-    <div id="banner" class="banner hidden" role="status"></div>
-    <div id="messages" class="messages">
-      <div id="welcome" class="welcome">
-        <h2>A.X K2에게 물어보세요</h2>
-        <p class="muted">추론(Thinking) 모드를 켜면 답하기 전에 생각하는 과정을 펼쳐 볼 수 있습니다. 대화 내용은 서버에 저장되지 않고 이 브라우저 탭에만 남습니다.</p>
-        <div id="examples" class="chips"></div>
-      </div>
+  <div id="messages" class="messages">
+    <div id="welcome" class="welcome">
+      <h2>무엇을 도와드릴까요?</h2>
+      <div id="examples" class="suggestions"></div>
     </div>
+  </div>
+
+  <div class="dock">
+    <div id="banner" class="banner hidden" role="status"></div>
     <form id="composer" class="composer">
-      <div id="attachments" class="attachments"></div>
-      <textarea id="input" rows="3" maxlength="200000" placeholder="메시지를 입력하세요 (Enter: 보내기, Shift+Enter: 줄바꿈)"></textarea>
-      <div class="controls">
-        <label class="toggle"><input type="checkbox" id="thinking" checked> 추론(Thinking) 모드</label>
-        <label class="toggle"><input type="checkbox" id="tools"> 도구 사용 (계산기·시각·날씨)</label>
-        <label class="file-button">문서 첨부 (.txt, .md)<input type="file" id="file" class="visually-hidden" accept=".txt,.md,text/plain,text/markdown" multiple></label>
-        <button type="button" id="new-chat" class="ghost">새 대화</button>
-        <span id="hint" class="hint muted small"></span>
-        <button type="button" id="stop" class="danger hidden">중지</button>
-        <button type="submit" id="send" class="primary">보내기</button>
+      <div id="attachments" class="attachments hidden"></div>
+      <textarea id="input" rows="1" maxlength="200000" placeholder="무엇이든 물어보세요" aria-label="메시지"></textarea>
+      <div class="composer-bar">
+        <label class="icon-btn" title="문서 첨부 (.txt, .md)" aria-label="문서 첨부">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <input type="file" id="file" class="visually-hidden" accept=".txt,.md,text/plain,text/markdown" multiple>
+        </label>
+        <label class="pill" title="답하기 전에 생각하는 과정을 거칩니다">
+          <input type="checkbox" id="thinking" checked><span>추론</span>
+        </label>
+        <label class="pill" title="계산기 · 현재 시각 · 날씨(가짜 데이터) 도구">
+          <input type="checkbox" id="tools"><span>도구</span>
+        </label>
+        <span id="hint" class="hint"></span>
+        <button type="button" id="stop" class="round-btn hidden" aria-label="중지">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
+        </button>
+        <button type="submit" id="send" class="round-btn" aria-label="보내기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
       </div>
     </form>
-  </section>
-
-  <section id="tab-cluster" class="tab hidden" role="tabpanel">
-    <div class="grid two">
-      <div class="card">
-        <h3>클러스터 상태</h3>
-        <dl id="state" class="kv"></dl>
-        <div id="progress"></div>
-      </div>
-      <div class="card">
-        <h3>실시간 지표</h3>
-        <dl id="metrics" class="kv"></dl>
-        <p class="muted small">vLLM 지표를 5초마다 읽습니다. 생성 속도는 서버 전체에서 초당 만들어지는 토큰 수입니다.</p>
-      </div>
-    </div>
-    <div class="card">
-      <h3>리전별 GPU 노드</h3>
-      <table id="regions" class="table"></table>
-      <p class="muted small">이 데모는 노드 2대가 한 리전에 함께 있어야 해서(InfiniBand 연결), 켜면 세 리전에 동시에 요청하고 먼저 2대를 확보한 리전 하나만 남깁니다. 저우선순위 VM이라 Azure가 회수할 수 있으며, 회수되면 자동으로 다시 시작합니다.</p>
-    </div>
-    <div class="card">
-      <h3>구성도</h3>
-      <div id="arch" class="arch"></div>
-    </div>
-    <div class="card">
-      <h3>단일 노드 레퍼런스(B200/H100급)와 다른 점</h3>
-      <div class="scroll"><table id="diff" class="table"></table></div>
-    </div>
-  </section>
-
-  <section id="tab-results" class="tab hidden" role="tabpanel">
-    <div class="card">
-      <div class="row spread">
-        <h3>벤치마크: SKT 공개값과 이 데모 비교</h3>
-        <div class="row">
-          <label for="run-select" class="small muted">실행</label>
-          <select id="run-select"></select>
-          <button type="button" id="results-refresh" class="ghost">새로고침</button>
-        </div>
-      </div>
-      <p id="run-info" class="muted small"></p>
-      <div class="scroll"><table id="bench" class="table"></table></div>
-      <p class="muted small">SKT 공개값은 Hugging Face 모델 카드의 추론(Thinking) 모드 표입니다. 이 데모 값은 같은 모델(FP8 체크포인트)을 A100 16장에서 돌려 채점한 결과이며, 문항 수·반복 횟수·채점기가 SKT와 다를 수 있어 참고용입니다. ±는 95% 신뢰구간입니다.</p>
-    </div>
-    <div class="card">
-      <h3>NIAH: 긴 문서 속 정보 찾기</h3>
-      <div id="niah"></div>
-    </div>
-    <div class="card">
-      <div class="row spread">
-        <h3>처리량 (동시 요청 32, 출력 1,024 토큰)</h3>
-        <select id="tp-metric">
-          <option value="total">총 처리량 (tok/s)</option>
-          <option value="output">출력 처리량 (tok/s)</option>
-        </select>
-      </div>
-      <div class="scroll"><table id="throughput" class="table"></table></div>
-      <p class="muted small">B200 값은 SKT 기술 보고서 Fig. 7·9의 막대 라벨이고, A100 값은 같은 vLLM 벤치마크 명령으로 직접 측정한 값입니다.</p>
-    </div>
-    <div class="card">
-      <h3>그래프</h3>
-      <div id="figures" class="figures"></div>
-    </div>
-  </section>
-
-  <section id="tab-about" class="tab hidden" role="tabpanel">
-    <div class="card prose">
-      <h3>이 데모는</h3>
-      <ul>
-        <li>SK텔레콤이 공개한 <strong>A.X K2</strong>(총 688B, 활성 33B 파라미터 MoE, Apache-2.0 라이선스)를 H100 없이 <strong>Azure의 A100 GPU 16장(ND96amsr_A100_v4 2대)</strong>에서 서빙합니다.</li>
-        <li>SKT의 공식 서비스가 아닙니다. 기술 검증용 데모이며 응답 품질과 속도는 SKT 환경과 다를 수 있습니다.</li>
-        <li>모델 가중치와 설정은 공개된 그대로 쓰고, A100에서 돌지 않던 연산만 같은 계산을 하는 다른 커널로 바꿨습니다. 자세한 차이는 클러스터 탭의 표를 보세요.</li>
-      </ul>
-      <h3>이용 시 주의</h3>
-      <ul>
-        <li>대화는 서버에 저장되지 않고 이 브라우저 탭의 메모리에만 있습니다. 새로고침하면 사라집니다.</li>
-        <li>기밀 정보나 개인정보는 입력하지 마세요. 요청은 해외 리전(영국·이탈리아·프랑스)의 GPU에서 처리됩니다.</li>
-        <li>모델의 답변은 틀릴 수 있습니다. 날씨 도구는 실제 날씨가 아닌 데모용 가짜 데이터를 돌려줍니다.</li>
-        <li>A100에는 FP8 텐서코어가 없어 최신 GPU보다 느립니다. 동시에 많은 사람이 쓰면 대기열에서 기다릴 수 있습니다.</li>
-        <li>저우선순위 VM을 쓰므로 Azure가 GPU를 회수하면 몇십 분간 쓸 수 없고, 그동안 자동으로 다시 시작합니다.</li>
-      </ul>
-      <h3>기능</h3>
-      <ul>
-        <li><strong>추론 모드</strong>: 답하기 전에 생각하는 과정(최대 16,384 토큰)을 펼쳐 볼 수 있습니다. 끄면 바로 답합니다(최대 8,192 토큰).</li>
-        <li><strong>도구 사용</strong>: 모델이 계산기, 현재 시각, (가짜) 날씨 도구를 호출하고, 도구는 이 브라우저에서 실행됩니다.</li>
-        <li><strong>문서 첨부</strong>: .txt·.md 파일을 합계 100만 자까지 붙일 수 있습니다. 모델의 최대 입력은 262,144 토큰입니다.</li>
-      </ul>
-    </div>
-  </section>
-</main>
+    <p class="disclaimer">A.X K2는 실수할 수 있습니다. 중요한 정보는 확인해 주세요.</p>
+  </div>
+</div>
 </body>
 </html>

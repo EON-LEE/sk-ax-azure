@@ -16,12 +16,32 @@
 
   const EXAMPLES = [
     { label: "모델 소개", text: "A.X K2가 어떤 모델인지 세 문장으로 소개해 줘." },
-    { label: "추론 문제", text: "철수는 영희보다 사과를 3개 더 갖고 있고, 둘이 가진 사과는 모두 17개야. 각자 몇 개씩 갖고 있을까?" },
-    { label: "코딩", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘." },
-    { label: "계산기 도구", text: "2의 64제곱에서 1을 뺀 값을 계산기로 정확히 구해 줘.", tools: true },
-    { label: "시각 도구", text: "지금 서울과 런던은 각각 몇 시야?", tools: true },
-    { label: "날씨 도구 (가짜 데이터)", text: "부산 날씨를 알려 주고 옷차림을 추천해 줘.", tools: true },
+    { label: "추론 문제 풀기", text: "철수는 영희보다 사과를 3개 더 갖고 있고, 둘이 가진 사과는 모두 17개야. 각자 몇 개씩 갖고 있을까?" },
+    { label: "코드 작성", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘." },
+    { label: "도구로 정확히 계산", text: "2의 64제곱에서 1을 뺀 값을 계산기로 정확히 구해 줘.", tools: true },
+    { label: "세계 시각 확인", text: "지금 서울과 런던은 각각 몇 시야?", tools: true },
+    { label: "날씨와 옷차림", text: "부산 날씨를 알려 주고 옷차림을 추천해 줘. (날씨는 데모용 가짜 데이터)", tools: true },
   ];
+
+  const SVG = "http://www.w3.org/2000/svg";
+  const ICONS = {
+    calculator: "M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01",
+    get_current_time: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+    get_weather: "M17.5 19H7a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 11 4 4 0 0 1 17.5 19z",
+    tool: "M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z",
+    check: "M5 12l5 5L20 7",
+    cross: "M6 6l12 12M18 6L6 18",
+    copy: "M9 9h10v10H9zM5 15V5h10",
+  };
+  function icon(name) {
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(SVG, "path");
+    path.setAttribute("d", ICONS[name] || ICONS.tool);
+    svg.append(path);
+    return svg;
+  }
 
   const ui = {};
   const state = { history: [], busy: false, controller: null, attachments: [], power: "unknown", epoch: 0 };
@@ -49,9 +69,8 @@
   function readyHint() {
     clearTimeout(flashTimer);
     ui.hint.classList.remove("error");
-    if (state.busy) ui.hint.textContent = "답변을 만드는 중입니다. 중지를 누르면 멈춥니다.";
-    else if (state.power === "ready") ui.hint.textContent = "";
-    else ui.hint.textContent = `GPU 클러스터가 준비되면 보낼 수 있습니다 (현재: ${AX.POWER[state.power] || "확인 중"}).`;
+    if (state.busy || state.power === "ready" || state.power === "unknown") ui.hint.textContent = "";
+    else ui.hint.textContent = "모델 서버가 준비되면 보낼 수 있습니다";
   }
 
   function flash(message) {
@@ -132,8 +151,8 @@
 
   function assistantBubble() {
     const rounds = el("div", { class: "rounds" });
-    const status = el("div", { class: "status small muted", text: "요청을 보내는 중…" });
-    const foot = el("div", { class: "foot tiny muted" });
+    const status = el("div", { class: "status", text: "요청을 보내는 중" });
+    const foot = el("div", { class: "foot" });
     const node = el("div", { class: "msg assistant" }, el("div", { class: "bubble" }, rounds, status, foot));
     ui.messages.append(node);
     return { node, rounds, status, foot };
@@ -141,18 +160,19 @@
 
   // One model request inside a turn: its reasoning (collapsible), its answer and its tool cards.
   function roundBox(view) {
-    const summary = el("summary", { text: "생각하는 중…" });
+    const label = el("span", { class: "label", text: "생각하는 중" });
+    const summary = el("summary", null, label);
     const thought = el("div", { class: "thought" });
     const details = el("details", { class: "thinking hidden" }, summary, thought);
     const answer = el("div", { class: "answer" });
     const tools = el("div", { class: "tool-cards" });
     view.rounds.append(details, answer, tools);
-    return { details, summary, thought, answer, tools, shown: "", opened: false, closed: false };
+    return { details, label, thought, answer, tools, shown: "", opened: false, closed: false, began: null, took: null };
   }
 
   function note(view, text, isError, detail) {
-    view.rounds.append(el("p", { class: isError ? "error small" : "muted small", text }));
-    if (detail) view.rounds.append(el("p", { class: "tiny muted", text: `세부 정보: ${detail}` }));
+    view.rounds.append(el("p", { class: isError ? "note error" : "note", text }));
+    if (detail) view.rounds.append(el("p", { class: "note tiny", text: `세부 정보: ${detail}` }));
   }
 
   // The reasoning and the answer of one round. Splits "<think>…</think>" out of the content if the server did
@@ -184,8 +204,12 @@
       const settled = !!(content || round.calls.length || round.finish);
       box.details.classList.remove("hidden");
       if (box.thought.textContent !== reasoning) box.thought.textContent = reasoning;
-      box.summary.textContent = settled ? `생각 과정 보기 (${AX.num(reasoning.length)}자)`
-        : `생각하는 중… (${AX.num(reasoning.length)}자)`;
+      const now = performance.now();
+      if (box.began === null) box.began = now;
+      if (settled && box.took === null) box.took = now - box.began;
+      box.details.classList.toggle("live", !settled);
+      box.label.textContent = settled ? `${AX.num(Math.max(1, Math.round(box.took / 1000)))}초 동안 생각함`
+        : `생각하는 중 · ${AX.num(Math.floor((now - box.began) / 1000))}초`;
       if (!box.opened && !settled) {
         box.details.open = true;  // show the reasoning live, then fold it once the answer starts
         box.opened = true;
@@ -199,9 +223,9 @@
       box.shown = content;
     }
     if (!round.finish) {
-      if (content) view.status.textContent = "답변을 쓰는 중…";
-      else if (reasoning) view.status.textContent = "생각하는 중…";
-      else if (round.calls.length) view.status.textContent = "도구 호출을 준비하는 중…";
+      const call = round.calls.filter(Boolean).slice(-1)[0];
+      AX.show(view.status, !content && !reasoning || !!call);
+      if (call) view.status.textContent = `${AX.tools.labels[call.name] || "도구"} 호출 준비 중`;
     }
     if (stick) toBottom();
   }
@@ -282,12 +306,11 @@
       for await (const { event, data } of readEvents(response)) {
         if (event === "queue") {
           const info = json(data) || {};
-          view.status.textContent = info.position
-            ? `대기열 ${AX.num(info.position)}번째입니다. 앞의 답변이 끝나면 시작합니다…` : "대기 중…";
+          view.status.textContent = info.position ? `대기열 ${AX.num(info.position)}번째 · 곧 시작합니다` : "대기 중";
         } else if (event === "start") {
           started = performance.now();
           timing.wait += started - requested;
-          view.status.textContent = "입력을 읽는 중…";
+          view.status.textContent = "입력을 읽는 중";
         } else if (event === "end") {
           ended = true;
         } else if (event === "error") {
@@ -371,11 +394,13 @@
 
   function toolCard(box, name, args, result, ok) {
     box.tools.append(el("details", { class: ok ? "tool-card" : "tool-card error" },
-      el("summary", null, el("span", { class: "tool-name", text: AX.tools.labels[name] || name || "알 수 없는 도구" }),
-         el("span", { class: "small muted", text: clip(preview(name, result), 160) })),
-      el("div", { class: "tiny muted", text: "모델이 보낸 인자" }), el("pre", { text: clip(pretty(args), 5000) }),
-      el("div", { class: "tiny muted", text: "브라우저에서 실행한 결과" }),
-      el("pre", { text: JSON.stringify(result, null, 2) })));
+      el("summary", null, el("span", { class: "tool-icon" }, icon(name)),
+         el("span", { class: "tool-name", text: AX.tools.labels[name] || name || "알 수 없는 도구" }),
+         el("span", { class: "tool-preview", text: clip(preview(name, result), 160) }),
+         el("span", { class: "tool-state", title: ok ? "완료" : "실패" }, icon(ok ? "check" : "cross"))),
+      el("div", { class: "tool-body" },
+         el("div", { class: "tiny", text: "입력" }), el("pre", { text: clip(pretty(args), 5000) }),
+         el("div", { class: "tiny", text: "결과" }), el("pre", { text: JSON.stringify(result, null, 2) }))));
   }
 
   // ---------------------------------------------------------------------------------------- the footer
@@ -397,21 +422,23 @@
     if (timing.tokens) parts.push(`출력 ${AX.num(timing.tokens)} 토큰`);
     if (timing.decodeMs > 0) parts.push(`초당 ${AX.num(timing.decodeTokens / (timing.decodeMs / 1000), 1)} 토큰`);
     if (timing.calls > 1) parts.push(`모델 호출 ${timing.calls}회`);
-    view.foot.replaceChildren(el("span", { text: parts.join(" · ") }));
-    if (!answer) return;
-    const copy = el("button", { type: "button", class: "ghost tiny", text: "복사" });
+    const meta = el("span", { class: "meta", text: parts.join(" · ") });
+    if (!answer) {
+      view.foot.replaceChildren(meta);
+      return;
+    }
+    const copy = el("button", { type: "button", class: "icon-action", title: "복사", "aria-label": "답변 복사" }, icon("copy"));
     copy.addEventListener("click", async () => {
+      let ok = true;
       try {
         await navigator.clipboard.writeText(answer);
-        copy.textContent = "복사됨";
       } catch (error) {
-        copy.textContent = "복사 실패";
+        ok = false;
       }
-      setTimeout(() => {
-        copy.textContent = "복사";
-      }, 1500);
+      copy.replaceChildren(icon(ok ? "check" : "cross"));
+      setTimeout(() => copy.replaceChildren(icon("copy")), 1500);
     });
-    view.foot.append(copy);
+    view.foot.replaceChildren(copy, meta);
   }
 
   // --------------------------------------------------------------------------------------------- a turn
@@ -427,7 +454,7 @@
   async function send() {
     if (state.busy) return;
     if (state.power !== "ready") {
-      flash("GPU 클러스터가 아직 준비되지 않았습니다. 클러스터 탭에서 상태를 확인해 주세요.");
+      flash("모델 서버가 아직 준비되지 않았습니다.");
       return;
     }
     const files = state.attachments.slice();
@@ -445,6 +472,7 @@
       return;
     }
     ui.input.value = "";
+    ui.grow();
     state.attachments = [];
     renderAttachments();
     AX.show(ui.welcome, false);
@@ -528,6 +556,7 @@
              !stopped, failure.detail);
         if (!ui.input.value.trim() && !state.attachments.length) {
           ui.input.value = typed;
+          ui.grow();
           state.attachments = files;
           renderAttachments();
         }
@@ -563,13 +592,19 @@
       ui[id.replace(/-(\w)/g, (match, letter) => letter.toUpperCase())] = document.getElementById(id);
     }
     ui.examples.replaceChildren(...EXAMPLES.map((example) => el("button", {
-      type: "button", class: "chip example", text: example.label, title: example.text, onclick: () => {
+      type: "button", class: "suggestion", onclick: () => {
         if (state.busy) return;
         ui.input.value = example.text;
         if (example.tools) ui.tools.checked = true;
         if (state.power === "ready") send();
         else ui.input.focus();
-      } })));
+      } }, el("strong", { text: example.label }), el("span", { text: example.text }))));
+    const grow = () => {
+      ui.input.style.height = "auto";
+      ui.input.style.height = `${Math.min(ui.input.scrollHeight, 220)}px`;
+    };
+    ui.input.addEventListener("input", grow);
+    ui.grow = grow;
     ui.composer.addEventListener("submit", (event) => {
       event.preventDefault();
       send();

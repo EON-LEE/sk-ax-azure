@@ -110,6 +110,28 @@ class BenchmarkTests(unittest.TestCase):
         self.assertTrue(all(r["a100"] is None for r in empty["rows"]))
         self.assertIsNone(empty["run"])
 
+    def test_partial_run_and_niah_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a100-benchmarks.json"
+            path.write_text(json.dumps({"run": "ev-part", "summary": {
+                "aime": {"score": 1.0, "ci95_half": 0.0, "n_items": 10, "items_expected": 30, "repeats": 2,
+                         "n_generations": 10, "generations_expected": 60},
+                "click": {"score": 0.855, "ci95_half": 0.061, "n_items": 131, "items_expected": 200, "repeats": 1,
+                          "n_generations": 131, "generations_expected": 200}}}), encoding="utf-8")
+            verification = Path(tmp) / "verification.json"
+            verification.write_text(json.dumps({"per_phase": {"native-pp2": {"niah": {
+                "hits": 9, "total": 9, "by_length": {"32768": {}, "131072": {}, "262144": {}}}}}}), encoding="utf-8")
+            bench = make_figures.load_benchmarks(path, niah_fallback=verification)
+            make_figures.write_benchmark_table(bench, Path(tmp))
+            table = (Path(tmp) / "benchmark-table.md").read_text(encoding="utf-8")
+            without = make_figures.load_benchmarks(path)
+        self.assertIn("| Math | AIME26 | 97.1 | **100.0** (n=10/60 gen) |", table)
+        self.assertIn("| Korean | CLIcK | 91.6 | **85.5** ± 6.1 (n=131/200) |", table)
+        self.assertIn("| Long context | NIAH | 100 | **100.0** (9/9, 32K, 128K, 256K) |", table)
+        self.assertIn("stopped early", table)
+        self.assertIn("earlier verification run", table)
+        self.assertIsNone(without["niah"]["a100"])
+
     def test_render_benchmarks(self):
         if importlib.util.find_spec("matplotlib") is None:
             self.skipTest("matplotlib is not importable")
