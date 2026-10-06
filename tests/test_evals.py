@@ -311,6 +311,13 @@ class SummaryTests(unittest.TestCase):
         self.assertNotEqual(keys, [str(k) for k in range(10)])
         self.assertNotEqual(keys, [u[1]["key"] for u in evals.order(units, 8)[:10]])
 
+    def test_order_puts_niah_last(self):
+        niah = evals.Suite("niah", [{"key": str(k)} for k in range(5)], evals.score_aime, 32, 1)
+        aime = evals.Suite("aime", [{"key": str(k)} for k in range(5)], evals.score_aime, 10, 2)
+        units = [(niah, item, 0) for item in niah.items]
+        units += [(aime, item, rep) for rep in range(2) for item in aime.items]
+        self.assertEqual([u[0].name for u in evals.order(units, 3)], ["aime"] * 10 + ["niah"] * 5)
+
     def test_compact_and_report(self):
         rows = evals.compact([rec("aime", "1", 0, True, pred=277, gold=277, finish_reason="stop", prompt_tokens=5)])
         self.assertEqual(rows, [["aime", "1", 0, True, 277, 277, "stop", 5, 10, 1.0, None]])

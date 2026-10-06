@@ -568,11 +568,13 @@ def unit_id(suite, key, rep):
 
 
 def order(units, seed):
-    """Repetition-major (every item once before any item twice), shuffled reproducibly within a repetition."""
+    """Repetition-major (every item once before any item twice), shuffled reproducibly within a repetition.
+    NIAH goes last: its 256K-token prefills stretch every scheduler step to seconds, which stalls the
+    other suites' decoding (about 40 tok/s for the whole cluster instead of about 400) and demo chats."""
     def rank(unit):
         suite, item, rep = unit
         digest = hashlib.sha256(f"{seed}|{suite.name}|{item['key']}|{rep}".encode()).hexdigest()
-        return rep, digest
+        return suite.name == "niah", rep, digest
     return sorted(units, key=rank)
 
 
