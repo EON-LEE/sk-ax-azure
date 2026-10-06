@@ -25,6 +25,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from hub import ChatRelay, Full, Gate, Hub
 from store import RUN, Store, check_password, hash_password, new_password, token_digest
 from supervisor import Supervisor, load_module
+from workspace import LIMIT as FILE_LIMIT, Workspaces, safe_preview
 
 HERE = Path(__file__).resolve().parent
 COOKIES = {"demo": ("axk2_demo", 24 * 3600), "admin": ("axk2_admin", 12 * 3600)}
@@ -51,20 +52,13 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "timezone": {"type": "string", "description": "IANA time zone such as Asia/Seoul (the default)"}},
             "required": []}}},
-    {"type": "function", "function": {
-        "name": "get_weather",
-        "description": "Demo weather lookup. It returns made-up sample data for a city, not real weather; say so "
-                       "when you use it.",
-        "parameters": {"type": "object", "properties": {
-            "city": {"type": "string", "description": "city name, for example Seoul"}},
-            "required": ["city"]}}},
 ]
 TOOL_NAMES = {tool["function"]["name"] for tool in TOOLS}
 SECURITY = [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"no-referrer"),
             (b"x-frame-options", b"DENY"), (b"strict-transport-security", b"max-age=31536000"),
             (b"content-security-policy",
              b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; "
-             b"connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")]
+             b"connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")]
 
 
 def pairs(text, convert=str):
@@ -544,9 +538,17 @@ def create_app(config=None, azure=None, start_supervisor=True):
     async def lifespan(app):
         store.event("frontend", "the frontend started")
         task = asyncio.create_task(supervisor.run()) if start_supervisor else None
+        async def cleanup():
+            while True:
+                await asyncio.sleep(60)
+                workspaces.prune()
+        cleanup_task = asyncio.create_task(cleanup())
         try:
             yield
         finally:
+            cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cleanup_task
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -559,6 +561,8 @@ def create_app(config=None, azure=None, start_supervisor=True):
     app.add_middleware(SecurityHeaders)
     app.state.config, app.state.store, app.state.hub, app.state.gate = config, store, hub, gate
     app.state.supervisor, app.state.auth = supervisor, auth
+    workspaces = Workspaces()
+    upload_gate = asyncio.Semaphore(2)
 
     @app.exception_handler(Problem)
     async def problem(request, exc):
@@ -609,7 +613,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
 
     @app.get("/healthz")
     async def healthz():
-        return {"ok": True}
+        return {"ok": True, "agent": "maf-1.20.0", "web_iq": "not_configured", "sandbox": "not_configured"}
 
     async def login(request, roles, cookie):
         body = await read_json(request, 4096)
@@ -660,6 +664,97 @@ def create_app(config=None, azure=None, start_supervisor=True):
         except Full:
             raise Problem(503, "busy", "지금 사용자가 많아 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
         return relay.response()
+
+    def workspace_for(request, allow_busy=False):
+        require_demo(request)
+        try:
+            space = workspaces.get(request.headers.get("x-ax-workspace", ""))
+        except ValueError as exc:
+            raise Problem(410, "workspace", str(exc))
+        if space.busy and not allow_busy:
+            raise Problem(409, "workspace_busy", "This chat is running; wait or cancel before modifying files")
+        return space
+
+    @app.post("/api/workspace")
+    async def new_workspace(request: Request):
+        require_demo(request)
+        try:
+            space = workspaces.create()
+        except ValueError as exc:
+            raise Problem(503, "workspace_capacity", str(exc))
+        return {"token": space.token, "expires_after_seconds": workspaces.ttl}
+
+    @app.post("/api/workspace/upload")
+    async def upload(request: Request):
+        space = workspace_for(request)
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > FILE_LIMIT:
+                raise Problem(413, "too_large", "Upload limit is 8 MiB")
+        # Reserve the chat across parsing so concurrent uploads cannot bypass combined limits.
+        if space.busy:
+            raise Problem(409, "workspace_busy", "Chat is busy")
+        space.busy = True
+        try:
+            async with upload_gate:
+                names = await asyncio.to_thread(space.upload, request.query_params.get("name", ""), bytes(data))
+            return {"files": names, "bytes": len(data)}
+        except (ValueError, UnicodeError, OSError) as exc:
+            raise Problem(400, "upload", str(exc)[:500])
+        finally:
+            space.busy = False
+
+    @app.get("/api/workspace/download")
+    async def download(request: Request):
+        space = workspace_for(request, allow_busy=True)
+        path = request.query_params.get("path", "")
+        try:
+            data = space.get(path)
+        except ValueError as exc:
+            raise Problem(404, "file", str(exc))
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Content-Disposition": "attachment; filename=\"artifact\""})
+
+    @app.post("/api/workspace/remove")
+    async def remove_attachment(request: Request):
+        space = workspace_for(request)
+        names = (await read_json(request, 30_000)).get("files")
+        if space.busy:
+            raise Problem(409, "workspace_busy", "Chat is busy")
+        if not isinstance(names, list) or len(names) > 100 or any(not isinstance(n, str) for n in names):
+            raise Problem(400, "files", "files must be a bounded list of names")
+        for name in names:
+            space.files.pop(name, None)
+            space.original.pop(name, None)
+        return {"ok": True}
+
+    @app.post("/api/agent")
+    async def run_agent(request: Request):
+        from agent import agent_response
+        space = workspace_for(request)
+        raw = await read_json(request, CHAT_LIMIT)
+        body = chat_body(raw)
+        if any(m["role"] not in ("user", "assistant") or m.get("tool_calls") for m in body["messages"]):
+            raise Problem(400, "bad_messages", "Agent input accepts only user/assistant text, not client tool results")
+        if hub.ready_link() is None:
+            raise Problem(503, "not_ready", "모델 서버가 아직 준비되지 않았습니다.")
+        if space.busy:
+            raise Problem(409, "workspace_busy", "This chat is already running")
+        space.busy = True
+        return agent_response(hub, gate, body, space, bool(raw.get("tools")), tool_gate=upload_gate)
+
+    @app.get("/api/workspace/preview")
+    async def preview(request: Request):
+        space = workspace_for(request, allow_busy=True)
+        path = request.query_params.get("path", "")
+        if not path.lower().endswith(".html"):
+            raise Problem(400, "preview", "HTML files only")
+        try:
+            text = safe_preview(space.get(path))
+        except (ValueError, UnicodeError) as exc:
+            raise Problem(400, "preview", str(exc))
+        return Response(text, media_type="text/plain")
 
     @app.get("/api/results")
     async def results_view(request: Request):

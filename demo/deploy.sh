@@ -6,6 +6,7 @@
 #
 # Optional: AXK2_RG, AXK2_LOCATION, AXK2_PLAN, AXK2_APP, AXK2_WORKSPACES (region=workspace,...; race order),
 # AXK2_COMPUTE, AXK2_OPEN_DEMO (1 = the chat page needs no password; the admin page still does; default 1).
+# AXK2_FRONTEND_ONLY=1 redeploys code to an existing app without changing settings, identity or permissions.
 # The GPU clusters and workspaces must already exist (aml/setup_region.sh). On the first run it
 # generates the demo and admin passwords, prints them once and keeps a copy in ~/.axk2-demo/passwords (0600).
 # Needs az (logged in), python3 and curl; python builds the zip.
@@ -24,6 +25,7 @@ OPEN_DEMO=${AXK2_OPEN_DEMO:-1}
 KEEP=$HOME/.axk2-demo
 az account set -s "$SUB"
 
+if [ "${AXK2_FRONTEND_ONLY:-0}" != 1 ]; then
 echo "== App Service plan and web app ($LOC)"
 az appservice plan show -g "$RG" -n "$PLAN" -o none 2>/dev/null ||
   az appservice plan create -g "$RG" -n "$PLAN" --is-linux --sku B1 -l "$LOC" -o none
@@ -76,6 +78,10 @@ az webapp config appsettings set -g "$RG" -n "$APP" -o none --settings \
   AXK2_WORKSPACES="$WORKSPACES" AXK2_COMPUTE="$COMPUTE" AXK2_OPEN_DEMO="$OPEN_DEMO"
 OLD=$(az webapp config appsettings list -g "$RG" -n "$APP" --query "[?starts_with(name, 'SPIKE_')].name" -o tsv | tr -d '\r')
 [ -z "$OLD" ] || az webapp config appsettings delete -g "$RG" -n "$APP" -o none --setting-names $OLD
+else
+  echo "== frontend-only: preserving app settings, identity, permissions and GPU jobs"
+  HOST=$(az webapp show -g "$RG" -n "$APP" --query defaultHostName -o tsv)
+fi
 
 echo "== bundle"
 ZIP=$(mktemp -d)/axk2-demo.zip

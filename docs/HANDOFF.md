@@ -2,6 +2,36 @@
 
 Snapshot: 2026-10-06. Read this before allocating any GPU.
 
+## 2026-10-07: AX Microsoft Agent Framework demo
+
+The frontend now uses Microsoft Agent Framework Python 1.20.0 `Agent`,
+function invocation layer and function middleware over the existing reverse
+link. A.X K2 alone performs inference, including thinking/tool decisions/code.
+The minimal chat renders actual pending/running/success/error events, files,
+diffs and on-demand sanitized HTML/SVG artifacts. See `demo/README.md` for
+capability isolation, expiry, upload limits and exact supported tools.
+
+Web IQ and code execution are **not configured**, not working integrations.
+The public Web IQ documentation redirects to an enterprise-access landing
+page without a callable API contract; no relevant app settings exist.
+Obtain the enterprise contract and credentials through secure settings first.
+Tests require an approved external isolated sandbox; no uploaded/generated
+code is executed on App Service or GPU, and no test pass is invented.
+Do not provision resources or grant permissions without user approval.
+
+**GPU stays on until the user explicitly requests otherwise.** Frontend-only
+deploy uses `AXK2_FRONTEND_ONLY=1` and must not change jobs/weights/cluster
+settings or start benchmarks. Older shutdown advice below is superseded.
+Existing benchmark samples remain partial and cannot establish equivalence.
+
+Verified on the live existing A.X job: exact `2^64-1` and Seoul time;
+README/HTML reads, HTML write + unified diff + sanitized preview + download;
+CSV sum + SVG chart; genuine error results for both unconfigured services.
+Thinking-enabled file work preserved the real `reasoning_content` stream.
+Independent browser tab verified three model rounds, cards, on-demand preview,
+attachment read and 390px mobile layout (no permanent editor/admin chrome).
+These are functional demo checks, not new model-quality benchmarks.
+
 ## 2026-10-06: customer demo and model-card benchmarks
 
 **Demo.** `demo/` runs an always-on chat page on App Service (Korea Central, B1),
@@ -17,8 +47,8 @@ backed by the 2 x ND96amsr_A100_v4 serving job (FP8, native DSA, TP8 x PP2).
   password. Passwords live in `~/.axk2-demo/passwords` (WSL), never in the repo.
 - **GPU:** `demo/ctl.sh on|off|status`. `on` races low-priority jobs in uksouth,
   italynorth and francecentral, keeps the first with 2 nodes, and is ready in
-  about 25 min. 2 low-priority nodes cost about USD 16/hr. **Run `ctl.sh off`
-  after a demo.**
+  about 25 min. 2 low-priority nodes cost about USD 16/hr. **Only run `ctl.sh off`
+  on an explicit user request.**
 - **Measured in the demo:** first token 0.4 s, 45-49 tok/s per user.
 - **Deploy gotcha:** `deploy.sh` can end with "Kudu Status 502" while Oryx is still
   building. If the site then crashes with `No module named uvicorn`, the build was

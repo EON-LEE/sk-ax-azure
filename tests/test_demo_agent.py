@@ -1,0 +1,209 @@
+"""Real MAF orchestration against a deterministic reverse-link fixture; no remote inference in tests."""
+import asyncio
+import io
+import json
+import sys
+import tempfile
+import time
+import unittest
+import zipfile
+from pathlib import Path
+
+import httpx
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "demo" / "frontend"))
+from agent import agent_response
+from app import Config, create_app
+from hub import Gate
+from workspace import Workspaces, Workspace, calculate, extract, number, safe_preview, table_rows
+sys.path.pop(0)
+
+
+class FilesTests(unittest.TestCase):
+    def test_exact_and_bounded_calculator(self):
+        self.assertEqual(calculate("2^64-1"), "18446744073709551615")
+        self.assertEqual(calculate("0.1+0.2"), "3/10")
+        self.assertEqual(calculate("1/3"), "1/3")
+        for expression in ("__import__('os')", "2^100000", "1e999999999", "True+1", "1/0"):
+            with self.subTest(expression=expression), self.assertRaises((ValueError, ZeroDivisionError)):
+                calculate(expression)
+
+    def test_isolation_paths_and_zip_atomicity(self):
+        a, b = Workspace(), Workspace()
+        a.put("src/main.py", b"print('hello')", original=True)
+        with self.assertRaises(ValueError):
+            b.get("src/main.py")
+        for name in ("../x.py", "/x.py", "a\\x.py", "C:x.py", "a/../x.py", "x.exe", "a//x.py"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                a.put(name, b"no")
+        zipped = io.BytesIO()
+        with zipfile.ZipFile(zipped, "w") as archive:
+            archive.writestr("valid.py", "ok")
+            archive.writestr("../escape.py", "bad")
+        with self.assertRaises(ValueError):
+            a.upload("project.zip", zipped.getvalue())
+        self.assertNotIn("valid.py", a.files)
+        bomb = io.BytesIO()
+        with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("large.txt", "a" * 1_000_000)
+        with self.assertRaises(ValueError):
+            a.upload("bomb.zip", bomb.getvalue())
+
+    def test_extraction_and_tables(self):
+        from docx import Document
+        from openpyxl import Workbook
+        doc = Document()
+        doc.add_paragraph("A.X sample")
+        data = io.BytesIO()
+        doc.save(data)
+        self.assertIn("[paragraph 1] A.X sample", extract("sample.docx", data.getvalue()))
+        self.assertIn("[line 1] hello", extract("sample.txt", b"hello"))
+        self.assertEqual(table_rows("a.csv", b"region,sales\nSeoul,20\n"), [["region", "sales"], ["Seoul", "20"]])
+        book = Workbook()
+        book.active.append(["value"])
+        book.active.append(["=1+1"])
+        data = io.BytesIO()
+        book.save(data)
+        with self.assertRaises(ValueError):
+            table_rows("a.xlsx", data.getvalue())
+        self.assertEqual(str(number("0.1")), "1/10")
+        for value in ("1e999999999", "=1+1", "9" * 257):
+            with self.assertRaises(ValueError):
+                number(value)
+
+    def test_preview_no_active_or_url_content(self):
+        text = safe_preview(b'<meta http-equiv="refresh" content="0;url=https://bad">'
+                            b'<script>fetch("/api/admin")</script><iframe src="https://bad"></iframe>'
+                            b'<a href="https://bad">link</a><img src="https://bad"><p onclick="alert(1)">hello</p>')
+        self.assertNotIn("<script", text)
+        self.assertNotIn("<meta", text)
+        self.assertNotIn("<iframe", text)
+        self.assertNotIn("href=", text)
+        self.assertNotIn("src=", text)
+        self.assertNotIn("onclick=", text)
+
+    def test_expiry_capacity(self):
+        manager = Workspaces()
+        space = manager.create()
+        space.touched -= manager.ttl + 1
+        with self.assertRaises(ValueError):
+            manager.get(space.token)
+        self.assertEqual(len(manager.items), 0)
+        for _ in range(16):
+            manager.create()
+        with self.assertRaises(ValueError):
+            manager.create()
+
+
+class FixtureLink:
+    def __init__(self, name="calculator", arguments=None, hold=False):
+        self.streams, self.requests, self.cancelled = {}, [], []
+        self.name, self.arguments, self.hold = name, arguments or {"expression": "2^64-1"}, hold
+
+    def send(self, message):
+        if message["type"] == "cancel":
+            self.cancelled.append(message["id"])
+            return
+        self.requests.append(message["body"])
+        queue = self.streams[message["id"]]
+        queue.put_nowait({"type": "head", "status": 200})
+        if self.hold:
+            return
+        if len(self.requests) == 1:
+            choices = [
+                {"delta": {"reasoning_content": "real fixture reasoning"}},
+                {"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {
+                    "name": self.name, "arguments": json.dumps(self.arguments)[:5]}}]}},
+                {"delta": {"tool_calls": [{"index": 0, "function": {
+                    "arguments": json.dumps(self.arguments)[5:]}}]}, "finish_reason": "tool_calls"},
+            ]
+        else:
+            choices = [{"delta": {"content": "Final A.X answer"}, "finish_reason": "stop"}]
+        for choice in choices:
+            queue.put_nowait({"type": "data", "chunk": "data: " + json.dumps({"choices": [choice]}) + "\n\n"})
+        queue.put_nowait({"type": "end"})
+
+
+class FixtureHub:
+    def __init__(self, link):
+        self.link = link
+
+    def ready_link(self):
+        return self.link
+
+
+class AgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_real_maf_invokes_tool_and_replays_reasoning(self):
+        link, space, gate = FixtureLink(), Workspace(), Gate(1, 2)
+        space.busy = True
+        response = agent_response(FixtureHub(link), gate, {
+            "model": "axk2", "stream": True, "messages": [{"role": "user", "content": "calculate"}],
+            "chat_template_kwargs": {"enable_thinking": True}, "max_tokens": 512}, space, True)
+        output = b"".join([chunk async for chunk in response.body_iterator]).decode()
+        self.assertIn("18446744073709551615", output)
+        self.assertIn('"state": "pending"', output)
+        self.assertIn('"state": "running"', output)
+        self.assertIn('"state": "success"', output)
+        self.assertIn("Final A.X answer", output)
+        self.assertEqual(len(link.requests), 2)
+        replay = link.requests[1]["messages"]
+        self.assertEqual(next(m for m in replay if m.get("tool_calls"))["reasoning_content"], "real fixture reasoning")
+        self.assertIn("18446744073709551615", next(m["content"] for m in replay if m["role"] == "tool"))
+        self.assertFalse(space.busy)
+        self.assertEqual(gate.active, 0)
+        self.assertNotIn("get_weather", str(link.requests))
+
+    async def test_unconfigured_execution_is_real_tool_error(self):
+        link, space = FixtureLink("run_tests", {"command": "pytest"}), Workspace()
+        response = agent_response(FixtureHub(link), Gate(1, 2), {
+            "messages": [{"role": "user", "content": "run tests"}], "model": "axk2"}, space, True)
+        output = b"".join([chunk async for chunk in response.body_iterator]).decode()
+        self.assertIn('"state": "error"', output)
+        self.assertIn("No tests were run", output)
+        self.assertNotIn('"state": "success"', output)
+
+    async def test_cancellation_releases_gate_and_link(self):
+        link, space, gate = FixtureLink(hold=True), Workspace(), Gate(1, 2)
+        response = agent_response(FixtureHub(link), gate, {
+            "messages": [{"role": "user", "content": "hold"}], "model": "axk2"}, space, True)
+        task = asyncio.create_task(self.consume(response))
+        for _ in range(100):
+            if link.requests:
+                break
+            await asyncio.sleep(.01)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(gate.active, 0)
+        self.assertEqual(len(link.cancelled), 1)
+        self.assertFalse(link.streams)
+        self.assertFalse(space.busy)
+
+    async def consume(self, response):
+        async for _ in response.body_iterator:
+            pass
+
+    async def test_http_workspace_and_artifact_capability(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = create_app(Config(data=Path(folder), aml_dir=ROOT / "aml", session_secret="test", open_demo=True),
+                             start_supervisor=False)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                a = (await client.post("/api/workspace")).json()["token"]
+                b = (await client.post("/api/workspace")).json()["token"]
+                response = await client.post("/api/workspace/upload?name=index.html",
+                                             headers={"X-AX-Workspace": a}, content=b"<h1>OK</h1><script>bad()</script>")
+                self.assertEqual(response.status_code, 200)
+                denied = await client.get("/api/workspace/download?path=index.html", headers={"X-AX-Workspace": b})
+                self.assertEqual(denied.status_code, 404)
+                denied = await client.get("/api/workspace/download?path=index.html")
+                self.assertEqual(denied.status_code, 410)
+                preview = await client.get("/api/workspace/preview?path=index.html", headers={"X-AX-Workspace": a})
+                self.assertNotIn("<script", preview.text)
+                download = await client.get("/api/workspace/download?path=index.html", headers={"X-AX-Workspace": a})
+                self.assertIn("attachment", download.headers["content-disposition"])
+                self.assertEqual(download.headers["content-type"], "application/octet-stream")
+
+
+if __name__ == "__main__":
+    unittest.main()

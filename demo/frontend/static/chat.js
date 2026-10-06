@@ -1,18 +1,12 @@
 "use strict";
 // Chat tab: streams /api/chat (server-sent events read through fetch), shows the reasoning and the answer,
-// runs the tools in the browser and keeps the conversation only in this tab's memory.
+// MAF executes tools on the server; this tab renders genuine model deltas and middleware action events.
 (function () {
   const AX = window.AX;
   const { el } = AX;
 
-  const MAX_TOOL_ROUNDS = 4;           // after these, one last request without tools forces an answer
   const BODY_LIMIT = 4 * 1024 * 1024;  // the server's request size limit
   const FILE_BYTES = 8 * 1024 * 1024;
-  const FILE_CHARS = 800000;
-  const TOTAL_CHARS = 1000000;
-  const REASONING_LIMIT = 200000;
-  const ARGS_LIMIT = 4096;
-  const TOOL_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
   const EXAMPLES = [
     { label: "모델 소개", text: "A.X K2가 어떤 모델인지 세 문장으로 소개해 줘." },
@@ -20,14 +14,13 @@
     { label: "코드 작성", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘." },
     { label: "도구로 정확히 계산", text: "2의 64제곱에서 1을 뺀 값을 계산기로 정확히 구해 줘.", tools: true },
     { label: "세계 시각 확인", text: "지금 서울과 런던은 각각 몇 시야?", tools: true },
-    { label: "날씨와 옷차림", text: "부산 날씨를 알려 주고 옷차림을 추천해 줘. (날씨는 데모용 가짜 데이터)", tools: true },
+    { label: "파일 수정·미리보기", text: "간단한 소개 페이지 index.html을 만들고 다운로드와 미리보기를 제공해 줘.", tools: true },
   ];
 
   const SVG = "http://www.w3.org/2000/svg";
   const ICONS = {
     calculator: "M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01",
     get_current_time: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
-    get_weather: "M17.5 19H7a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 11 4 4 0 0 1 17.5 19z",
     tool: "M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4z",
     check: "M5 12l5 5L20 7",
     cross: "M6 6l12 12M18 6L6 18",
@@ -44,7 +37,28 @@
   }
 
   const ui = {};
-  const state = { history: [], busy: false, controller: null, attachments: [], power: "unknown", epoch: 0 };
+  const state = { history: [], busy: false, controller: null, attachments: [], power: "unknown", epoch: 0,
+                  workspace: null, workspacePromise: null, uploading: false };
+  const LABELS = { calculator: "정확한 계산", get_current_time: "현재 시각", list_files: "파일 목록",
+    read_file: "문서 읽기", search_files: "파일 검색", write_file: "파일 수정", diff_file: "변경 비교",
+    analyze_table: "표 분석", chart_table: "차트", preview_html: "HTML 미리보기",
+    web_iq_search: "Web IQ (미구성)", run_tests: "실행 샌드박스 (미구성)" };
+
+  async function workspace() {
+    if (state.workspace) return state.workspace;
+    if (!state.workspacePromise) {
+      const epoch = state.epoch;
+      state.workspacePromise = (async () => {
+        const response = await fetch("/api/workspace", { method: "POST" });
+        if (!response.ok) throw new Error((await AX.problem(response)).message);
+        const info = await response.json();
+        if (epoch !== state.epoch) throw new Error("대화가 변경되었습니다.");
+        state.workspace = info.token;
+        return info.token;
+      })().finally(() => { if (epoch === state.epoch) state.workspacePromise = null; });
+    }
+    return state.workspacePromise;
+  }
 
   class TurnError extends Error {
     constructor(code, message, detail) {
@@ -60,8 +74,6 @@
   };
   const secs = (ms) => `${AX.num(ms / 1000, 1)}초`;
   const aborted = (error) => !!error && error.name === "AbortError";
-  const randomId = () => "call_" + Array.from(crypto.getRandomValues(new Uint8Array(8)),
-    (byte) => byte.toString(16).padStart(2, "0")).join("");
 
   // ----------------------------------------------------------------------------------- controls and hint
   let flashTimer = null;
@@ -81,60 +93,59 @@
   }
 
   function updateControls() {
-    ui.send.disabled = state.busy || state.power !== "ready";
+    ui.send.disabled = state.busy || state.uploading || state.power !== "ready";
     AX.show(ui.send, !state.busy);
     AX.show(ui.stop, state.busy);
     readyHint();
   }
 
   // ---------------------------------------------------------------------------------------- attachments
-  async function decode(file) {
-    const buffer = await file.arrayBuffer();
-    let text = new TextDecoder("utf-8").decode(buffer);
-    if (text.includes("\uFFFD")) {
-      try {
-        const korean = new TextDecoder("euc-kr").decode(buffer);
-        if (!korean.includes("\uFFFD")) text = korean;
-      } catch (error) {
-        // keep the UTF-8 reading
-      }
-    }
-    return text.replace(/\r\n?/g, "\n");
-  }
-
   async function addFiles(list) {
+    if (state.busy || state.uploading) return;
+    state.uploading = true;
+    updateControls();
+    const epoch = state.epoch;
+    try {
     for (const file of Array.from(list || [])) {
-      if (!/\.(txt|md|markdown)$/i.test(file.name)) {
-        flash(`${file.name}: .txt 또는 .md 파일만 첨부할 수 있습니다.`);
-        continue;
-      }
       if (file.size > FILE_BYTES) {
         flash(`${file.name}: 파일이 너무 큽니다.`);
         continue;
       }
-      let text;
       try {
-        text = await decode(file);
+        const token = await workspace();
+        const response = await fetch("/api/workspace/upload?name=" + encodeURIComponent(file.name),
+          { method: "POST", headers: { "X-AX-Workspace": token }, body: file });
+        if (!response.ok) throw new Error((await AX.problem(response)).message);
+        const result = await response.json();
+        if (epoch !== state.epoch) return;
+        state.attachments.push({ name: file.name, text: "", size: file.size, files: result.files });
+        ui.tools.checked = true;
       } catch (error) {
-        flash(`${file.name}: 파일을 읽지 못했습니다.`);
+        flash(`${file.name}: ${error.message}`);
         continue;
       }
-      const used = state.attachments.reduce((sum, item) => sum + item.text.length, 0);
-      if (!text.trim()) flash(`${file.name}: 빈 파일입니다.`);
-      else if (text.length > FILE_CHARS) flash(`${file.name}: 파일 하나는 ${AX.num(FILE_CHARS)}자까지 첨부할 수 있습니다.`);
-      else if (used + text.length > TOTAL_CHARS) flash(`첨부 문서는 모두 합쳐 ${AX.num(TOTAL_CHARS)}자까지입니다.`);
-      else state.attachments.push({ name: file.name, text });
     }
     renderAttachments();
+    } finally {
+      state.uploading = false;
+      updateControls();
+    }
   }
 
   function renderAttachments() {
     ui.attachments.replaceChildren(...state.attachments.map((item, index) => el("span", { class: "chip file" },
-      `${item.name} · ${AX.num(item.text.length)}자`,
+      `${item.name} · ${AX.num(item.size)} bytes`,
       el("button", { type: "button", class: "remove", title: "첨부 취소", "aria-label": `${item.name} 첨부 취소`,
-                     text: "×", onclick: () => {
-                       state.attachments.splice(index, 1);
-                       renderAttachments();
+                     text: "×", onclick: async () => {
+                       if (state.busy || state.uploading) return;
+                       try {
+                         const response = await fetch("/api/workspace/remove", { method: "POST",
+                           headers: { "Content-Type": "application/json", "X-AX-Workspace": state.workspace },
+                           body: JSON.stringify({ files: item.files }) });
+                         if (!response.ok) throw new Error((await AX.problem(response)).message);
+                         state.attachments.splice(index, 1);
+                         renderAttachments();
+                       } catch (error) { flash(error.message); }
                      } }))));
     AX.show(ui.attachments, state.attachments.length > 0);
   }
@@ -143,7 +154,7 @@
   function userBubble(text, files) {
     const node = el("div", { class: "msg user" }, el("div", { class: "bubble" },
       files.length ? el("div", { class: "chips" }, files.map((file) =>
-        el("span", { class: "chip file", text: `${file.name} · ${AX.num(file.text.length)}자` }))) : null,
+        el("span", { class: "chip file", text: `${file.name} · ${AX.num(file.size)} bytes` }))) : null,
       el("div", { class: "plain", text })));
     ui.messages.append(node);
     return node;
@@ -225,7 +236,7 @@
     if (!round.finish) {
       const call = round.calls.filter(Boolean).slice(-1)[0];
       AX.show(view.status, !content && !reasoning || !!call);
-      if (call) view.status.textContent = `${AX.tools.labels[call.name] || "도구"} 호출 준비 중`;
+      if (call) view.status.textContent = `${LABELS[call.name] || "도구"} 호출 준비 중`;
     }
     if (stick) toBottom();
   }
@@ -279,11 +290,13 @@
 
   // One request to the model. Streams into `round` and repaints; throws TurnError, or AbortError on stop.
   async function streamRound(payload, view, box, round, thinking, timing) {
-    const requested = performance.now();
+    let requested = performance.now();
+    view.currentBox = box;
     let response;
     try {
-      response = await fetch("/api/chat", { method: "POST", credentials: "same-origin", body: payload,
-                                            headers: { "Content-Type": "application/json" },
+      response = await fetch("/api/agent", { method: "POST", credentials: "same-origin", body: payload,
+                                            headers: { "Content-Type": "application/json",
+                                                       "X-AX-Workspace": await workspace() },
                                             signal: state.controller.signal });
     } catch (error) {
       if (aborted(error)) throw error;
@@ -304,7 +317,22 @@
     };
     try {
       for await (const { event, data } of readEvents(response)) {
-        if (event === "queue") {
+        if (event === "round") {
+          const index = (json(data) || {}).index || 1;
+          if (index > 1) {
+            round.finish = "tool_calls";
+            paint(view, box, round, thinking);
+            account(timing, round);
+            box = roundBox(view);
+            view.currentBox = box;
+            requested = performance.now();
+            Object.assign(round, { reasoning: "", content: "", calls: [], finish: null,
+                                   usage: null, first: null, last: null });
+          }
+          timing.calls = index;
+        } else if (event === "action") {
+          actionCard(view, box, json(data) || {});
+        } else if (event === "queue") {
           const info = json(data) || {};
           view.status.textContent = info.position ? `대기열 ${AX.num(info.position)}번째 · 곧 시작합니다` : "대기 중";
         } else if (event === "start") {
@@ -356,51 +384,81 @@
     }
     paint(view, box, round, thinking);
     if (!ended) throw new TurnError("link", "응답이 중간에 끊겼습니다. 다시 시도해 주세요.");
+    return box;
   }
 
   // ------------------------------------------------------------------------------------------- tool calls
-  // The calls that can go back to the server: known names, unique valid ids, at most 8 per message.
-  function sanitizeCalls(round) {
-    const calls = [];
-    const rejected = [];
-    const seen = new Set();
-    for (const call of round.calls.filter(Boolean)) {
-      if (!AX.tools.names.has(call.name)) {
-        rejected.push({ call, reason: `알 수 없는 도구입니다: ${call.name || "(이름 없음)"}` });
-      } else if (calls.length >= 8) {
-        rejected.push({ call, reason: "한 번에 실행할 수 있는 도구는 8개까지입니다." });
-      } else {
-        const id = TOOL_ID.test(call.id) && !seen.has(call.id) ? call.id : randomId();
-        seen.add(id);
-        calls.push({ id, name: call.name, arguments: call.arguments });
-      }
-    }
-    return { calls, rejected };
-  }
-
   const clip = (text, size) => (text.length > size ? text.slice(0, size - 1) + "…" : text);
   const pretty = (text) => {
     const value = json(text);
     return value === null ? String(text || "") : JSON.stringify(value, null, 2);
   };
 
-  function preview(name, result) {
-    if (!result || result.error) return `오류: ${result ? result.error : "결과 없음"}`;
-    if (name === "calculator") return `${result.expression} = ${result.result}`;
-    if (name === "get_current_time") return `${result.timezone} ${result.date} ${result.time} (${result.weekday_ko})`;
-    if (name === "get_weather") return `${result.city}: ${result.condition}, ${result.temperature_c}°C (가짜 데이터)`;
-    return "";
+  function actionCard(view, box, action) {
+    if (!action.id) return;
+    if (!view.actions) view.actions = new Map();
+    let card = view.actions.get(action.id);
+    if (!card) {
+      card = el("details", { class: "tool-card" });
+      box.tools.append(card);
+      view.actions.set(action.id, card);
+    }
+    const labels = { pending: "대기", running: "실행 중", success: "완료", error: "오류" };
+    card.classList.toggle("error", action.state === "error");
+    const body = el("div", { class: "tool-body" },
+      el("div", { class: "tiny", text: "입력" }), el("pre", { text: clip(pretty(JSON.stringify(action.arguments)), 250000) }));
+    if (action.result !== undefined) {
+      body.append(el("div", { class: "tiny", text: "결과" }),
+                  el("pre", { text: clip(typeof action.result === "string" ? action.result :
+                    JSON.stringify(action.result, null, 2), 30000) }));
+      const artifact = action.result && action.result.artifact;
+      if (artifact) body.append(artifactButton(artifact));
+    }
+    card.replaceChildren(el("summary", null,
+      el("span", { class: "tool-icon" }, icon(action.name)),
+      el("span", { class: "tool-name", text: LABELS[action.name] || action.name }),
+      el("span", { class: "tool-preview", text: `${labels[action.state] || action.state}${action.milliseconds !== undefined
+        ? " · " + secs(action.milliseconds) : ""}` })), body);
+    if (nearBottom()) toBottom();
   }
 
-  function toolCard(box, name, args, result, ok) {
-    box.tools.append(el("details", { class: ok ? "tool-card" : "tool-card error" },
-      el("summary", null, el("span", { class: "tool-icon" }, icon(name)),
-         el("span", { class: "tool-name", text: AX.tools.labels[name] || name || "알 수 없는 도구" }),
-         el("span", { class: "tool-preview", text: clip(preview(name, result), 160) }),
-         el("span", { class: "tool-state", title: ok ? "완료" : "실패" }, icon(ok ? "check" : "cross"))),
-      el("div", { class: "tool-body" },
-         el("div", { class: "tiny", text: "입력" }), el("pre", { text: clip(pretty(args), 5000) }),
-         el("div", { class: "tiny", text: "결과" }), el("pre", { text: JSON.stringify(result, null, 2) }))));
+  function artifactButton(artifact) {
+    return el("button", { type: "button", text: artifact.kind === "download" ? "다운로드" : "미리보기 열기",
+      onclick: async (event) => {
+        const button = event.currentTarget;
+        try {
+          let source;
+          if (artifact.kind === "chart") {
+            source = artifact.svg;
+          } else {
+            const route = artifact.kind === "preview" ? "preview" : "download";
+            const response = await fetch("/api/workspace/" + route + "?path=" + encodeURIComponent(artifact.path),
+              { headers: { "X-AX-Workspace": state.workspace } });
+            if (!response.ok) throw new Error((await AX.problem(response)).message);
+            if (artifact.kind === "download") {
+              const url = URL.createObjectURL(await response.blob());
+              const link = el("a", { href: url, download: artifact.path.split("/").pop() });
+              link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 10000);
+              return;
+            }
+            source = await response.text();
+          }
+          const dialog = el("dialog", { class: "artifact-dialog" });
+          const frame = el("iframe", { title: "격리된 미리보기", sandbox: "" });
+          // An opaque sandbox plus CSP blocks scripts, forms, network, navigation, and parent cookies.
+          const policy = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; " +
+            "img-src data:; font-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'";
+          frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="${policy}">` + source;
+          const close = () => { dialog.close(); dialog.remove(); };
+          dialog.append(el("button", { type: "button", text: "닫기", onclick: close }), frame);
+          dialog.addEventListener("cancel", close);
+          document.body.append(dialog);
+          dialog.showModal();
+        } catch (error) {
+          button.after(el("p", { class: "error", text: error.message }));
+        }
+      } });
   }
 
   // ---------------------------------------------------------------------------------------- the footer
@@ -444,15 +502,14 @@
   // --------------------------------------------------------------------------------------------- a turn
   function compose(question, files) {
     if (!files.length) return question;
-    const docs = files.map((file) => `<document name="${file.name.replace(/["<>]/g, "_")}">\n${file.text}\n</document>`);
-    return `${docs.join("\n\n")}\n\n${question}`;
+    return `Attached workspace files (use file tools to read): ${JSON.stringify(files.flatMap(f => f.files))}\n\n${question}`;
   }
 
   const bytes = (text) => new TextEncoder().encode(text).length;
 
-  // One user turn: up to MAX_TOOL_ROUNDS model calls that may use tools, then one that must answer.
+  // One user turn; MAF owns bounded model/tool rounds on the server.
   async function send() {
-    if (state.busy) return;
+    if (state.busy || state.uploading) return;
     if (state.power !== "ready") {
       flash("모델 서버가 아직 준비되지 않았습니다.");
       return;
@@ -489,49 +546,23 @@
     let answer = "";
     let failure = null;
     try {
-      let noTools = !useTools;
-      for (let index = 0; ; index += 1) {
-        const withTools = !noTools && index < MAX_TOOL_ROUNDS;
-        const payload = JSON.stringify({ messages: state.history, thinking, tools: withTools });
-        if (state.history.length > 400 || bytes(payload) > BODY_LIMIT) throw new TurnError("too_large", MESSAGES.too_large);
-        const round = { reasoning: "", content: "", calls: [], finish: null, usage: null, first: null, last: null };
-        last = { round, box: roundBox(view) };
-        timing.calls += 1;
-        await streamRound(payload, view, last.box, round, thinking, timing);
-        if (epoch !== state.epoch) return;
-        account(timing, round);
-        const { reasoning, content } = visible(round, thinking);
-        const { calls, rejected } = withTools ? sanitizeCalls(round) : { calls: [], rejected: [] };
-        for (const { call, reason } of rejected) toolCard(last.box, call.name, call.arguments, { error: reason }, false);
-        if (calls.length) {
-          const message = { role: "assistant", content, tool_calls: calls.map((call) => ({
-            id: call.id, type: "function",
-            function: { name: call.name, arguments: call.arguments.length > ARGS_LIMIT ? "{}" : call.arguments } })) };
-          if (reasoning) message.reasoning_content = reasoning.slice(0, REASONING_LIMIT);
-          state.history.push(message);
-          for (const call of calls) {
-            const outcome = call.arguments.length > ARGS_LIMIT
-              ? { ok: false, result: { error: "도구 인자가 너무 깁니다." } } : AX.tools.run(call.name, call.arguments);
-            state.history.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(outcome.result) });
-            toolCard(last.box, call.name, call.arguments, outcome.result, outcome.ok);
-          }
-          view.status.textContent = "도구 결과를 모델에 전달하는 중…";
-          continue;
-        }
-        if (rejected.length && !content.trim()) {
-          noTools = true;  // the model asked only for tools that do not exist: ask once more without tools
-          continue;
-        }
-        if (!content.trim()) {
-          throw new TurnError("empty", round.finish !== "length" ? "모델이 빈 답변을 보냈습니다. 다시 시도해 주세요."
-            : thinking ? "생각이 길어져 답변을 쓰기 전에 출력 한도에 도달했습니다. 추론 모드를 끄고 다시 시도해 보세요."
-              : "답변을 쓰기 전에 출력 한도에 도달했습니다.");
-        }
-        answer = content;
-        state.history.push({ role: "assistant", content });
-        if (round.finish === "length") note(view, "출력 길이 한도에 도달해 답변이 여기서 잘렸습니다.", false);
-        break;
+      const payload = JSON.stringify({ messages: state.history, thinking, tools: useTools });
+      if (state.history.length > 400 || bytes(payload) > BODY_LIMIT) throw new TurnError("too_large", MESSAGES.too_large);
+      const round = { reasoning: "", content: "", calls: [], finish: null, usage: null, first: null, last: null };
+      last = { round, box: roundBox(view) };
+      timing.calls += 1;
+      last.box = await streamRound(payload, view, last.box, round, thinking, timing);
+      if (epoch !== state.epoch) return;
+      account(timing, round);
+      const { content } = visible(round, thinking);
+      if (!content.trim()) {
+        throw new TurnError("empty", round.finish !== "length" ? "모델이 빈 답변을 보냈습니다. 다시 시도해 주세요."
+          : thinking ? "생각이 길어져 답변을 쓰기 전에 출력 한도에 도달했습니다. 추론 모드를 끄고 다시 시도해 보세요."
+            : "답변을 쓰기 전에 출력 한도에 도달했습니다.");
       }
+      answer = content;
+      state.history.push({ role: "assistant", content });
+      if (round.finish === "length") note(view, "출력 길이 한도에 도달해 답변이 여기서 잘렸습니다.", false);
     } catch (error) {
       failure = error;
     }
@@ -540,9 +571,15 @@
     state.controller = null;
     view.status.remove();
     if (failure) {
+      for (const card of (view.actions || new Map()).values()) {
+        if (/실행 중|대기/.test(card.querySelector("summary").textContent)) {
+          card.classList.add("error");
+          card.querySelector(".tool-preview").textContent = "중단됨";
+        }
+      }
       const stopped = aborted(failure);
       if (!stopped && !(failure instanceof TurnError)) console.error(failure);
-      if (last) paint(view, last.box, last.round, thinking);
+      if (last) paint(view, view.currentBox || last.box, last.round, thinking);
       const partial = last ? visible(last.round, thinking).content : "";
       if (partial.trim()) {
         answer = partial;
@@ -574,6 +611,10 @@
     state.controller = null;
     state.busy = false;
     state.history = [];
+    state.workspace = null;
+    state.workspacePromise = null;
+    state.attachments = [];
+    renderAttachments();
     ui.messages.replaceChildren(ui.welcome);
     AX.show(ui.welcome, true);
     updateControls();

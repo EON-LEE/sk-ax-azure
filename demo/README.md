@@ -10,7 +10,7 @@ flowchart LR
   J -- WSS 링크(작업이 먼저 연결) --> W
 ```
 
-- 프런트엔드(App Service)는 항상 켜져 있습니다. 채팅 내용은 어디에도 저장하지 않습니다.
+- 프런트엔드(App Service)는 항상 켜져 있습니다. 대화·파일은 임시 메모리에만 있으며 디스크에 저장하지 않습니다.
 - 화면은 ChatGPT 스타일 채팅 하나뿐입니다(추론 과정·도구 호출 카드 표시). 클러스터·벤치마크 결과는 웹에 두지 않고 `docs/report`에만 둡니다.
 - 기본은 **공개 데모 모드**(`AXK2_OPEN_DEMO=1`)입니다. 로그인 없이 주소만 알면 채팅할 수 있습니다(내부 데모용). 비밀번호로 막으려면 `AXK2_OPEN_DEMO=0`으로 `deploy.sh`를 다시 실행하세요. 관리자 페이지(`/admin`)는 어느 모드든 관리자 비밀번호가 필요합니다.
 - GPU는 관리자가 켤 때만 돕니다. 켜면 지역 3곳에 동시에 저우선(low priority) 작업을 내고, 먼저 2노드를 모두 받은 곳을 남기고 나머지는 취소합니다.
@@ -55,7 +55,7 @@ AXK2_SUB=<구독 ID> bash demo/deploy.sh
 
 - GPU: 노드·시간당 약 $8.19(uksouth 저우선) × 2노드 ≈ 시간당 $16. 같은 2노드를 온디맨드로 쓰면 시간당 약 $82입니다.
 - 프런트엔드: App Service B1 한 대 (항상 켜짐, 월 수십 달러 수준).
-- 관리자 페이지에 지역별 GPU 사용 시간과 추정 비용이 나옵니다. **데모가 끝나면 반드시 `ctl.sh off`** 로 끄세요.
+- 관리자 페이지에 지역별 GPU 사용 시간과 추정 비용이 나옵니다. **사용자가 명시적으로 요청할 때만 GPU를 끕니다.** 시연 종료나 프런트엔드 재배포를 이유로 끄거나 재시작하지 않습니다.
 
 ## 고객에게 전달할 것
 
@@ -63,6 +63,53 @@ AXK2_SUB=<구독 ID> bash demo/deploy.sh
 - 비밀번호 모드(`AXK2_OPEN_DEMO=0`)라면 데모 비밀번호도 함께(메일과 다른 경로로 전달 권장). `ctl.sh password demo`로 언제든 바꿔 접근을 끊을 수 있습니다.
 - 공개 모드에서 접근을 끊으려면 `ctl.sh off`(GPU 끄기) 또는 `AXK2_OPEN_DEMO=0`으로 재배포하세요.
 - 관리자 비밀번호는 고객에게 주지 않습니다.
+
+## Microsoft Agent Framework 도구 데모
+
+`agent-framework-core==1.20.0`의 실제 `Agent`, `FunctionInvocationLayer`, 스트리밍,
+`FunctionMiddleware`를 사용합니다. `agent.py`의 `AXClient`는 기존 역방향 WebSocket으로만
+vLLM에 요청하며 `reasoning_content`와 도구 호출/결과를 다음 모델 호출에 재전달합니다.
+모델 판단·코드 생성·최종 답변은 기존 SKT A.X K2(FP8 native DSA, TP8×PP2)만 수행합니다.
+OpenAI/Azure OpenAI/Foundry 추론, 대체 LLM, Azure AI Search는 사용하지 않습니다.
+브라우저는 서버가 보낸 실제 추론과 도구 상태만 표시하며 실행 루프를 소유하지 않습니다.
+
+지원 도구: 유리수 기반 정확 계산, IANA 시간대, 파일 목록/읽기/문자열 검색/텍스트 수정/
+unified diff/다운로드, PDF 텍스트(page)/DOCX(paragraph)/TXT·MD(line) 참조,
+CSV·XLSX 첫 시트의 profile/sum/mean/min/max와 SVG 막대 차트, 정적 HTML 미리보기.
+XLSX 수식은 실행·평가하지 않고 오류로 안내합니다. OCR은 제공하지 않습니다.
+가짜 날씨는 등록하지 않습니다. 코드·diff·결과는 접이식 카드 안에 표시되고
+차트/HTML은 버튼을 눌러야 열립니다. HTML은 URL 속성·활성 태그를 제거한 뒤
+스크립트·폼·네트워크가 차단된 opaque sandbox iframe으로만 표시합니다
+(외부 CSS/JS·이미지 및 동적 앱 실행은 지원하지 않음).
+
+첨부는 대화별 무작위 capability 토큰으로 격리합니다. 토큰은 URL/쿠키/로그에 넣지 않습니다.
+대화당 8 MiB/100파일, 동시에 16개 대화 workspace, 비활성 30분 후 정리
+(재배포 시 소실), ZIP expanded 8 MiB/200 member/압축비 100 이하입니다.
+절대 경로·상위 경로·심볼릭 링크·암호화 ZIP·미지원 파일은 거부합니다.
+동일 이름 재업로드는 거부하고 모델 수정은 workspace 내부에서만 허용합니다.
+추론은 최대 5회, 도구 실행 24회, 턴 15분으로 제한합니다.
+취소 시 기존 relay의 cancel을 통해 vLLM 요청을 중단하며 GPU 작업 자체는 계속 실행됩니다.
+
+**외부 서비스 제한:** 공개 [Web IQ 공식 문서](https://webiq.microsoft.ai/documentation/)는
+enterprise limited access 및 REST/MCP를 설명하지만 호출 endpoint/auth/request schema는
+공개하지 않습니다. 현재 App Service에도 관련 설정이 없으므로 `web_iq_search`는 실제 검색 없이
+명시적 미구성 오류를 반환합니다. enterprise 접근 권한, 공식 API 계약, 안전한 App Service
+자격증명 설정이 확보되기 전에는 임의 endpoint나 대체 검색 서비스를 연결하지 않습니다.
+업로드 문서/코드는 외부 검색으로 전송하지 않습니다.
+
+`run_tests`도 승인된 외부 격리 샌드박스가 없어 명시적 미구성 오류만 반환합니다.
+호스트/GPU에서 업로드·모델 생성 코드를 실행하지 않으며 테스트 통과를 꾸미지 않습니다.
+실행 서비스를 연결하려면 자원·시간·네트워크·자격증명 격리 계약과 별도 승인이 필요합니다.
+새 리소스나 권한은 자동 생성하지 않습니다. 파일 수정·diff·미리보기·다운로드는 이와 독립적으로 동작합니다.
+
+기존 서비스의 설정/identity/권한/GPU를 유지한 코드 전용 배포:
+
+```bash
+AXK2_SUB=<구독 ID> AXK2_FRONTEND_ONLY=1 bash demo/deploy.sh
+```
+
+배포 뒤 `/healthz`의 `agent: maf-1.20.0`을 확인하고 `/api/agent` 실제 턴을 검증하세요.
+건강 응답만으로 모델·도구 실행 성공을 판단하지 않습니다.
 
 ## 문제 해결
 
