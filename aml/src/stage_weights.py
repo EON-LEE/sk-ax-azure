@@ -39,8 +39,9 @@ def _download(repo, revision, out, workers):
     snapshot_download(repo, revision=revision, local_dir=out, allow_patterns=PATTERNS, max_workers=workers)
 
 
-def download_with_watchdog(repo, revision, out, workers, stall_seconds, attempts):
+def download_with_watchdog(repo, revision, out, workers, stall_seconds, attempts, expected_bytes=0):
     cache = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+    of = f" of {expected_bytes / 1e9:.1f} GB" if expected_bytes else ""
     for attempt in range(1, attempts + 1):
         child = multiprocessing.get_context("spawn").Process(target=_download,
                                                              args=(repo, revision, str(out), workers))
@@ -53,7 +54,7 @@ def download_with_watchdog(repo, revision, out, workers, stall_seconds, attempts
             if size != last_size:
                 last_size, last_change = size, now
             if now - last_print > 60:
-                print(f"[download] attempt {attempt}: {size / 1e9:.1f} GB on disk", flush=True)
+                print(f"[download] attempt {attempt}: {size / 1e9:.1f} GB on disk{of}", flush=True)
                 last_print = now
             if child.is_alive() and now - last_change > stall_seconds:
                 print(f"[download] no progress for {stall_seconds}s at {size / 1e9:.1f} GB; restarting", flush=True)
@@ -87,7 +88,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     began = time.time()
     attempts = download_with_watchdog(args.repo, args.revision, out, args.workers, args.stall_seconds,
-                                      args.attempts)
+                                      args.attempts, sum(size or 0 for size in expected.values()))
     seconds = time.time() - began
     shutil.rmtree(out / ".cache", ignore_errors=True)
     present = {p.name: p.stat().st_size for p in out.iterdir() if p.is_file()}

@@ -13,6 +13,8 @@
 #   dense  = indexer keys removed; identical to DSA while the context fits in index_topk tokens
 # FULL_REPO (default skt/A.X-K2) selects the Hub repo of hf:<revision>; skt/A.X-K2-NVFP4 together
 # with NVFP4_SM80_PORT=1 serves the official NVFP4 checkpoint (PHASE_PLAN nvfp4-tp8*).
+# PHASE_PLAN=demo (aml/jobs/demo-fp8-nd96.yml) serves the public demo until the job is cancelled;
+# node 0 then also runs backend_link.py, the outbound link to the demo frontend (demo/).
 # Every phase fails softly: the failure is reported and the following phases still run.
 set -uo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,6 +43,34 @@ report() {
   if [ -n "${REPORTER_PID:-}" ]; then wait "$REPORTER_PID" 2>/dev/null; REPORTER_PID=""; fi
   PYTHONPATH="$PKGS" python3 "$SRC/report.py" "$@" || true
 }
+
+# Demo jobs (AXK2_LINK_URL set): node 0 keeps an outbound WebSocket to the demo frontend
+# (backend_link.py relays its requests to the local vLLM server, runs evals.py on request and
+# reports the start-up phase that status() records). Both are no-ops in every other job.
+STATUS=/tmp/axk2-status.json
+LINK_PID=""
+status() {  # <phase> [note]
+  [ "$RANK" = 0 ] && [ -n "${AXK2_LINK_URL:-}" ] || return 0
+  python3 -c "import json, sys, time; json.dump({'phase': sys.argv[1], 'since': int(time.time()), 'note': sys.argv[2]}, open(sys.argv[3], 'w'))" \
+    "$1" "${2:-}" "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"
+}
+die() {  # <exit code> <note>: records why the job ends, lets the link send it, exits
+  status failed "$2"
+  [ -n "$LINK_PID" ] && sleep 6
+  exit "$1"
+}
+if [ "$RANK" = 0 ] && [ -n "${AXK2_LINK_URL:-}" ]; then
+  status boot
+  export AXK2_REPORT_PKGS="$PKGS" AXK2_EVAL_PKGS=/tmp/axk2-eval-pkgs
+  python3 "$SRC/backend_link.py" --out "$OUT" --status "$STATUS" > "$OUT/link.log" 2>&1 &
+  LINK_PID=$!
+  (
+    pkgs=$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import evals; print(' '.join(evals.EVAL_PACKAGES))" "$SRC") &&
+      { python3 -m pip install -q --no-cache-dir --target "$AXK2_EVAL_PKGS" $pkgs > "$OUT/eval-pkgs-install.log" 2>&1 ||
+        uv pip install -q --target "$AXK2_EVAL_PKGS" $pkgs >> "$OUT/eval-pkgs-install.log" 2>&1; } &&
+      touch /tmp/axk2-evalpkgs.ready || touch /tmp/axk2-evalpkgs.failed
+  ) &
+fi
 
 read -r IFACE NODE_IP HEAD_IP < <(python3 - <<'EOF'
 import fcntl, os, socket, struct
@@ -85,10 +115,11 @@ EOF
 cat "$OUT/env.json"
 report "node$RANK.env" --file "$OUT/env.json"
 
+status overlay
 if ! python3 "$SRC/apply_overlay.py" --report "$OUT/overlay.json" --tests-dir "$TESTS_DIR" > "$OUT/overlay.log" 2>&1; then
   tail -n 40 "$OUT/overlay.log"
   report "node$RANK.overlay_failure" --text "$(tail -c 3500 "$OUT/overlay.log")"
-  exit 10
+  die 10 "the vLLM overlay failed"
 fi
 report "node$RANK.overlay" --file "$OUT/overlay.json"
 
@@ -123,6 +154,7 @@ FULL_NATIVE=""; FULL_DENSE=/tmp/axk2-full-dense
 IB_MODE=tcp
 if [ "${IB_PROBE:-0}" = "1" ] && [ "$NNODES" -gt 1 ]; then
   began=$(date +%s)
+  status ib_probe
   if ! python3 -c "import ctypes; ctypes.CDLL('libibverbs.so.1')" 2>/dev/null; then
     (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
        libibverbs1 ibverbs-providers librdmacm1 ibverbs-utils) > "$OUT/rdma-install.log" 2>&1 \
@@ -186,6 +218,7 @@ EOF
 fi
 
 if [ "$FULL_IN" != "none" ]; then
+  ln -sf "$OUT/full-download.log" /tmp/axk2-full-download.log  # read by the download wait on node 0
   (
     began=$(date +%s)
     dir=$(fetch_model "$FULL_IN" "$PWD/hub-model") &&
@@ -194,6 +227,7 @@ if [ "$FULL_IN" != "none" ]; then
       touch /tmp/axk2-full.failed
   ) &
   log "full checkpoint download started in the background"
+  status download
   (
     while [ ! -f /tmp/axk2-full.ready ] && [ ! -f /tmp/axk2-full.failed ]; do
       sleep 120
@@ -221,7 +255,7 @@ if [ -n "$SMOKE_NATIVE" ]; then
   report "node$RANK.smoke_download" --text "{\"seconds\": $(( $(date +%s) - began ))}"
 fi
 wait "$RAY_INSTALL_PID"
-RAY_VERSION=$(python3 -c "import ray; print(ray.__version__)" 2>/dev/null) || { tail -n 20 "$OUT/ray-install.log"; exit 29; }
+RAY_VERSION=$(python3 -c "import ray; print(ray.__version__)" 2>/dev/null) || { tail -n 20 "$OUT/ray-install.log"; die 29 "Ray failed to install"; }
 log "ray $RAY_VERSION installed"
 report "node$RANK.ray_install" --text "{\"ray\": \"$RAY_VERSION\"}"
 
@@ -340,6 +374,7 @@ serve() {
   stop_server
   cp "$OUT/vllm-$tag.log" "$OUT/vllm-$tag-compiled.log"
   log "[$tag] retrying with --enforce-eager"
+  status loading "retrying with --enforce-eager"
   start_server "$tag" "--enforce-eager" "$@"
   if wait_healthy "$tag" "$limit"; then
     report "node0.$tag.eager_fallback" --text "{\"eager\": true}"
@@ -479,6 +514,62 @@ plan_phase() {
   unset VLLM_BATCH_INVARIANT
 }
 
+ray_gpus() {  # GPUs of the live Ray nodes
+  python3 -c "import ray; ray.init(address='auto', logging_level='ERROR'); print(int(sum(n['Resources'].get('GPU', 0) for n in ray.nodes() if n['Alive'])))" \
+    2>/dev/null | tail -n 1
+}
+
+# demo_phase: the public demo (PHASE_PLAN=demo). The full FP8 model with native DSA on the Ray
+# cluster (TP x PP over both nodes), the model card's parsers and the B200 default of 8192 batched
+# tokens, until the job is cancelled. Chat requests carry priority 0 and evals.py priority 10, so
+# with --scheduling-policy priority the chat stays responsive while an eval runs. A server that
+# exits or stops answering /health for 3 minutes is restarted, at most DEMO_RESTARTS times and only
+# while every node is still in the Ray cluster; otherwise the job fails and the frontend resubmits.
+demo_phase() {
+  local began restarts=0 misses
+  local -a args=(--tool-call-parser hermes --enable-auto-tool-choice --max-num-batched-tokens 8192
+                 --scheduling-policy priority --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP"
+                 --distributed-executor-backend ray)
+  while true; do
+    began=$(date +%s)
+    if [ "$restarts" -gt 0 ] && [ "$(ray_gpus)" -lt $((TP * PP)) ]; then
+      phase_result demo failed "$began" "a node left the Ray cluster"
+      status failed "a node left the Ray cluster"; return 1
+    fi
+    status loading
+    if serve demo "$FULL_HEALTH_TIMEOUT" "$FULL_NATIVE" "$FULL_MAX_MODEL_LEN" "$FULL_MAX_NUM_SEQS" \
+         "$FULL_GPU_MEM_UTIL" "${args[@]}"; then
+      status ready
+      report "node0.demo.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-demo.seconds"), \"nccl_ib\": \"$IB_MODE\", \"restarts\": $restarts}"
+      if [ "$restarts" = 0 ]; then
+        report "node0.demo.facts" --text "$(server_facts demo | tail -c 7600)"
+        report "node0.demo.engine_config" --text "$(engine_config demo)"
+        report "node0.demo.nccl" --text "$(nccl_transport demo)"
+      fi
+      misses=0
+      while kill -0 "$SERVER_PID" 2>/dev/null && [ "$misses" -lt 18 ]; do
+        sleep 10
+        if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10)" 2>/dev/null; then
+          misses=0
+        else
+          misses=$((misses + 1))
+        fi
+      done
+      phase_result demo failed "$began" "stopped serving after $(( $(date +%s) - began ))s"
+      report "node0.demo.failure" --text "$(failure_tail demo)"
+      stop_server
+    else
+      phase_result demo failed "$began" "server never became healthy"
+    fi
+    restarts=$((restarts + 1))
+    if [ "$restarts" -gt "${DEMO_RESTARTS:-2}" ]; then
+      status failed "the server failed $restarts times"; return 1
+    fi
+    cp "$OUT/vllm-demo.log" "$OUT/vllm-demo-$restarts.log" 2>/dev/null
+    status restarting "restart $restarts of ${DEMO_RESTARTS:-2}"
+  done
+}
+
 if [ "$RUN_KERNEL_TESTS" = "1" ]; then
   began=$(date +%s)
   if timeout 1200 python3 -m pytest -q -p no:cacheprovider --tb=short \
@@ -498,9 +589,10 @@ if [ -n "$SMOKE_NATIVE" ]; then
   done
 fi
 
+status ray "waiting for every node to join"
 ray start --head --node-ip-address="$NODE_IP" --port=6379 --num-gpus="$NGPU" --include-dashboard=false \
-  --disable-usage-stats > "$OUT/ray-head.log" 2>&1 || { cat "$OUT/ray-head.log"; exit 30; }
-python3 - "$NNODES" "$((TP * PP))" "$JOIN_TIMEOUT" > "$OUT/ray-nodes.json" <<'EOF' || { log "Ray cluster incomplete"; ray stop --force; exit 33; }
+  --disable-usage-stats > "$OUT/ray-head.log" 2>&1 || { cat "$OUT/ray-head.log"; die 30 "the Ray head failed to start"; }
+python3 - "$NNODES" "$((TP * PP))" "$JOIN_TIMEOUT" > "$OUT/ray-nodes.json" <<'EOF' || { log "Ray cluster incomplete"; ray stop --force; die 33 "a node never joined the Ray cluster"; }
 import json, sys, time
 import ray
 nodes_needed, gpus_needed, timeout = map(int, sys.argv[1:4])
@@ -529,17 +621,32 @@ fi
 if [ "$FULL_IN" != "none" ]; then
   began=$(date +%s)
   log "waiting for the full checkpoint on every node"
-  if python3 - "${DOWNLOAD_TIMEOUT:-5400}" > "$OUT/full-download-status.json" <<'EOF'
-import json, sys, time
+  status download "waiting for every node"
+  # demo jobs: every node's download progress goes to the frontend through the status file
+  if python3 - "${DOWNLOAD_TIMEOUT:-5400}" "${LINK_PID:+$STATUS}" > "$OUT/full-download-status.json" <<'EOF'
+import json, os, sys, time
 import ray
 ray.init(address="auto", logging_level="ERROR")
 
 @ray.remote(num_cpus=0)
 def probe():
-    import os, socket
+    import os, re, socket
     ready = open("/tmp/axk2-full.ready").read().strip() if os.path.exists("/tmp/axk2-full.ready") else None
-    return {"host": socket.gethostname(), "seconds": ready, "failed": os.path.exists("/tmp/axk2-full.failed")}
+    state = {"host": socket.gethostname(), "seconds": ready, "failed": os.path.exists("/tmp/axk2-full.failed"),
+             "download_gb": None, "download_of_gb": None}
+    try:
+        with open("/tmp/axk2-full-download.log", "rb") as handle:
+            handle.seek(max(0, os.fstat(handle.fileno()).st_size - 8192))
+            found = re.findall(r"\[download\] attempt \d+: ([\d.]+) GB on disk(?: of ([\d.]+) GB)?",
+                               handle.read().decode(errors="replace"))
+        if found:
+            state["download_gb"] = float(found[-1][0])
+            state["download_of_gb"] = float(found[-1][1]) if found[-1][1] else None
+    except OSError:
+        pass
+    return state
 
+status, since = sys.argv[2], int(time.time())
 deadline = time.time() + int(sys.argv[1])
 while True:
     ips = [n["NodeManagerAddress"] for n in ray.nodes() if n["Alive"]]
@@ -548,6 +655,10 @@ while True:
         print(json.dumps(states)); sys.exit(1)
     if all(s["seconds"] for s in states):
         print(json.dumps(states)); break
+    if status:
+        with open(status + ".tmp", "w") as handle:
+            json.dump({"phase": "download", "since": since, "note": "waiting for every node", "nodes": states}, handle)
+        os.replace(status + ".tmp", status)
     time.sleep(20)
 EOF
   then
@@ -556,7 +667,7 @@ EOF
     FULL_NATIVE=$(cat /tmp/axk2-full.dir)
     if [ -n "${PHASE_PLAN:-}" ]; then
       for name in $PHASE_PLAN; do
-        plan_phase "$name"
+        if [ "$name" = demo ]; then demo_phase; else plan_phase "$name"; fi
         report "node0.phases" --text "$(python3 -c "import json; print(json.dumps([json.loads(l) for l in open('$PHASES')]))")"
       done
     else
@@ -568,6 +679,7 @@ EOF
   else
     report "node0.full_download_failure" --text "$(cat "$OUT/full-download-status.json" 2>/dev/null; tail -c 3000 "$OUT/full-download.log")"
     phase_result full_download failed "$began"
+    status failed "the checkpoint download failed"
   fi
 fi
 
@@ -577,4 +689,6 @@ report "node0.gpu" --text "$(gpu_peak)"
 report "node0.phases" --text "$(python3 -c "import json, sys; print(json.dumps([json.loads(l) for l in open('$PHASES')]))")"
 failed=$(grep -c '"status": "failed"' "$PHASES")
 log "finished; failed phases: $failed"
+# The demo serves until the job is cancelled: getting here means it could not keep serving.
+[ "${PHASE_PLAN:-}" = demo ] && { sleep 6; exit 40; }
 exit 0

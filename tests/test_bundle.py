@@ -108,9 +108,41 @@ class BundleTests(unittest.TestCase):
             entry = tar.extractfile("entry.sh").read()
         self.assertTrue({"entry.sh", "apply_overlay.py", "overlay_manifest.json", "dsa_port.json",
                          "nvfp4_sm80_port.json", "stage_weights.py", "client_tests.py",
-                         "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py"} <= names)
+                         "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py", "evals.py",
+                         "backend_link.py"} <= names)
         self.assertNotIn(b"\r\n", entry)
         self.assertLess(len(render_job.payload()), 100_000, "payload travels in one environment variable")
+
+    def test_demo_job(self):
+        import re
+        sys.path.insert(0, str(ROOT / "aml"))
+        try:
+            import render_job
+        finally:
+            sys.path.pop(0)
+        job = (ROOT / "aml" / "jobs" / "demo-fp8-nd96.yml").read_text(encoding="utf-8")
+        for needle in ('PHASE_PLAN: "demo"', "  type: managed", 'AXK2_LINK_URL: "__AXK2_LINK_URL__"',
+                       'AXK2_LINK_TOKEN: "__AXK2_LINK_TOKEN__"', 'IB_PROBE: "1"', "instance_count: 2",
+                       "  timeout: 604800", 'TP: "8"', 'PP: "2"', 'FULL_MAX_MODEL_LEN: "262144"',
+                       "compute: azureml:a100-nd96-lp", "hf:2287ca456927eed33b899c404c0b2ffaf17aa09f"):
+            self.assertIn(needle, job)
+        self.assertNotIn("EAGLE3_SOURCE", job)
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        for needle in ("demo_phase() {", "--scheduling-policy priority", '[ "$name" = demo ]',
+                       '"$SRC/backend_link.py"', "exit 40"):
+            self.assertIn(needle, entry)
+        values = {"AXK2_LINK_URL": "wss://demo.example.net/ws/link", "AXK2_LINK_TOKEN": "Ab-9_x~Yz"}
+        rendered = render_job.render(job, "cGF5bG9hZA==", values)
+        self.assertIn('AXK2_LINK_URL: "wss://demo.example.net/ws/link"', rendered)
+        self.assertIn('AXK2_LINK_TOKEN: "Ab-9_x~Yz"', rendered)
+        self.assertIsNone(re.search(r"__AXK2_[A-Z0-9_]+__", rendered))
+        with self.assertRaisesRegex(ValueError, "AXK2_LINK_TOKEN"):
+            render_job.render(job, "cGF5bG9hZA==", {"AXK2_LINK_URL": values["AXK2_LINK_URL"]})
+        for bad in ('wss://x/"y', "${{secrets.x}}", "a b"):
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                render_job.render(job, "cGF5bG9hZA==", dict(values, AXK2_LINK_TOKEN=bad))
+        verify = (ROOT / "aml" / "jobs" / "verify-remaining-nd96-hub.yml").read_text(encoding="utf-8")
+        self.assertIn('AXK2_SRC_B64: "cGF5bG9hZA=="', render_job.render(verify, "cGF5bG9hZA=="))
 
     def test_verification_plan(self):
         import re
