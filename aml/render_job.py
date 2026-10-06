@@ -3,7 +3,10 @@
 The subscription's storage policy disables public network access on every storage account, so
 `az ml job create` cannot upload a local `code:` snapshot from outside the workspace's managed VNet.
 The helper scripts are small, so they travel inside the job definition instead (base64 tar.gz) and
-are unpacked on each node before anything runs.
+are unpacked on each node before anything runs. Container start-up drops an environment variable
+longer than 64 KiB (jobs with a ~90K-character AXK2_SRC_B64 failed before their first command ran),
+so the payload is split across AXK2_SRC_B64, AXK2_SRC_B64_1, ... and `printenv` reassembles it
+(GNU base64 -d skips the newlines between the parts).
 
 usage: python aml/render_job.py aml/jobs/<template>.yml [more templates...]
 writes: aml/jobs/.rendered/<template>.yml
@@ -20,6 +23,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PLACEHOLDER = "__AXK2_SRC_B64__"
+PART = 48_000  # characters per environment variable, well under the 64 KiB start-up limit
+ENV_LINE = re.compile(r'^(?P<indent>[ \t]*)AXK2_SRC_B64: "__AXK2_SRC_B64__"[ \t]*$', re.M)
+PRINTENV = "printenv AXK2_SRC_B64 |"
 LINK = ("AXK2_LINK_URL", "AXK2_LINK_TOKEN")
 SAFE = re.compile(r"[A-Za-z0-9._~:/?=&%+-]+")  # URL/token characters; no quotes, $ or braces (AML expressions)
 
@@ -40,9 +46,12 @@ def payload():
 
 def render(text, encoded, values=None):
     """Fills the payload placeholder and __NAME__ for every NAME in values; refuses to leave any behind."""
-    if PLACEHOLDER not in text:
-        raise ValueError(f"the template has no {PLACEHOLDER}")
-    text = text.replace(PLACEHOLDER, encoded)
+    if len(ENV_LINE.findall(text)) != 1 or PRINTENV not in text:
+        raise ValueError(f'the template needs one AXK2_SRC_B64: "{PLACEHOLDER}" line and "{PRINTENV}"')
+    parts = [encoded[i:i + PART] for i in range(0, len(encoded), PART)] or [""]
+    names = ["AXK2_SRC_B64"] + [f"AXK2_SRC_B64_{i}" for i in range(1, len(parts))]
+    text = ENV_LINE.sub(lambda m: "\n".join(f'{m["indent"]}{n}: "{p}"' for n, p in zip(names, parts)), text)
+    text = text.replace(PRINTENV, f"printenv {' '.join(names)} |")
     for name, value in (values or {}).items():
         if not SAFE.fullmatch(value):
             raise ValueError(f"{name} has characters a job template cannot carry")
