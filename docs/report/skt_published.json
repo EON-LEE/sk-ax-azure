@@ -1,0 +1,301 @@
+{
+  "series": {
+    "b200_fp8_k1_fig7": {
+      "source": "A.X K2 tech report Fig. 7 bar labels (image: fig7-k1-vs-k2-b200.png)",
+      "hardware": "B200",
+      "gpu_count": 8,
+      "conditions": "vLLM bench serve random dataset, concurrency 32, 1,024 output tokens, FP8 weights, BF16 KV cache; one B200 node assumed from the matching A.X K2 Fig. 7 setup",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 2000,
+          "output_tok_s": 1007
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 3000,
+          "output_tok_s": 993
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 4300,
+          "output_tok_s": 858
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 6100,
+          "output_tok_s": 686
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 8300,
+          "output_tok_s": 485
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 10000,
+          "output_tok_s": 302
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 10400,
+          "output_tok_s": 160
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 9100,
+          "output_tok_s": 77
+        }
+      ]
+    },
+    "b200_fp8_k2_fig7_crosscheck": {
+      "source": "A.X K2 tech report Fig. 7 bar labels, cross-checked against aml/src/verify_suites.py DOC_FIG7",
+      "hardware": "B200",
+      "gpu_count": 8,
+      "conditions": "vLLM bench serve random dataset, concurrency 32, 1,024 output tokens, FP8 weights, BF16 KV cache; one B200 node (8 GPUs)",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 1900,
+          "output_tok_s": 965
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 2700,
+          "output_tok_s": 897
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 3600,
+          "output_tok_s": 724
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 4800,
+          "output_tok_s": 540
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 6300,
+          "output_tok_s": 367
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 8200,
+          "output_tok_s": 247
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 10600,
+          "output_tok_s": 165
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 12300,
+          "output_tok_s": 104
+        }
+      ]
+    },
+    "b200_nvfp4_k2_fig9": {
+      "source": "A.X K2 tech report Fig. 9 bar labels (image: fig9-nvfp4-b200.png)",
+      "hardware": "B200",
+      "gpu_count": 4,
+      "conditions": "vLLM bench serve random dataset, concurrency 32, 1,024 output tokens, A.X K2 NVFP4 PTQ, BF16 KV cache. Figure title/legend show conditions but not GPU count; GPU count follows SERVING_DESIGN.md section 8.4: SKT runs NVFP4 on 4 x B200, TP4 + expert parallel.",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 2300,
+          "output_tok_s": 1144
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 3300,
+          "output_tok_s": 1110
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 4800,
+          "output_tok_s": 971
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 6900,
+          "output_tok_s": 774
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 9900,
+          "output_tok_s": 579
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 13700,
+          "output_tok_s": 417
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 17500,
+          "output_tok_s": 272
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 20300,
+          "output_tok_s": 172
+        }
+      ],
+      "notes": "The 1K output_tok_s label (1144) is hidden behind the legend in the image; the value is read from the marker position against the y axis. Every other value is a printed label."
+    }
+  },
+  "benchmarks": {
+    "source": "huggingface.co/skt/A.X-K2 model card, Evaluation Results, Thinking Mode table (A.X K2 688B-A33B column)",
+    "mode": "thinking",
+    "units": "percent, except GDPval (Elo); * = evaluated by Artificial Analysis",
+    "reasons": {
+      "scope": "outside this verification's scope (AIME26, KoBALT, CLIcK, IFBench and NIAH were chosen)",
+      "gated": "the dataset is gated (access approval needed), so it was excluded",
+      "external": "scored by Artificial Analysis with its own harness; not reproducible here",
+      "sandbox": "needs a code-execution or web-search environment that the demo cluster does not provide",
+      "unpublished": "the problem set is not published as a dataset"
+    },
+    "rows": [
+      {
+        "domain": "Math",
+        "benchmark": "AIME26",
+        "skt": 97.1,
+        "suite": "aime",
+        "not_run": null
+      },
+      {
+        "domain": "Math",
+        "benchmark": "Apex",
+        "skt": 45.8,
+        "suite": null,
+        "not_run": "scope"
+      },
+      {
+        "domain": "Math",
+        "benchmark": "Apex-shortlist",
+        "skt": 88.6,
+        "suite": null,
+        "not_run": "scope"
+      },
+      {
+        "domain": "Math",
+        "benchmark": "KMO26 (1st round)",
+        "skt": 92.5,
+        "suite": null,
+        "not_run": "unpublished"
+      },
+      {
+        "domain": "Korean",
+        "benchmark": "KMMLU-Pro",
+        "skt": 80.5,
+        "suite": null,
+        "not_run": "gated"
+      },
+      {
+        "domain": "Korean",
+        "benchmark": "KoBALT",
+        "skt": 73.0,
+        "suite": "kobalt",
+        "not_run": null
+      },
+      {
+        "domain": "Korean",
+        "benchmark": "CLIcK",
+        "skt": 91.6,
+        "suite": "click",
+        "not_run": null
+      },
+      {
+        "domain": "Code",
+        "benchmark": "LiveCodeBench v6 (Feb-May)",
+        "skt": 84.0,
+        "suite": null,
+        "not_run": "sandbox"
+      },
+      {
+        "domain": "Code",
+        "benchmark": "SciCode",
+        "skt": 41.0,
+        "suite": null,
+        "not_run": "sandbox"
+      },
+      {
+        "domain": "Code",
+        "benchmark": "Terminal Bench v2.1*",
+        "skt": 36.0,
+        "suite": null,
+        "not_run": "external"
+      },
+      {
+        "domain": "Science & Knowledge",
+        "benchmark": "Humanity's Last Exam",
+        "skt": 27.8,
+        "suite": null,
+        "not_run": "gated"
+      },
+      {
+        "domain": "Science & Knowledge",
+        "benchmark": "GPQA Diamond",
+        "skt": 85.6,
+        "suite": null,
+        "not_run": "gated"
+      },
+      {
+        "domain": "Science & Knowledge",
+        "benchmark": "AA-Omniscience*",
+        "skt": 39.6,
+        "suite": null,
+        "not_run": "external"
+      },
+      {
+        "domain": "General",
+        "benchmark": "IFBench",
+        "skt": 75.9,
+        "suite": "ifbench",
+        "not_run": null
+      },
+      {
+        "domain": "General",
+        "benchmark": "AA-LCR",
+        "skt": 66.0,
+        "suite": null,
+        "not_run": "scope"
+      },
+      {
+        "domain": "Agentic",
+        "benchmark": "GDPval* (Elo)",
+        "skt": 1031,
+        "suite": null,
+        "not_run": "external"
+      },
+      {
+        "domain": "Agentic",
+        "benchmark": "tau2-Bench* (Telecom)",
+        "skt": 98.0,
+        "suite": null,
+        "not_run": "external"
+      },
+      {
+        "domain": "Agentic",
+        "benchmark": "tau3-Bench* (Banking)",
+        "skt": 13.0,
+        "suite": null,
+        "not_run": "external"
+      },
+      {
+        "domain": "Agentic",
+        "benchmark": "BrowseComp (<=10 searches)",
+        "skt": 9.3,
+        "suite": null,
+        "not_run": "sandbox"
+      }
+    ],
+    "niah": {
+      "suite": "niah",
+      "skt": 100.0,
+      "note": "SKT: perfect retrieval at every length and depth at 256K (YaRN factor 2) and 512K (factor 4), NVFP4 experts-only W4A4. Ours: FP8 checkpoint, 8K-256K."
+    }
+  }
+}

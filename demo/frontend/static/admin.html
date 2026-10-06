@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>A.X K2 데모 관리</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/common.js" defer></script>
+<script src="/static/admin.js" defer></script>
+</head>
+<body>
+<div id="login" class="overlay hidden">
+  <form id="login-form" class="card login">
+    <h1>관리자 로그인</h1>
+    <label for="login-password">관리자 비밀번호</label>
+    <input id="login-password" type="password" autocomplete="current-password" maxlength="256" required>
+    <button type="submit" class="primary">로그인</button>
+    <p id="login-error" class="error" role="alert"></p>
+  </form>
+</div>
+
+<header class="topbar">
+  <div class="brand">A.X K2 데모 <span class="muted">관리</span></div>
+  <div class="tabs"><a href="/">데모 페이지로</a></div>
+  <div class="right">
+    <span id="power" class="badge off">확인 중</span>
+    <button type="button" id="logout" class="ghost">로그아웃</button>
+  </div>
+</header>
+
+<main>
+  <p id="message" class="banner hidden" role="status"></p>
+  <div class="grid two">
+    <div class="card">
+      <h3>GPU 클러스터</h3>
+      <dl id="summary" class="kv"></dl>
+      <div class="actions">
+        <button type="button" id="power-on" class="primary">켜기</button>
+        <button type="button" id="power-off" class="danger">끄기</button>
+        <button type="button" id="restart" class="ghost">작업 재제출</button>
+      </div>
+      <p class="muted small">켜면 설정된 리전마다 작업을 제출하고, 먼저 노드를 모두 확보한 리전 하나만 남깁니다. 끄면 모든 작업을 취소합니다. 꺼질 때까지 노드 시간 요금이 나갑니다.</p>
+    </div>
+    <div class="card">
+      <h3>비용 (이 웹앱이 센 노드 시간)</h3>
+      <dl id="cost" class="kv"></dl>
+      <p class="muted small">노드가 할당된 시간에 설정된 노드시간 단가를 곱한 추정치입니다. 실제 청구액은 Azure Cost Management에서 확인하세요.</p>
+    </div>
+  </div>
+  <div class="card">
+    <h3>작업</h3>
+    <div class="scroll"><table id="jobs" class="table"></table></div>
+    <h3>리전별 노드</h3>
+    <div class="scroll"><table id="nodes" class="table"></table></div>
+  </div>
+  <div class="card">
+    <h3>정확도 평가</h3>
+    <form id="eval-form" class="form">
+      <span>스위트</span>
+      <div id="suites" class="row"></div>
+      <label for="eval-repeats">반복</label>
+      <input id="eval-repeats" type="text" maxlength="80" placeholder="기본값 (예: aime=4)">
+      <label for="eval-limit">스위트당 문항 수 제한</label>
+      <input id="eval-limit" type="number" min="0" max="100000" placeholder="0 = 전체">
+      <label for="eval-run">실행 이름</label>
+      <input id="eval-run" type="text" maxlength="64" placeholder="비우면 자동 (같은 이름이면 이어서 실행)">
+      <span></span>
+      <div class="actions">
+        <button type="submit" class="primary">평가 시작</button>
+        <button type="button" id="eval-stop" class="danger">평가 중지</button>
+      </div>
+    </form>
+    <dl id="eval-state" class="kv"></dl>
+    <div class="scroll"><table id="eval-runs" class="table"></table></div>
+  </div>
+  <div class="grid two">
+    <div class="card">
+      <h3>비밀번호 교체</h3>
+      <div class="actions">
+        <button type="button" data-rotate="demo" class="ghost">데모 비밀번호 새로 만들기</button>
+        <button type="button" data-rotate="admin" class="ghost">관리자 비밀번호 새로 만들기</button>
+      </div>
+      <dl id="passwords" class="kv"></dl>
+      <p id="new-password" class="hidden"></p>
+      <p class="muted small">새 비밀번호는 한 번만 표시됩니다. 교체하면 기존 비밀번호로 로그인한 사람은 모두 로그아웃됩니다.</p>
+    </div>
+    <div class="card">
+      <h3>설정</h3>
+      <dl id="config" class="kv"></dl>
+    </div>
+  </div>
+  <div class="card">
+    <h3>이벤트</h3>
+    <div class="scroll events"><table id="events" class="table"></table></div>
+  </div>
+</main>
+</body>
+</html>

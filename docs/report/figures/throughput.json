@@ -1,0 +1,707 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "verify_suites": "aml/src/verify_suites.py",
+    "a100_fp8": "evidence/a100-verification-and-doc-speed.json",
+    "a100_nvfp4": "evidence/a100-nvfp4-single-node.json",
+    "skt_published": "docs/report/skt_published.json"
+  },
+  "series": {
+    "b200_fp8_k2": {
+      "name": "b200_fp8_k2",
+      "label": "B200 A.X K2 FP8 (8 GPU)",
+      "hardware": "B200",
+      "gpu_count": 8,
+      "source": "aml/src/verify_suites.py DOC_FIG7, SKT tech report Fig. 7",
+      "conditions": "random dataset, concurrency 32, 1,024 output tokens, FP8 weights, BF16 KV cache",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 1900.0,
+          "output_tok_s": 965.0
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 2700.0,
+          "output_tok_s": 897.0
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 3600.0,
+          "output_tok_s": 724.0
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 4800.0,
+          "output_tok_s": 540.0
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 6300.0,
+          "output_tok_s": 367.0
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 8200.0,
+          "output_tok_s": 247.0
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 10600.0,
+          "output_tok_s": 165.0
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 12300.0,
+          "output_tok_s": 104.0
+        }
+      ]
+    },
+    "b200_fp8_k2_eagle3_total": {
+      "name": "b200_fp8_k2_eagle3_total",
+      "label": "B200 A.X K2 FP8 + EAGLE3 (Fig. 8 total)",
+      "hardware": "B200",
+      "gpu_count": 8,
+      "source": "aml/src/verify_suites.py DOC_FIG8_TOTAL, SKT tech report Fig. 8",
+      "conditions": "same serving benchmark family; total throughput only",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 2400.0
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 3100.0
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 4000.0
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 5900.0
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 8200.0
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 10400.0
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 13800.0
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 15100.0
+        }
+      ]
+    },
+    "b200_fp8_k1_fig7": {
+      "name": "b200_fp8_k1_fig7",
+      "label": "b200 fp8 k1 fig7",
+      "hardware": "B200",
+      "gpu_count": 8,
+      "source": "A.X K2 tech report Fig. 7 bar labels (image: fig7-k1-vs-k2-b200.png)",
+      "conditions": "vLLM bench serve random dataset, concurrency 32, 1,024 output tokens, FP8 weights, BF16 KV cache; one B200 node assumed from the matching A.X K2 Fig. 7 setup",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 2000,
+          "output_tok_s": 1007
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 3000,
+          "output_tok_s": 993
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 4300,
+          "output_tok_s": 858
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 6100,
+          "output_tok_s": 686
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 8300,
+          "output_tok_s": 485
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 10000,
+          "output_tok_s": 302
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 10400,
+          "output_tok_s": 160
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 9100,
+          "output_tok_s": 77
+        }
+      ]
+    },
+    "b200_fp8_k2_fig7_crosscheck": {
+      "name": "b200_fp8_k2_fig7_crosscheck",
+      "label": "b200 fp8 k2 fig7 crosscheck",
+      "hardware": "B200",
+      "gpu_count": 8,
+      "source": "A.X K2 tech report Fig. 7 bar labels, cross-checked against aml/src/verify_suites.py DOC_FIG7",
+      "conditions": "vLLM bench serve random dataset, concurrency 32, 1,024 output tokens, FP8 weights, BF16 KV cache; one B200 node (8 GPUs)",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 1900,
+          "output_tok_s": 965
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 2700,
+          "output_tok_s": 897
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 3600,
+          "output_tok_s": 724
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 4800,
+          "output_tok_s": 540
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 6300,
+          "output_tok_s": 367
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 8200,
+          "output_tok_s": 247
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 10600,
+          "output_tok_s": 165
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 12300,
+          "output_tok_s": 104
+        }
+      ]
+    },
+    "b200_nvfp4_k2_fig9": {
+      "name": "b200_nvfp4_k2_fig9",
+      "label": "b200 nvfp4 k2 fig9",
+      "hardware": "B200",
+      "gpu_count": 4,
+      "source": "A.X K2 tech report Fig. 9 bar labels (image: fig9-nvfp4-b200.png)",
+      "conditions": "vLLM bench serve random dataset, concurrency 32, 1,024 output tokens, A.X K2 NVFP4 PTQ, BF16 KV cache. Figure title/legend show conditions but not GPU count; GPU count follows SERVING_DESIGN.md section 8.4: SKT runs NVFP4 on 4 x B200, TP4 + expert parallel.",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "total_tok_s": 2300,
+          "output_tok_s": 1144
+        },
+        {
+          "input_tokens": 2048,
+          "total_tok_s": 3300,
+          "output_tok_s": 1110
+        },
+        {
+          "input_tokens": 4096,
+          "total_tok_s": 4800,
+          "output_tok_s": 971
+        },
+        {
+          "input_tokens": 8192,
+          "total_tok_s": 6900,
+          "output_tok_s": 774
+        },
+        {
+          "input_tokens": 16384,
+          "total_tok_s": 9900,
+          "output_tok_s": 579
+        },
+        {
+          "input_tokens": 32768,
+          "total_tok_s": 13700,
+          "output_tok_s": 417
+        },
+        {
+          "input_tokens": 65536,
+          "total_tok_s": 17500,
+          "output_tok_s": 272
+        },
+        {
+          "input_tokens": 120000,
+          "total_tok_s": 20300,
+          "output_tok_s": 172
+        }
+      ]
+    },
+    "a100_fp8_native": {
+      "name": "a100_fp8_native",
+      "label": "A100x16 FP8 native DSA (demo)",
+      "hardware": "A100",
+      "gpu_count": 16,
+      "source": "evidence/a100-verification-and-doc-speed.json doc_speed_comparison.points[].native",
+      "conditions": "same client command and conditions; 16 x A100 80GB, TP8 x PP2 over Ray, native = DSA, dense = indexer removed",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "completed": 64,
+          "duration": 160.90479661699965,
+          "output_throughput": 407.2967455158891,
+          "total_token_throughput": 814.5934910317782,
+          "request_throughput": 0.39775072804286044,
+          "median_ttft_ms": 6217.772910999884,
+          "p99_ttft_ms": 8716.338282359666,
+          "median_tpot_ms": 72.29707565982419,
+          "p99_tpot_ms": 78.00181293741913,
+          "median_itl_ms": 70.17681249999441,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 23.0,
+          "peak_kv_cache_usage": 0.0973,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 2048,
+          "completed": 64,
+          "duration": 168.82064081000044,
+          "output_throughput": 388.1989766509513,
+          "total_token_throughput": 1164.596929952854,
+          "request_throughput": 0.3791005631356946,
+          "median_ttft_ms": 6551.894771500201,
+          "p99_ttft_ms": 9295.012142539954,
+          "median_tpot_ms": 76.1000483592376,
+          "p99_tpot_ms": 81.75667068447707,
+          "median_itl_ms": 73.55946949996905,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 23.0,
+          "peak_kv_cache_usage": 0.1459,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 4096,
+          "completed": 64,
+          "duration": 192.90466977200003,
+          "output_throughput": 339.7325740090119,
+          "total_token_throughput": 1698.6628700450594,
+          "request_throughput": 0.3317700918056757,
+          "median_ttft_ms": 9678.180142500196,
+          "p99_ttft_ms": 19735.9886860899,
+          "median_tpot_ms": 84.54878917546421,
+          "p99_tpot_ms": 93.1813781569501,
+          "median_itl_ms": 75.15190799995253,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 27.0,
+          "peak_kv_cache_usage": 0.2432,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 8192,
+          "completed": 64,
+          "duration": 243.296429,
+          "output_throughput": 269.36688002107917,
+          "total_token_throughput": 2424.3019201897123,
+          "request_throughput": 0.2630535937705851,
+          "median_ttft_ms": 10705.567325499942,
+          "p99_ttft_ms": 42700.64272781013,
+          "median_tpot_ms": 109.38454190273706,
+          "p99_tpot_ms": 116.88197110016623,
+          "median_itl_ms": 77.65522649992818,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 29.0,
+          "peak_kv_cache_usage": 0.4377,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 16384,
+          "completed": 64,
+          "duration": 489.709312381,
+          "output_throughput": 133.82632991265677,
+          "total_token_throughput": 2275.047608515165,
+          "request_throughput": 0.13068977530532888,
+          "median_ttft_ms": 50089.491080000014,
+          "p99_ttft_ms": 140221.58349190996,
+          "median_tpot_ms": 207.48763377614875,
+          "p99_tpot_ms": 243.40628044055723,
+          "median_itl_ms": 84.88903249985924,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 0.8268,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 32768,
+          "completed": 32,
+          "duration": 560.3554698399998,
+          "output_throughput": 58.477166305446,
+          "total_token_throughput": 1929.746488079718,
+          "request_throughput": 0.05710660772016211,
+          "median_ttft_ms": 225374.4414549999,
+          "p99_ttft_ms": 501206.9628522199,
+          "median_tpot_ms": 273.67579658504417,
+          "p99_tpot_ms": 316.33041628318676,
+          "median_itl_ms": 69.42239199997857,
+          "peak_running_requests": 20.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 0.9995,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 65536,
+          "completed": 32,
+          "duration": 1387.8823560290002,
+          "output_throughput": 23.610070304341633,
+          "total_token_throughput": 1534.6545697822062,
+          "request_throughput": 0.023056709281583626,
+          "median_ttft_ms": 664905.7015425,
+          "p99_ttft_ms": 1348221.9551379103,
+          "median_tpot_ms": 377.58949224975566,
+          "p99_tpot_ms": 386.6721997764027,
+          "median_itl_ms": 59.56111149998833,
+          "peak_running_requests": 10.0,
+          "peak_waiting_requests": 31.0,
+          "peak_kv_cache_usage": 0.9877,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 120000,
+          "completed": 32,
+          "duration": 3272.0641818330005,
+          "output_throughput": 10.014473487999696,
+          "total_token_throughput": 1183.5855853629641,
+          "request_throughput": 0.009779759265624704,
+          "median_ttft_ms": 1646440.1804055,
+          "p99_ttft_ms": 3213543.9121463303,
+          "median_tpot_ms": 405.7714336314758,
+          "p99_tpot_ms": 412.7710268428543,
+          "median_itl_ms": 47.47529799988115,
+          "peak_running_requests": 5.0,
+          "peak_waiting_requests": 31.0,
+          "peak_kv_cache_usage": 0.8981,
+          "returncode": 0
+        }
+      ]
+    },
+    "a100_fp8_dense": {
+      "name": "a100_fp8_dense",
+      "label": "A100x16 FP8 dense",
+      "hardware": "A100",
+      "gpu_count": 16,
+      "source": "evidence/a100-verification-and-doc-speed.json doc_speed_comparison.points[].dense",
+      "conditions": "same client command and conditions; 16 x A100 80GB, TP8 x PP2 over Ray, native = DSA, dense = indexer removed",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "completed": 64,
+          "duration": 133.67950113200095,
+          "output_throughput": 490.24719156669283,
+          "total_token_throughput": 980.4943831333857,
+          "request_throughput": 0.47875702301434847,
+          "median_ttft_ms": 3069.48237350025,
+          "p99_ttft_ms": 5824.823742419521,
+          "median_tpot_ms": 62.28685583235574,
+          "p99_tpot_ms": 63.917687927125975,
+          "median_itl_ms": 59.74768899977789,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 21.0,
+          "peak_kv_cache_usage": 0.0856,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 2048,
+          "completed": 64,
+          "duration": 134.89593031599907,
+          "output_throughput": 485.8263688643484,
+          "total_token_throughput": 1457.4791065930451,
+          "request_throughput": 0.47443981334409024,
+          "median_ttft_ms": 3125.5144859997017,
+          "p99_ttft_ms": 4491.291227200436,
+          "median_tpot_ms": 63.13979641251152,
+          "p99_tpot_ms": 65.13597947110384,
+          "median_itl_ms": 60.84433749947493,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 16.0,
+          "peak_kv_cache_usage": 0.1283,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 4096,
+          "completed": 64,
+          "duration": 148.80251373700048,
+          "output_throughput": 440.42266729331567,
+          "total_token_throughput": 2202.1133364665784,
+          "request_throughput": 0.4301002610286286,
+          "median_ttft_ms": 4347.108257500622,
+          "p99_ttft_ms": 9134.861305670001,
+          "median_tpot_ms": 68.41490019745788,
+          "p99_tpot_ms": 71.6590239822784,
+          "median_itl_ms": 63.28067100002954,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 17.0,
+          "peak_kv_cache_usage": 0.2132,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 8192,
+          "completed": 64,
+          "duration": 192.10591800399925,
+          "output_throughput": 341.14513847842875,
+          "total_token_throughput": 3070.3062463058586,
+          "request_throughput": 0.3331495492953406,
+          "median_ttft_ms": 5782.398297000327,
+          "p99_ttft_ms": 19149.34840796055,
+          "median_tpot_ms": 88.82829667350927,
+          "p99_tpot_ms": 92.1342179763728,
+          "median_itl_ms": 75.15475499985769,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 25.0,
+          "peak_kv_cache_usage": 0.3836,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 16384,
+          "completed": 64,
+          "duration": 306.35332846299934,
+          "output_throughput": 213.9229246465174,
+          "total_token_throughput": 3636.6897189907954,
+          "request_throughput": 0.20890910610011465,
+          "median_ttft_ms": 24711.51911600009,
+          "p99_ttft_ms": 46210.398667409514,
+          "median_tpot_ms": 126.96563704301123,
+          "p99_tpot_ms": 155.95498208372496,
+          "median_itl_ms": 90.26403550069517,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 27.0,
+          "peak_kv_cache_usage": 0.725,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 32768,
+          "completed": 32,
+          "duration": 324.62997546800034,
+          "output_throughput": 100.93953878646069,
+          "total_token_throughput": 3331.0047799532026,
+          "request_throughput": 0.09857376834615302,
+          "median_ttft_ms": 89675.56849650008,
+          "p99_ttft_ms": 265335.2864742906,
+          "median_tpot_ms": 174.72946076099726,
+          "p99_tpot_ms": 200.70352674974504,
+          "median_itl_ms": 94.48913149935834,
+          "peak_running_requests": 23.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 0.9994,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 65536,
+          "completed": 32,
+          "duration": 656.8881903559995,
+          "output_throughput": 49.883679568423105,
+          "total_token_throughput": 3242.4391719475016,
+          "request_throughput": 0.04871453082853819,
+          "median_ttft_ms": 294656.7845159998,
+          "p99_ttft_ms": 574633.5162709103,
+          "median_tpot_ms": 203.73001346774245,
+          "p99_tpot_ms": 206.70046672082145,
+          "median_itl_ms": 83.9655629988556,
+          "peak_running_requests": 11.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 0.9541,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 120000,
+          "completed": 32,
+          "duration": 1381.9282789339995,
+          "output_throughput": 23.71179496035553,
+          "total_token_throughput": 2802.437766877019,
+          "request_throughput": 0.023156049765972197,
+          "median_ttft_ms": 643814.7830380003,
+          "p99_ttft_ms": 1333560.718987619,
+          "median_tpot_ms": 220.37195407771307,
+          "p99_tpot_ms": 223.18335976638335,
+          "median_itl_ms": 77.48558100047376,
+          "peak_running_requests": 6.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 0.9476,
+          "returncode": 0
+        }
+      ]
+    },
+    "a100_nvfp4": {
+      "name": "a100_nvfp4",
+      "label": "A100x8 NVFP4",
+      "hardware": "A100",
+      "gpu_count": 8,
+      "source": "evidence/a100-nvfp4-single-node.json doc_fig7_conditions.points[].nvfp4_8_a100",
+      "conditions": "nvfp4-tp8: 8 x A100, NVFP4 checkpoint, 8192 batched tokens; inputs 1K-32K",
+      "points": [
+        {
+          "input_tokens": 1024,
+          "completed": 64,
+          "duration": 141.7,
+          "output_throughput": 462.5,
+          "total_token_throughput": 924.9,
+          "request_throughput": 0.5,
+          "median_ttft_ms": 5002.0,
+          "p99_ttft_ms": 8244.1,
+          "median_tpot_ms": 63.2,
+          "p99_tpot_ms": 69.3,
+          "median_itl_ms": 62.7,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 23.0,
+          "peak_kv_cache_usage": 0.3,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 2048,
+          "completed": 64,
+          "duration": 150.2,
+          "output_throughput": 436.3,
+          "total_token_throughput": 1308.9,
+          "request_throughput": 0.4,
+          "median_ttft_ms": 6537.8,
+          "p99_ttft_ms": 7952.6,
+          "median_tpot_ms": 67.6,
+          "p99_tpot_ms": 72.6,
+          "median_itl_ms": 65.4,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 23.0,
+          "peak_kv_cache_usage": 0.4,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 4096,
+          "completed": 64,
+          "duration": 194.7,
+          "output_throughput": 336.6,
+          "total_token_throughput": 1682.8,
+          "request_throughput": 0.3,
+          "median_ttft_ms": 14104.8,
+          "p99_ttft_ms": 25579.2,
+          "median_tpot_ms": 79.9,
+          "p99_tpot_ms": 100.1,
+          "median_itl_ms": 67.4,
+          "peak_running_requests": 32.0,
+          "peak_waiting_requests": 27.0,
+          "peak_kv_cache_usage": 0.6,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 8192,
+          "completed": 64,
+          "duration": 346.3,
+          "output_throughput": 189.2,
+          "total_token_throughput": 1703.1,
+          "request_throughput": 0.2,
+          "median_ttft_ms": 22978.5,
+          "p99_ttft_ms": 156789.5,
+          "median_tpot_ms": 132.6,
+          "p99_tpot_ms": 185.8,
+          "median_itl_ms": 69.4,
+          "peak_running_requests": 30.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 1.0,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 16384,
+          "completed": 64,
+          "duration": 594.3,
+          "output_throughput": 110.3,
+          "total_token_throughput": 1874.5,
+          "request_throughput": 0.1,
+          "median_ttft_ms": 162508.9,
+          "p99_ttft_ms": 278875.9,
+          "median_tpot_ms": 113.8,
+          "p99_tpot_ms": 145.7,
+          "median_itl_ms": 44.9,
+          "peak_running_requests": 15.0,
+          "peak_waiting_requests": 30.0,
+          "peak_kv_cache_usage": 1.0,
+          "returncode": 0
+        },
+        {
+          "input_tokens": 32768,
+          "completed": 32,
+          "duration": 645.9,
+          "output_throughput": 50.7,
+          "total_token_throughput": 1674.0,
+          "request_throughput": 0.0,
+          "median_ttft_ms": 317238.8,
+          "p99_ttft_ms": 611009.2,
+          "median_tpot_ms": 114.7,
+          "p99_tpot_ms": 121.9,
+          "median_itl_ms": 37.6,
+          "peak_running_requests": 7.0,
+          "peak_waiting_requests": 31.0,
+          "peak_kv_cache_usage": 0.9,
+          "returncode": 0
+        }
+      ]
+    }
+  },
+  "cost_per_million_output_tokens_usd": {
+    "prices_usd_per_node_hour": {
+      "on_demand": 40.96,
+      "reserved_1_year": 26.22,
+      "reserved_3_years": 18.02,
+      "spot": 12.89,
+      "low_priority": 8.19
+    },
+    "price_source": "Azure retail prices API, Standard_ND96amsr_A100_v4, uksouth, Linux",
+    "formula": "price per node-hour x nodes / (measured output tokens per second x 3600) x 1,000,000",
+    "concurrency_32_input_1k_output_1k": {
+      "nvfp4_1_node": {
+        "on_demand": 24.6,
+        "reserved_1_year": 15.75,
+        "reserved_3_years": 10.82,
+        "spot": 7.74,
+        "low_priority": 4.92
+      },
+      "fp8_2_nodes": {
+        "on_demand": 55.87,
+        "reserved_1_year": 35.76,
+        "reserved_3_years": 24.58,
+        "spot": 17.58,
+        "low_priority": 11.17
+      }
+    },
+    "concurrency_128_input_1k_output_256": {
+      "nvfp4_1_node_batched_8192": {
+        "on_demand": 16.9,
+        "reserved_1_year": 10.82,
+        "reserved_3_years": 7.43,
+        "spot": 5.32,
+        "low_priority": 3.38
+      },
+      "nvfp4_1_node_batched_2048": {
+        "on_demand": 17.38,
+        "reserved_1_year": 11.12,
+        "reserved_3_years": 7.64,
+        "spot": 5.47,
+        "low_priority": 3.47
+      },
+      "fp8_2_nodes_batched_2048": {
+        "on_demand": 28.01,
+        "reserved_1_year": 17.93,
+        "reserved_3_years": 12.32,
+        "spot": 8.82,
+        "low_priority": 5.6
+      }
+    }
+  }
+}
