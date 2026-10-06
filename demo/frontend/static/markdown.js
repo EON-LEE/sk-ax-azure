@@ -18,8 +18,48 @@
     "\\*(?=[^\\s*])([^\\n]*?[^\\s*])\\*(?!\\*)",      // 5: italic
     "\\[([^\\]\\n]{1,500})\\]\\((https?:\\/\\/[^\\s)]{1,2000})\\)",  // 6, 7: link
     "(https?:\\/\\/[A-Za-z0-9\\-._~:/?#@!$&*+,;=%]+)",  // 8: bare URL
+    "\\\\\\((.+?)\\\\\\)|\\\\\\[(.+?)\\\\\\]|\\$\\$(.+?)\\$\\$",  // 9, 10, 11: TeX math \( \), \[ \], $$ $$
   ].join("|"), "g");
   const WORD = /[\p{L}\p{N}]/u;
+  const MATH_OPEN = /^\s*(\\\[|\$\$)\s*(.*)$/;
+
+  // The model writes LaTeX math; without a TeX engine it is shown as readable Unicode instead of raw
+  // commands (whose backslashes Korean fonts draw as ₩).
+  const SYMBOLS = {
+    times: "×", div: "÷", cdot: "·", pm: "±", mp: "∓", le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", ne: "≠",
+    approx: "≈", equiv: "≡", sim: "∼", infty: "∞", to: "→", rightarrow: "→", leftarrow: "←", Rightarrow: "⇒",
+    implies: "⇒", iff: "⇔", Leftrightarrow: "⇔", sum: "∑", prod: "∏", int: "∫", partial: "∂", in: "∈",
+    notin: "∉", subset: "⊂", cup: "∪", cap: "∩", forall: "∀", exists: "∃", angle: "∠", circ: "∘",
+    degree: "°", cdots: "⋯", ldots: "…", dots: "…", therefore: "∴", because: "∵", lfloor: "⌊", rfloor: "⌋",
+    lceil: "⌈", rceil: "⌉", alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", theta: "θ",
+    lambda: "λ", mu: "μ", pi: "π", sigma: "σ", phi: "φ", omega: "ω", Delta: "Δ", Sigma: "Σ", Omega: "Ω",
+    quad: "  ", qquad: "    ", ",": " ", ";": " ", " ": " ", "{": "{", "}": "}", "%": "%", "$": "$",
+  };
+  const SUP = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", n: "ⁿ" };
+  const SUB = { 0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇", 8: "₈", 9: "₉", "+": "₊", "-": "₋" };
+
+  function script(body, table, mark) {
+    return [...body].every((c) => table[c]) ? [...body].map((c) => table[c]).join("") : `${mark}(${body})`;
+  }
+
+  function tex(source) {
+    let s = source;
+    const group = (a) => (/^[\w.]+$/.test(a) ? a : `(${a})`);
+    for (let k = 0; k < 8; k++) {
+      const before = s;
+      s = s.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, a, b) => `${group(a)}/${group(b)}`)
+        .replace(/\\sqrt\s*\{([^{}]*)\}/g, (_, a) => `√${group(a)}`)
+        .replace(/\\(?:text|mathrm|mathbf|mathit|operatorname|boxed|textbf|left|right|displaystyle)\s*\{([^{}]*)\}/g, "$1")
+        .replace(/\^\{([^{}]*)\}/g, (_, a) => script(a, SUP, "^"))
+        .replace(/_\{([^{}]*)\}/g, (_, a) => script(a, SUB, "_"));
+      if (s === before) break;
+    }
+    return s.replace(/\^([0-9n+-])/g, (_, a) => SUP[a]).replace(/_([0-9])/g, (_, a) => SUB[a])
+      .replace(/\\(left|right|displaystyle)\b/g, "")
+      .replace(/\\([A-Za-z]+|.)/g, (m, name) => (Object.hasOwn(SYMBOLS, name) ? SYMBOLS[name] : /^[A-Za-z]+$/.test(name) ? name : m))
+      .replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+  }
+  AX.tex = tex;
 
   function link(href, children) {
     let url;
@@ -55,6 +95,8 @@
         node = el("em", null, inline(m[5], depth + 1));
       } else if (m[6] !== undefined) {
         node = link(m[7], inline(m[6], depth + 1));
+      } else if (m[9] !== undefined || m[10] !== undefined || m[11] !== undefined) {
+        node = el("span", { class: "math", text: tex(m[9] ?? m[10] ?? m[11]) });
       } else {
         const url = m[8].replace(/[.,;:!?*]+$/, "");
         re.lastIndex = start + url.length;
@@ -139,6 +181,7 @@
   function startsBlock(all, i) {
     const line = all[i];
     return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST.test(line) ||
+      MATH_OPEN.test(line) ||
       (line.includes("|") && i + 1 < all.length && all[i + 1].includes("|") && DELIM.test(all[i + 1]));
   }
 
@@ -210,6 +253,24 @@
         i += 2;
         while (i < all.length && all[i].trim() && all[i].includes("|")) rows.push(all[i++]);
         out.push(table(rows, delimiter));
+      } else if ((m = MATH_OPEN.exec(line))) {
+        const close = m[1] === "$$" ? "$$" : "\\]";
+        const body = [];
+        let rest = m[2];
+        i++;
+        for (;;) {
+          const end = rest.indexOf(close);
+          if (end >= 0) {
+            body.push(rest.slice(0, end));
+            const after = rest.slice(end + close.length).trim();
+            if (after) all.splice(i, 0, after);
+            break;
+          }
+          body.push(rest);
+          if (i >= all.length) break;
+          rest = all[i++];
+        }
+        out.push(el("div", { class: "math-block", text: tex(body.join(" ")) }));
       } else if (LIST.test(line)) {
         const [node, next] = list(all, i);
         out.push(node);

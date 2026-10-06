@@ -14,3 +14,4 @@ __pycache__/
 /experiments/weights/
 /outputs/
 /aml/jobs/.rendered/
+.playwright-mcp/
