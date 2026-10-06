@@ -38,7 +38,7 @@ AXK2_SUB=<구독 ID> bash demo/deploy.sh
 | `demo/ctl.sh on` | GPU 켜기 (과금 시작, 준비까지 실측 약 25분, 노드 대기에 따라 더 걸림) |
 | `demo/ctl.sh off` | GPU 끄기 (작업 취소, 과금 중지) |
 | `demo/ctl.sh restart` | 지금 GPU 작업을 새 작업으로 교체 |
-| `demo/ctl.sh eval start aime,kobalt 4 0` | 벤치마크 평가 시작 (suite, 반복 횟수, 문항 제한) |
+| `demo/ctl.sh eval start aime,kobalt 4 0` | 벤치마크 평가 시작 (suite, 반복 횟수, suite별 무작위 표본 문항 수. 0이면 전체) |
 | `demo/ctl.sh eval stop` | 평가 중지 (이미 받은 결과는 남음) |
 | `demo/ctl.sh password demo` | 데모 비밀번호 교체 (기존 데모 세션은 로그아웃) |
 

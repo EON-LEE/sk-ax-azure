@@ -161,6 +161,7 @@ class Suite:
         self.name, self.items, self.score = name, items, score
         self.max_tokens, self.repeats, self.thinking, self.sampling = max_tokens, repeats, thinking, sampling
         self.length_is_wrong, self.breakdown = length_is_wrong, breakdown
+        self.sampled = False
 
 
 def aime_messages(problem):
@@ -445,11 +446,13 @@ def parse_metrics(text):
 class Admission:
     """How many eval requests may be in flight, from the server's own load (additive increase,
     multiplicative decrease on preemption). Demo users count as everything running or waiting
-    that is not ours."""
+    that is not ours. Thinking requests keep growing for tens of thousands of tokens after they are
+    admitted, so the limit only grows while the KV cache is at most half full: growing up to 75% let
+    56 AIME/KoBALT generations fill it, and vLLM then preempted and recomputed them over and over."""
 
-    def __init__(self, base, start=40, cap=56, demo_cap=16, floor=4, kv_pause=0.90, interval=3.0):
+    def __init__(self, base, start=40, cap=56, demo_cap=16, floor=4, kv_pause=0.80, interval=3.0, kv_grow=0.50):
         self.base, self.limit, self.cap, self.demo_cap, self.floor = base, start, cap, demo_cap, floor
-        self.kv_pause, self.interval = kv_pause, interval
+        self.kv_pause, self.interval, self.kv_grow = kv_pause, interval, kv_grow
         self.cond, self.in_flight, self.paused, self.demo = threading.Condition(), 0, True, 0
         self.preemptions, self.last_change, self.last = None, None, {}
         self.stop = threading.Event()
@@ -461,7 +464,7 @@ class Admission:
             self.demo = max(0, int(metrics["running"] + metrics["waiting"]) - self.in_flight)
             if self.preemptions is not None and metrics["preemptions"] > self.preemptions:
                 self.limit, self.last_change = max(self.floor, int(self.limit * 0.75)), now
-            elif (metrics["kv"] < 0.75 and metrics["waiting"] == 0 and self.limit < self.cap
+            elif (metrics["kv"] < self.kv_grow and metrics["waiting"] == 0 and self.limit < self.cap
                   and now - self.last_change >= 60):
                 self.limit, self.last_change = min(self.cap, self.limit + 2), now
             self.preemptions = metrics["preemptions"]
@@ -662,7 +665,9 @@ def summarize(records, plan):
     records = latest_records(records)
     out = {}
     for name, spec in plan.items():
-        mine = [r for r in records if r["suite"] == name]
+        keys = set(spec["keys"]) if spec.get("keys") is not None else None
+        mine = [r for r in records if r["suite"] == name and r["rep"] < spec["repeats"]
+                and (keys is None or r["key"] in keys)]
         entry = summarize_suite(mine, spec["items"], spec["repeats"], spec.get("breakdown", ()))
         if name == "ifbench":
             entry.update(ifbench_levels(mine))
@@ -698,8 +703,20 @@ def build_suites(args):
         else:
             raise SystemExit(f"unknown suite {name}")
         if args.limit:
-            suites[-1].items = suites[-1].items[:args.limit]
+            sample(suites[-1], args.limit, args.seed)
     return suites
+
+
+def sample(suite, n, seed):
+    """Keep a reproducible random n of the suite's items (in their original order). The first n would be
+    biased: KoBALT and CLIcK are stored grouped by class and category."""
+    if len(suite.items) <= n:
+        return
+    def rank(item):
+        return hashlib.sha256(f"{seed}|sample|{suite.name}|{item['key']}".encode()).hexdigest()
+    keep = {item["key"] for item in sorted(suite.items, key=rank)[:n]}
+    suite.items = [item for item in suite.items if item["key"] in keep]
+    suite.sampled = True
 
 
 def parse_repeats(text, names):
@@ -717,8 +734,13 @@ def default_run(suites, args):
 
 
 def plan_of(suites):
-    return {s.name: {"items": len(s.items), "repeats": s.repeats, "max_tokens": s.max_tokens, "thinking": s.thinking,
-                     "sampling": s.sampling, "breakdown": list(s.breakdown)} for s in suites}
+    plan = {}
+    for s in suites:
+        plan[s.name] = {"items": len(s.items), "repeats": s.repeats, "max_tokens": s.max_tokens,
+                        "thinking": s.thinking, "sampling": s.sampling, "breakdown": list(s.breakdown)}
+        if s.sampled:
+            plan[s.name]["keys"] = [item["key"] for item in s.items]
+    return plan
 
 
 class Runner:
@@ -843,12 +865,12 @@ def main(argv=None):
     parser.add_argument("--base", default="http://127.0.0.1:8000")
     parser.add_argument("--suites", default="aime,kobalt,click,ifbench,niah")
     parser.add_argument("--repeats", default="", help="e.g. aime=4, or one number for every suite")
-    parser.add_argument("--limit", type=int, default=0, help="first N items of each suite (smoke tests)")
+    parser.add_argument("--limit", type=int, default=0, help="a reproducible random N items of each suite")
     parser.add_argument("--run", default=os.environ.get("AXK2_EVAL_RUN", ""), help="default: hash of the config")
     parser.add_argument("--out-dir", default=os.environ.get("OUT", "outputs"))
     parser.add_argument("--data-dir", default="/tmp/axk2-evaldata")
     parser.add_argument("--priority", type=int, default=10, help="vLLM priority; the demo's chat uses 0")
-    parser.add_argument("--start", type=int, default=40)
+    parser.add_argument("--start", type=int, default=24)
     parser.add_argument("--cap", type=int, default=56, help="keep below the server's --max-num-seqs (64) so "
                                                              "demo users always find a free sequence slot")
     parser.add_argument("--demo-cap", type=int, default=16, help="limit while demo users are active")

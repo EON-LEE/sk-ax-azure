@@ -257,6 +257,33 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(run, evals.default_run(suites, SimpleNamespace(seed=1)))
         self.assertNotEqual(run, evals.default_run(suites, SimpleNamespace(seed=2)))
         self.assertEqual(evals.plan_of(suites)["aime"]["repeats"], 8)
+        self.assertNotIn("keys", evals.plan_of(suites)["aime"])
+
+    def test_limit_takes_a_reproducible_random_sample(self):
+        def suite():
+            return evals.Suite("click", [{"key": str(k)} for k in range(100)], evals.score_aime, 10, 1)
+        first, again, other = suite(), suite(), suite()
+        evals.sample(first, 10, 1)
+        evals.sample(again, 10, 1)
+        evals.sample(other, 10, 2)
+        keys = [i["key"] for i in first.items]
+        self.assertEqual(len(keys), 10)
+        self.assertEqual(keys, [i["key"] for i in again.items])
+        self.assertEqual(keys, sorted(keys, key=int))  # original order kept
+        self.assertNotEqual(keys, [str(k) for k in range(10)])
+        self.assertNotEqual(keys, [i["key"] for i in other.items])
+        self.assertEqual(evals.plan_of([first])["click"]["keys"], keys)
+        small = evals.Suite("aime", [{"key": "1"}], evals.score_aime, 10, 1)
+        evals.sample(small, 10, 1)
+        self.assertFalse(small.sampled)
+
+    def test_summary_keeps_only_the_planned_sample_and_repeats(self):
+        records = [rec("click", "1", 0, True), rec("click", "2", 0, False), rec("aime", "1", 0, True),
+                   rec("aime", "1", 3, False)]
+        plan = {"click": {"items": 1, "repeats": 1, "keys": ["1"]}, "aime": {"items": 1, "repeats": 2}}
+        summary = evals.summarize(records, plan)
+        self.assertEqual((summary["click"]["n_generations"], summary["click"]["score"]), (1, 1.0))
+        self.assertEqual((summary["aime"]["n_generations"], summary["aime"]["score"]), (1, 1.0))
 
 
 class SummaryTests(unittest.TestCase):
@@ -362,9 +389,9 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(a.limit, 14)  # cap
         a.update(metrics(preemptions=2), 1301)
         self.assertEqual(a.limit, 10)  # x0.75
-        a.update(metrics(preemptions=2, kv=0.8), 1400)
-        self.assertEqual((a.paused, a.limit), (False, 10))  # no growth above 75 % KV
-        a.update(metrics(preemptions=2, kv=0.95), 1401)
+        a.update(metrics(preemptions=2, kv=0.6), 1400)
+        self.assertEqual((a.paused, a.limit), (False, 10))  # no growth above 50 % KV
+        a.update(metrics(preemptions=2, kv=0.85), 1401)
         self.assertTrue(a.paused)
         a.update(metrics(preemptions=2, waiting=1), 1500)
         self.assertEqual((a.paused, a.limit), (True, 10))
@@ -602,7 +629,10 @@ class MainTests(unittest.TestCase):
         for final in (server.summaries[1], server.summaries[3]):
             niah = final["summary"]["niah"]
             self.assertEqual((final["run"], niah["score"], niah["n_generations"]), ("t-run", 1.0, 4))
-            self.assertEqual(niah["grid"], {"2048": {"0.0": True, "0.1": True, "0.2": True, "0.3": True}})
+            depths = set(niah["grid"]["2048"])
+            self.assertEqual((len(depths), set(niah["grid"]["2048"].values())), (4, {True}))
+            self.assertEqual(final["plan"]["niah"]["items"], 4)
+            self.assertEqual(len(final["plan"]["niah"]["keys"]), 4)
         self.assertEqual(reports, ["evals.t-run.summary", "evals.t-run.records"] * 2)
         self.assertIn('"resumed": 4, "todo": 0', log.getvalue())
 
