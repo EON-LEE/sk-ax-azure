@@ -239,7 +239,11 @@ The design works within it and does not bypass it:
   Contributor on the workspace storage account only.
 - The CLI cannot upload a `code:` snapshot from outside the VNet, and Batch
   rejects very long command lines. `aml/render_job.py` puts `aml/src` in the
-  `AXK2_SRC_B64` environment variable (base64 tar.gz).
+  `AXK2_SRC_B64` environment variable (base64 tar.gz). AML also caps the
+  total docker argument size (environment plus command; ~62K base64 worked,
+  ~91K failed with `ArgumentTooLong`, shown only in the run's RunHistory
+  `/details`), so the demo job instead downloads the tarball from the
+  frontend (`GET /api/link/src`, job token) and checks `AXK2_SRC_SHA256`.
 - Artifacts stay in private storage. Jobs report JSON summaries and
   zlib-compressed per-position series as chunked MLflow tags (ASCII-escaped,
   at most 90 tags per call, retried), read with `aml/fetch_results.py`
