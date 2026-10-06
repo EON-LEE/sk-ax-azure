@@ -1,7 +1,51 @@
 # Development environment handoff
 
-Snapshot: 2026-10-04. Read this before allocating any GPU.
+Snapshot: 2026-10-06. Read this before allocating any GPU.
 
+## 2026-10-06: customer demo and model-card benchmarks
+
+**Demo.** `demo/` runs an always-on chat page on App Service (Korea Central, B1),
+backed by the 2 x ND96amsr_A100_v4 serving job (FP8, native DSA, TP8 x PP2).
+`demo/README.md` covers deploy and operations; `REPORT.md` section 9 has screenshots.
+
+- **UI:** one ChatGPT-style chat page ("A.X K2 고객 데모"). It shows thinking as a
+  collapsible section and tool calls as cards. It has no cluster or results views;
+  those numbers live only in `docs/report`.
+- **Open demo:** `AXK2_OPEN_DEMO=1` is the `deploy.sh` default, so anyone with the
+  URL can chat without logging in, as requested for an internal demo. Redeploy with
+  `AXK2_OPEN_DEMO=0` to require the demo password. `/admin` always needs the admin
+  password. Passwords live in `~/.axk2-demo/passwords` (WSL), never in the repo.
+- **GPU:** `demo/ctl.sh on|off|status`. `on` races low-priority jobs in uksouth,
+  italynorth and francecentral, keeps the first with 2 nodes, and is ready in
+  about 25 min. 2 low-priority nodes cost about USD 16/hr. **Run `ctl.sh off`
+  after a demo.**
+- **Measured in the demo:** first token 0.4 s, 45-49 tok/s per user.
+- **Deploy gotcha:** `deploy.sh` can end with "Kudu Status 502" while Oryx is still
+  building. If the site then crashes with `No module named uvicorn`, the build was
+  cut off; rerun `deploy.sh`.
+
+**Benchmarks** (`evidence/a100-benchmarks.json`, run `ev20261006-095528`). These use
+the model card's thinking-mode settings (temperature 0.6, top_p 0.95) with public
+data and scoring. Each suite ran on a random sample. The run was stopped at about
+55% by request, so the scores are indicative:
+
+| Suite | SKT | A100 x16 | done/planned | 95% CI |
+|---|---:|---:|---:|---:|
+| AIME26 | 97.1 | 100.0 | 10/60 generations | small n |
+| KoBALT | 73.0 | 74.3 | 109/200 | ±8.2 |
+| CLIcK | 91.6 | 85.5 | 131/200 | ±6.1 |
+| IFBench | 75.9 | 78.6 | 112/200 | ±7.6 |
+| NIAH | 100 | 100 (9/9, 32K-256K) | verification run | - |
+
+`python docs/report/make_figures.py --only eval` rebuilds the chart and the
+HF-card table (`docs/report/figures/benchmark-table.md`).
+
+Still open:
+
+- Finish or rerun the eval for full n, mainly to settle CLIcK.
+- Make the PPTX of the report. The Office MCP tool needs a Microsoft 365 account
+  connected; it was not connected on 2026-10-06.
+- Run quality checks on customer data.
 ## 2026-10-04: SKT's NVFP4 checkpoint on one A100 node
 
 The 2026-10-03 entry below said NVFP4 cannot run on A100. That was wrong:
