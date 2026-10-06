@@ -105,8 +105,8 @@ print(f"{len(files)} files")
 PY
 
 echo "== deploy (Oryx installs requirements.txt on the server)"
-# The gateway may answer 504 while Kudu keeps building; /healthz below is the real check.
-az webapp deploy -g "$RG" -n "$APP" --src-path "$ZIP" --type zip --async false -o none || echo "deploy returned $?; waiting for /healthz"
+# The gateway may answer 504, or the status poll may hang after the site is up; /healthz below is the real check.
+az webapp deploy -g "$RG" -n "$APP" --src-path "$ZIP" --type zip --async false --timeout 600000 -o none || echo "deploy returned $?; waiting for /healthz"
 rm -rf "$(dirname "$ZIP")"
 for i in $(seq 1 45); do
   code=$(curl -s -o /dev/null -w '%{http_code}' "https://$HOST/healthz" || true)
