@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from hub import ChatRelay, Full, Gate, Hub
@@ -747,6 +747,12 @@ def create_app(config=None, azure=None, start_supervisor=True):
             return
         await ws.accept()
         await hub.serve(ws, digest)
+
+    @app.get("/api/link/src")
+    async def link_source(request: Request):
+        require_job(request)
+        await asyncio.to_thread(supervisor.prepare)
+        return Response(supervisor.source, media_type="application/gzip", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/link/evals")
     async def link_records(request: Request, run: str = ""):

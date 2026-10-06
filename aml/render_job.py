@@ -3,10 +3,12 @@
 The subscription's storage policy disables public network access on every storage account, so
 `az ml job create` cannot upload a local `code:` snapshot from outside the workspace's managed VNet.
 The helper scripts are small, so they travel inside the job definition instead (base64 tar.gz) and
-are unpacked on each node before anything runs. Container start-up drops an environment variable
-longer than 64 KiB (jobs with a ~90K-character AXK2_SRC_B64 failed before their first command ran),
-so the payload is split across AXK2_SRC_B64, AXK2_SRC_B64_1, ... and `printenv` reassembles it
-(GNU base64 -d skips the newlines between the parts).
+are unpacked on each node before anything runs.
+
+AML caps the total size of a job's docker arguments (environment plus command); a payload past roughly
+64K base64 characters fails before the container starts (ArgumentTooLong, visible only in the run's
+RunHistory details). The demo job therefore carries no payload: it downloads the same tarball from the
+frontend (GET /api/link/src with its job token) and checks it against AXK2_SRC_SHA256.
 
 usage: python aml/render_job.py aml/jobs/<template>.yml [more templates...]
 writes: aml/jobs/.rendered/<template>.yml
@@ -14,18 +16,18 @@ The demo template also needs AXK2_LINK_URL and AXK2_LINK_TOKEN in the environmen
 frontend's supervisor calls render() with a fresh token for every submission instead.
 """
 import base64
+import hashlib
 import io
 import os
 import re
 import sys
 import tarfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 PLACEHOLDER = "__AXK2_SRC_B64__"
-PART = 48_000  # characters per environment variable, well under the 64 KiB start-up limit
-ENV_LINE = re.compile(r'^(?P<indent>[ \t]*)AXK2_SRC_B64: "__AXK2_SRC_B64__"[ \t]*$', re.M)
-PRINTENV = "printenv AXK2_SRC_B64 |"
+SRC_URL = "__AXK2_SRC_URL__"
 LINK = ("AXK2_LINK_URL", "AXK2_LINK_TOKEN")
 SAFE = re.compile(r"[A-Za-z0-9._~:/?=&%+-]+")  # URL/token characters; no quotes, $ or braces (AML expressions)
 
@@ -44,15 +46,25 @@ def payload():
     return base64.b64encode(buffer.getvalue()).decode()
 
 
+def digest(encoded):
+    return hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+
+
+def src_url(link_url):
+    """wss://host/ws/link -> https://host/api/link/src (where a demo job downloads its scripts)."""
+    parts = urlsplit(link_url)
+    return f"{'https' if parts.scheme == 'wss' else 'http'}://{parts.netloc}/api/link/src" if parts.netloc else ""
+
+
 def render(text, encoded, values=None):
-    """Fills the payload placeholder and __NAME__ for every NAME in values; refuses to leave any behind."""
-    if len(ENV_LINE.findall(text)) != 1 or PRINTENV not in text:
-        raise ValueError(f'the template needs one AXK2_SRC_B64: "{PLACEHOLDER}" line and "{PRINTENV}"')
-    parts = [encoded[i:i + PART] for i in range(0, len(encoded), PART)] or [""]
-    names = ["AXK2_SRC_B64"] + [f"AXK2_SRC_B64_{i}" for i in range(1, len(parts))]
-    text = ENV_LINE.sub(lambda m: "\n".join(f'{m["indent"]}{n}: "{p}"' for n, p in zip(names, parts)), text)
-    text = text.replace(PRINTENV, f"printenv {' '.join(names)} |")
-    for name, value in (values or {}).items():
+    """Fills the payload (or its digest) and __NAME__ for every NAME in values; refuses to leave any behind."""
+    if PLACEHOLDER not in text and SRC_URL not in text:
+        raise ValueError(f"the template has neither {PLACEHOLDER} nor {SRC_URL}")
+    text = text.replace(PLACEHOLDER, encoded).replace("__AXK2_SRC_SHA256__", digest(encoded))
+    values = dict(values or {})
+    if SRC_URL in text and "AXK2_SRC_URL" not in values and values.get("AXK2_LINK_URL"):
+        values["AXK2_SRC_URL"] = src_url(values["AXK2_LINK_URL"])
+    for name, value in values.items():
         if not SAFE.fullmatch(value):
             raise ValueError(f"{name} has characters a job template cannot carry")
         text = text.replace(f"__{name}__", value)
@@ -74,7 +86,8 @@ def main(templates):
             raise SystemExit(f"{template}: {error}")
         target = target_dir / template.name
         target.write_text(text, encoding="utf-8", newline="\n")
-        print(f"{target} ({len(encoded)} base64 chars)")
+        carried = len(encoded) if PLACEHOLDER in template.read_text(encoding="utf-8") else 0
+        print(f"{target} ({carried} base64 chars embedded, {len(text)} chars)")
 
 
 if __name__ == "__main__":

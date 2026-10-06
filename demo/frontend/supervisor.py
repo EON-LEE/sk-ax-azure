@@ -20,6 +20,7 @@ Node-seconds per region are integrated from the polled counts to estimate the co
 threads; the state changes only on the event loop.
 """
 import asyncio
+import base64
 import importlib.util
 import os
 import secrets
@@ -95,7 +96,7 @@ class Supervisor:
     def __init__(self, config, store, hub, azure=None, clock=time.time):
         self.config, self.store, self.hub = config, store, hub
         self.azure, self.clock = azure or AzureML(config), clock
-        self.wake, self.renderer = asyncio.Event(), None
+        self.wake, self.renderer, self.source = asyncio.Event(), None, b""
 
     def poke(self):
         self.wake.set()
@@ -103,12 +104,16 @@ class Supervisor:
     def usable(self, region):
         return (self.store.data["nodes"].get(region) or {}).get("usable", 0)
 
-    def job_text(self, token):
+    def prepare(self):
         if self.renderer is None:
             module = load_module("axk2_render_job", self.config.aml_dir / "render_job.py")
             template = (self.config.aml_dir / "jobs" / self.config.template).read_text(encoding="utf-8")
             encoded = module.payload()
+            self.source = base64.b64decode(encoded)  # served at /api/link/src; the job checks its digest
             self.renderer = lambda values: module.render(template, encoded, values)
+
+    def job_text(self, token):
+        self.prepare()
         return self.renderer({"AXK2_LINK_URL": self.config.link_url, "AXK2_LINK_TOKEN": token})
 
     async def run(self):

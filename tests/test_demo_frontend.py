@@ -385,6 +385,8 @@ class AppTests(ServerCase):
                 self.assertEqual(caught.exception.status, 403)
             async with client.get("/api/link/evals", headers={"Authorization": "Bearer wrong"}) as response:
                 self.assertEqual(response.status, 403)
+            async with client.get("/api/link/src", headers={"Authorization": "Bearer wrong"}) as response:
+                self.assertEqual(response.status, 403)
 
 class LinkedTests(ServerCase):
     max_active, max_queue = 1, 1
@@ -469,6 +471,17 @@ class LinkedTests(ServerCase):
             self.assertEqual(response.status, 400)
         async with client.get("/api/link/evals?run=r1", headers=auth) as response:
             self.assertEqual((await response.json())["records"], [record])
+        async with client.get("/api/link/src", headers=auth) as response:
+            self.assertEqual(response.status, 200)
+            source = await response.read()
+        import hashlib, io, re, tarfile
+        with tarfile.open(fileobj=io.BytesIO(source), mode="r:gz") as tar:
+            self.assertIn("entry.sh", tar.getnames())
+        supervisor = self.app.state.supervisor  # the digest the job checks matches what is served
+        job = supervisor.renderer({"AXK2_LINK_URL": "wss://demo.example.net/ws/link", "AXK2_LINK_TOKEN": "tok"})
+        self.assertIn(f'AXK2_SRC_SHA256: "{hashlib.sha256(source).hexdigest()}"', job)
+        self.assertIn('AXK2_SRC_URL: "https://demo.example.net/api/link/src"', job)
+        self.assertIsNone(re.search(r"AXK2_SRC_B64", job))
         async with admin.get("/api/results") as response:
             results = await response.json()
         self.assertEqual(([r["run"] for r in results["runs"]], results["current"]), (["r1"], "r1"))

@@ -111,34 +111,7 @@ class BundleTests(unittest.TestCase):
                          "build_smoke_checkpoint.py", "verify_suites.py", "ib_probe.py", "evals.py",
                          "backend_link.py"} <= names)
         self.assertNotIn(b"\r\n", entry)
-        self.assertLess(len(render_job.payload()), 400_000, "payload travels in a few environment variables")
-
-    def test_payload_split_across_variables(self):
-        import base64
-        import io
-        import re
-        import tarfile
-        sys.path.insert(0, str(ROOT / "aml"))
-        try:
-            import render_job
-        finally:
-            sys.path.pop(0)
-        encoded = render_job.payload()
-        values = {"AXK2_LINK_URL": "wss://demo.example.net/ws/link", "AXK2_LINK_TOKEN": "tok"}
-        for template in sorted((ROOT / "aml" / "jobs").glob("*.yml")):
-            with self.subTest(template=template.name):
-                text = render_job.render(template.read_text(encoding="utf-8"), encoded, values)
-                env = dict(re.findall(r"^  (AXK2_SRC_B64(?:_\d+)?): \"([^\"]*)\"$", text, re.M))
-                self.assertGreater(len(env), 1 if len(encoded) > render_job.PART else 0)
-                self.assertTrue(all(len(v) <= render_job.PART for v in env.values()))
-                names = re.search(r"printenv ((?:AXK2_SRC_B64(?:_\d+)? ?)+)\|", text).group(1).split()
-                self.assertEqual(names, sorted(env, key=lambda n: int(n.rpartition("_")[2] or 0)
-                                               if n != "AXK2_SRC_B64" else 0))
-                joined = "\n".join(env[n] for n in names)  # printenv prints one value per line
-                with tarfile.open(fileobj=io.BytesIO(base64.b64decode("".join(joined.split()))), mode="r:gz") as tar:
-                    self.assertIn("entry.sh", tar.getnames())
-        with self.assertRaises(ValueError):
-            render_job.render("command: echo\n", encoded)
+        self.assertLess(len(render_job.payload()), 100_000, "served to demo jobs; embedded only by older templates")
 
     def test_demo_job(self):
         import re
@@ -162,6 +135,10 @@ class BundleTests(unittest.TestCase):
         rendered = render_job.render(job, "cGF5bG9hZA==", values)
         self.assertIn('AXK2_LINK_URL: "wss://demo.example.net/ws/link"', rendered)
         self.assertIn('AXK2_LINK_TOKEN: "Ab-9_x~Yz"', rendered)
+        self.assertIn('AXK2_SRC_URL: "https://demo.example.net/api/link/src"', rendered)
+        self.assertIn(f'AXK2_SRC_SHA256: "{render_job.digest("cGF5bG9hZA==")}"', rendered)
+        self.assertNotIn("cGF5bG9hZA==", rendered, "the demo job downloads its scripts instead")
+        self.assertLess(len(rendered), 8_000, "AML caps the total docker argument size")
         self.assertIsNone(re.search(r"__AXK2_[A-Z0-9_]+__", rendered))
         with self.assertRaisesRegex(ValueError, "AXK2_LINK_TOKEN"):
             render_job.render(job, "cGF5bG9hZA==", {"AXK2_LINK_URL": values["AXK2_LINK_URL"]})

@@ -8,7 +8,9 @@ description: >-
   card's tool-call and reasoning parsers, 256K context and priority scheduling, serving until the job
   is cancelled. Node 0 dials out to the demo frontend (backend_link.py) and relays the chat and the
   eval runner through that link; nothing listens on a public port. Submitted by the frontend's
-  supervisor (demo/), which fills in the link URL and a fresh token per submission.
+  supervisor (demo/), which fills in the link URL and a fresh token per submission. The scripts are
+  downloaded from the frontend (digest-checked) because an embedded payload exceeds AML's docker
+  argument limit.
 compute: azureml:a100-nd96-lp
 environment:
   image: docker.io/vllm/vllm-openai:v0.23.0-cu129
@@ -21,7 +23,8 @@ distribution:
   type: pytorch
   process_count_per_instance: 1
 environment_variables:
-  AXK2_SRC_B64: "__AXK2_SRC_B64__"
+  AXK2_SRC_URL: "__AXK2_SRC_URL__"
+  AXK2_SRC_SHA256: "__AXK2_SRC_SHA256__"
   AXK2_LINK_URL: "__AXK2_LINK_URL__"
   AXK2_LINK_TOKEN: "__AXK2_LINK_TOKEN__"
   PHASE_PLAN: "demo"
@@ -37,7 +40,11 @@ environment_variables:
   TP: "8"
   PP: "2"
 command: >-
-  mkdir -p /tmp/axk2src && printenv AXK2_SRC_B64 | base64 -d | tar -xz -C /tmp/axk2src &&
+  mkdir -p /tmp/axk2src && for try in 1 2 3 4 5 6; do python3 -c "import hashlib, os, sys, urllib.request as u;
+  r = u.Request(os.environ['AXK2_SRC_URL']); r.add_header('Authorization', 'Bearer ' + os.environ['AXK2_LINK_TOKEN']);
+  d = u.urlopen(r, timeout=120).read(); ok = hashlib.sha256(d).hexdigest() == os.environ['AXK2_SRC_SHA256'];
+  ok and open('/tmp/axk2src.tgz', 'wb').write(d); sys.exit(0 if ok else 'source digest mismatch')" && break;
+  sleep 20; done && tar -xzf /tmp/axk2src.tgz -C /tmp/axk2src &&
   bash /tmp/axk2src/entry.sh none hf:2287ca456927eed33b899c404c0b2ffaf17aa09f
 limits:
   timeout: 604800
