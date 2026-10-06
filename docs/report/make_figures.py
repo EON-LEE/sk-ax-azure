@@ -365,25 +365,108 @@ def write_tables(data, out_dir):
         handle.write("\n".join(lines) + "\n")
 
 
+BENCHMARKS = ROOT / "evidence" / "a100-benchmarks.json"
+
+
+def load_benchmarks(path=BENCHMARKS):
+    """Rows of the model card's Thinking Mode table, each with our A100 score when that suite was run.
+
+    The evidence file is the eval run's final summary as posted by the job ({"run", "plan", "summary", ...});
+    scores there are fractions, the card's are percent.
+    """
+    published = _read_json(REPORT_DIR / "skt_published.json")["benchmarks"]
+    ours = _read_json(Path(path)) if Path(path).is_file() else {}
+    summary = ours.get("summary") or {}
+    rows = []
+    for row in published["rows"]:
+        entry = summary.get(row["suite"]) if row["suite"] else None
+        score = entry.get("score") if entry else None
+        half = entry.get("ci95_half") if entry else None
+        rows.append({**row, "a100": None if score is None else round(100 * score, 1),
+                     "a100_ci95": None if half is None else round(100 * half, 1),
+                     "n_items": entry.get("n_items") if entry else None,
+                     "repeats": entry.get("repeats") if entry else None})
+    niah = summary.get("niah")
+    niah_row = {"benchmark": "NIAH", "skt": published["niah"]["skt"], "note": published["niah"]["note"],
+                "a100": None if not niah or niah.get("score") is None else round(100 * niah["score"], 1),
+                "grid": niah.get("grid") if niah else None}
+    return {"run": ours.get("run"), "rows": rows, "niah": niah_row, "reasons": published["reasons"]}
+
+
+def render_benchmarks(bench, out_dir):
+    measured = [r for r in bench["rows"] if r["a100"] is not None]
+    if bench["niah"]["a100"] is not None:
+        measured.append({"benchmark": "NIAH 8K-256K", "skt": bench["niah"]["skt"], "a100": bench["niah"]["a100"],
+                         "a100_ci95": None})
+    if not measured:
+        return False
+    plt, ko = _import_matplotlib()
+    fig, ax = plt.subplots(figsize=(9.5, 5.0))
+    xs = list(range(len(measured)))
+    width = 0.36
+    skt = ax.bar([x - width / 2 for x in xs], [r["skt"] for r in measured], width, label="SKT 공개값 (모델 카드)" if ko else "SKT published (model card)", color="#1f77b4")
+    ours = ax.bar([x + width / 2 for x in xs], [r["a100"] for r in measured], width,
+                  yerr=[r.get("a100_ci95") or 0 for r in measured], capsize=4,
+                  label="A100 x16 FP8 native DSA (이번 측정)" if ko else "A100 x16 FP8 native DSA (ours)", color="#d62728")
+    ax.bar_label(skt, labels=[f"{r['skt']:.1f}" for r in measured], fontsize=8, padding=2)
+    ax.bar_label(ours, labels=[f"{r['a100']:.1f}" for r in measured], fontsize=8, padding=2)
+    ax.set_xticks(xs, [r["benchmark"] for r in measured])
+    ax.set_ylim(0, 110)
+    ax.set_ylabel("점수 (%)" if ko else "Score (%)")
+    ax.set_title("모델 카드 벤치마크: SKT 공개값 vs A100 16장" if ko else "Model card benchmarks: SKT published vs A100 x16")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(fontsize=9, loc="lower right")
+    foot = "Thinking 모드, 공개 데이터·공개 채점. 오차 막대: 95% 신뢰구간. NIAH: thinking 끔, 그리디." if ko else "Thinking mode, public data and scoring. Error bars: 95% CI. NIAH: thinking off, greedy."
+    fig.text(0.01, 0.015, foot, fontsize=8, color="#444")
+    _save(fig, out_dir / "benchmarks-vs-published.png")
+    return True
+
+
+def write_benchmark_table(bench, out_dir):
+    """The model card's Thinking Mode table with one extra column, ready to paste into a card or report."""
+    lines = ["# 모델 카드 Thinking Mode 표 + A100 측정값", "",
+             "| Domain | Benchmark | A.X K2 (SKT) | A.X K2 on A100 x16 (ours) |", "| --- | --- | ---: | ---: |"]
+    for r in bench["rows"]:
+        if r["a100"] is not None:
+            ours = f"**{r['a100']:.1f}**" + (f" ± {r['a100_ci95']:.1f}" if r["a100_ci95"] is not None else "")
+        elif r["suite"]:
+            ours = "pending"
+        else:
+            ours = f"– ({r['not_run']})"
+        lines.append(f"| {r['domain']} | {r['benchmark']} | {r['skt']:g} | {ours} |")
+    niah = bench["niah"]
+    lines.append(f"| Long context | NIAH | {niah['skt']:g} | " + (f"**{niah['a100']:.1f}**" if niah["a100"] is not None else "pending") + " |")
+    lines += ["", "Not run: " + "; ".join(f"{k} = {v}" for k, v in bench["reasons"].items())]
+    if bench["run"]:
+        lines.append(f"A100 run: `{bench['run']}`. ± is the 95% confidence half-width over items.")
+    with (out_dir / "benchmark-table.md").open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
 def render_all(out_dir=DEFAULT_OUT, only="throughput"):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    data = load_throughput()
-    if only not in ("all", "throughput"):
+    if only not in ("all", "throughput", "eval"):
         raise ValueError(f"Unsupported group: {only}")
-    render_fig7_overlay(data, out_dir)
-    render_fig9_overlay(data, out_dir)
-    render_per_gpu(data, out_dir)
-    render_cost(data, out_dir)
-    write_throughput_json(data, out_dir)
-    write_tables(data, out_dir)
+    data = None
+    if only in ("all", "throughput"):
+        data = load_throughput()
+        render_fig7_overlay(data, out_dir)
+        render_fig9_overlay(data, out_dir)
+        render_per_gpu(data, out_dir)
+        render_cost(data, out_dir)
+        write_throughput_json(data, out_dir)
+        write_tables(data, out_dir)
+    if only in ("all", "eval"):
+        bench = load_benchmarks()
+        render_benchmarks(bench, out_dir)
+        write_benchmark_table(bench, out_dir)
     return data
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Render SKT/A.X K2 throughput report figures.")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Output directory (default: docs/report/figures)")
-    parser.add_argument("--only", default="throughput", choices=["throughput", "all"], help="Figure group to render")
+    parser.add_argument("--only", default="throughput", choices=["throughput", "eval", "all"], help="Figure group to render")
     args = parser.parse_args(argv)
     render_all(Path(args.out), args.only)
 

@@ -76,6 +76,48 @@ class FigureDataTests(unittest.TestCase):
             for name in [n for n in expected if n.endswith(".png")]:
                 self.assertLess((out / name).stat().st_size, 400_000)
 
+class BenchmarkTests(unittest.TestCase):
+    def evidence(self, folder):
+        path = Path(folder) / "a100-benchmarks.json"
+        path.write_text(json.dumps({"run": "ev-test", "summary": {
+            "aime": {"score": 0.9, "ci95_half": 0.05, "n_items": 30, "repeats": 8},
+            "kobalt": {"score": 0.7, "ci95_half": 0.03, "n_items": 700, "repeats": 1},
+            "niah": {"score": 1.0, "ci95_half": None, "grid": {"8192": {"0.5": True}}}}}), encoding="utf-8")
+        return path
+
+    def test_rows_merge_published_and_measured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bench = make_figures.load_benchmarks(self.evidence(tmp))
+        rows = {r["benchmark"]: r for r in bench["rows"]}
+        self.assertEqual(rows["AIME26"]["a100"], 90.0)
+        self.assertEqual(rows["AIME26"]["a100_ci95"], 5.0)
+        self.assertEqual(rows["AIME26"]["skt"], 97.1)
+        self.assertIsNone(rows["CLIcK"]["a100"])
+        self.assertIsNone(rows["GPQA Diamond"]["a100"])
+        self.assertEqual(bench["niah"]["a100"], 100.0)
+        self.assertEqual(bench["run"], "ev-test")
+
+    def test_table_and_missing_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bench = make_figures.load_benchmarks(self.evidence(tmp))
+            make_figures.write_benchmark_table(bench, Path(tmp))
+            table = (Path(tmp) / "benchmark-table.md").read_text(encoding="utf-8")
+            empty = make_figures.load_benchmarks(Path(tmp) / "absent.json")
+        self.assertIn("| Math | AIME26 | 97.1 | **90.0** ± 5.0 |", table)
+        self.assertIn("| Korean | CLIcK | 91.6 | pending |", table)
+        self.assertIn("| Science & Knowledge | GPQA Diamond | 85.6 | – (gated) |", table)
+        self.assertIn("| Long context | NIAH | 100 | **100.0** |", table)
+        self.assertTrue(all(r["a100"] is None for r in empty["rows"]))
+        self.assertIsNone(empty["run"])
+
+    def test_render_benchmarks(self):
+        if importlib.util.find_spec("matplotlib") is None:
+            self.skipTest("matplotlib is not importable")
+        with tempfile.TemporaryDirectory() as tmp:
+            bench = make_figures.load_benchmarks(self.evidence(tmp))
+            self.assertTrue(make_figures.render_benchmarks(bench, Path(tmp)))
+            self.assertGreater((Path(tmp) / "benchmarks-vs-published.png").stat().st_size, 10_000)
+            self.assertFalse(make_figures.render_benchmarks(make_figures.load_benchmarks(Path(tmp) / "x.json"), Path(tmp)))
 
 if __name__ == "__main__":
     unittest.main()
