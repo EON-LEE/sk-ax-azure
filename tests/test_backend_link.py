@@ -322,7 +322,9 @@ class LinkTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_wrong_token_is_retried_with_backoff(self):
         await self.start("--token", "wrong", hello=False)
-        await asyncio.sleep(0.6)
+        async with asyncio.timeout(5):
+            while self.fe.rejected < 2:
+                await asyncio.sleep(0.05)
         self.assertGreaterEqual(self.fe.rejected, 2)
         self.assertEqual(self.fe.headers, [])
 

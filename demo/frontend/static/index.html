@@ -9,7 +9,6 @@
 <link rel="stylesheet" href="/static/chat.css">
 <script src="/static/common.js" defer></script>
 <script src="/static/markdown.js" defer></script>
-<script src="/static/tools.js" defer></script>
 <script src="/static/chat.js" defer></script>
 <script src="/static/app.js" defer></script>
 </head>
@@ -46,15 +45,15 @@
       <div id="attachments" class="attachments hidden"></div>
       <textarea id="input" rows="1" maxlength="200000" placeholder="무엇이든 물어보세요" aria-label="메시지"></textarea>
       <div class="composer-bar">
-        <label class="icon-btn" title="문서 첨부 (.txt, .md)" aria-label="문서 첨부">
+        <label class="icon-btn" title="문서·표·프로젝트 첨부 (PDF, DOCX, CSV, XLSX, ZIP, 텍스트)" aria-label="문서 첨부">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          <input type="file" id="file" class="visually-hidden" accept=".txt,.md,text/plain,text/markdown" multiple>
+          <input type="file" id="file" class="visually-hidden" accept=".txt,.md,.pdf,.docx,.csv,.xlsx,.zip,.html,.py,.js,.css,.json,.ts,.toml,.yml,.yaml" multiple>
         </label>
         <label class="pill" title="답하기 전에 생각하는 과정을 거칩니다">
           <input type="checkbox" id="thinking" checked><span>추론</span>
         </label>
-        <label class="pill" title="계산기 · 현재 시각 · 날씨(가짜 데이터) 도구">
-          <input type="checkbox" id="tools"><span>도구</span>
+        <label class="pill" title="MAF 파일·문서·표·계산 도구 (Web IQ·실행 샌드박스 미구성)">
+          <input type="checkbox" id="tools" checked><span>도구</span>
         </label>
         <span id="hint" class="hint"></span>
         <button type="button" id="stop" class="round-btn hidden" aria-label="중지">

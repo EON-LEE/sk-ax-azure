@@ -42,8 +42,7 @@ class ChatBodyTests(unittest.TestCase):
         self.assertEqual((body["model"], body["temperature"], body["top_p"]), ("axk2", 0.6, 0.95))
         self.assertEqual(body["max_tokens"], 8192)
         self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
-        self.assertEqual([t["function"]["name"] for t in body["tools"]], ["calculator", "get_current_time",
-                                                                           "get_weather"])
+        self.assertEqual([t["function"]["name"] for t in body["tools"]], ["calculator", "get_current_time"])
         body = frontend.chat_body(dict(USER, max_tokens=1))
         self.assertEqual((body["max_tokens"], "tools" in body), (16, False))
         self.assertTrue(body["chat_template_kwargs"]["enable_thinking"])
