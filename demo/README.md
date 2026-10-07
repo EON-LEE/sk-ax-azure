@@ -41,6 +41,7 @@ AXK2_SUB=<구독 ID> bash demo/deploy.sh
 `/models/nvfp4/api/admin/power`의 기존 관리자 인증을 사용하며 상태는
 `/models/nvfp4/api/status`에서 확인합니다. 두 프로필은 Store/Supervisor/Hub/Gate와
 작업 취소 범위를 분리하고, 동일 compute의 실제 AML RunId로 각자 노드를 계산합니다.
+모델별 prefix는 API 전용이며 UI는 루트 주소에서만 제공합니다. 루트 `/admin`은 FP8 전용입니다.
 NVFP4는 처음에는 꺼진 상태이며 UKSouth의 기존 compute에서 한 노드만 요청합니다.
 사용자가 승인한 maxNodeCount=3은 재고 보장이 아닙니다. FP8의 전원·작업은
 NVFP4 기동/복구에 의해 변경하지 않습니다. 탭/모델 선택도 GPU 기동을 유발하지 않습니다.
