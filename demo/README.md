@@ -111,7 +111,7 @@ XLSX 수식은 실행·평가하지 않고 오류로 안내합니다.
 설명합니다. `web_iq.py`는 공식 `mcp==1.30.0` SDK로 initialize → tools/list → tools/call을
 수행합니다. 기존 승인된 사용자 프로젝트의 직접 MCP 계약
 (`https://api.microsoft.ai/v3/mcp`, `x-apikey`, `web`, `query`)을 지원하고,
-실제 서버가 광고한 input schema와 고정 옵션을 검증한 후에만 MAF 검색 도구를 등록합니다.
+실제 서버가 광고한 도구별 input schema를 검증한 후에만 각각 native MAF 도구로 등록합니다.
 Foundry 연결에서 키를 관리하더라도 검색은 MCP에 직접 보내며 Foundry 모델을 호출하지 않습니다.
 미구성/연결 실패 시 검색 도구를 등록하지 않으며 `/api/capabilities`와 모델 system 메시지가
 실제 상태와 blocker를 전달합니다. MCP 테스트 fixture는 실제 enterprise 검색 검증이 아닙니다.
@@ -131,15 +131,38 @@ Foundry 연결에서 키를 관리하더라도 검색은 MCP에 직접 보내며
 setting으로 전달합니다. 배포 bundle은 루트 입력 파일을 포함하지 않고 frontend 안의
 모든 `.env`-prefixed 파일/디렉터리도 제외합니다.
 
-검색은 Agent Framework, Document Intelligence, Python, Web Platform, Web IQ의 **고정 공개 문서 주제**
-중 하나로 제한합니다. 모델이 임의 검색어·파일명·코드·문서·secret을 외부로 보낼 수 없습니다.
+공개 일반 검색어를 지원하며, 문서 5개 주제 제한은 없습니다.
+현재 공급자가 광고하는 `web`, `news`, `finance`, `places`, `autosuggest`, `browse`,
+`images`, `videos`, `sports`, `sonic`을 각각 `web_iq_<이름>` MAF 도구로 제공합니다.
+`finance`에는 query/language/region만 전달하고, 뉴스·미디어·통합 검색 등에는
+해당 도구가 실제 광고한 필드만 전달합니다. `sonic`은 통합 웹·뉴스·금융 검색이며 음성 도구가 아닙니다.
+발견됐다는 사실과 실제 자료가 반환됐다는 사실은 구분합니다:
+`tools`는 발견된 지원 목록, `verified_tools`는 성공한 실제 호출 목록입니다.
+현재 공개 smoke 호출에서 10개 모두 실제 응답을 받았으나 autosuggest 응답에는 제안 목록이 없었습니다.
+스포츠 응답에는 경기 자료가 있었지만 citation URL은 없었으며 출처 링크를 만들지 않습니다.
+
+첨부 파일이 없는 대화에서는 자유로운 공개 검색과 후속 검색이 가능합니다.
+첨부가 있는 대화에서는 서버가 최신 사용자 메시지로 **턴별 검색 허가**를 만들고
+명시적인 검색 요청에 사용자가 직접 입력한 검색어만 허용합니다.
+파일명·파일 내용·업로드에서 추출한 새 검색어는 middleware에 묶인 도구 permission이 거부합니다.
+이는 비공개 파일을 검색 자료로 보내는 동의가 아닙니다.
+같은 대화에서 첨부와 무관한 공개 검색을 하려면 검색어를 직접 입력하세요;
+자유롭게 검색어를 확장하려면 파일 없는 새 대화를 사용합니다. 자격증명 형태의 검색어도 거부합니다.
 요청 30초, 응답 192 KiB, 표시 citation 최대 12개이며 실제 공급자가 반환한 URL/원본 provenance만
 유지합니다. 성공한 실제 query가 있어야 `verified_search`가 true입니다.
-실제 Web IQ `web` schema에서 광고한 경우 기본 검색을 최대 5개 결과,
+실제 schema에서 광고한 경우 기본 검색을 최대 5개 결과,
 `contentFormat=passage`, `maxLength=1500`, `safeSearch=strict`로 제한합니다.
-기본 HTML 전문 응답은 안전한 응답 크기를 초과할 수 있으므로 사용하지 않습니다.
-운영자가 명시한 옵션은 덮어쓰지 않으며 실제 광고된 schema로 검증합니다.
+passage 미지원 browse는 text를 사용합니다. 상한 초과 입력은 오류로 표시하며 조용히 무시하지 않습니다.
+`browse`는 공개 HTTP(S) 도메인만 허용하며 자격증명·query string·인증 URL·사설 DNS 주소를 거부합니다.
+공급자 indexed retrieval만 사용(`liveCrawl=none`, dynamic rendering 금지)하여
+실시간 크롤링·리디렉션을 통한 내부 URL 접근을 요청하지 않습니다. App Service는 대상 페이지를 fetch하지 않습니다.
 입력/결과/시간은 접이식 action 카드, 출처는 해당 카드의 링크로 확인합니다. 대체 검색은 없습니다.
+뉴스·주가·장소는 실제 반환 필드를 읽기 쉽게 표시하고 원본 JSON은 별도로 펼칩니다.
+이미지·동영상은 원본 출처 링크만 제공하며 자동 로드/임베드/재배포하지 않습니다(CSP 유지).
+금융 카드는 공급자의 종목·통화·가격·거래 시각·시간대·자료 출처를 표시하며
+거래소나 지연 여부가 응답에 없으면 미제공/미확인입니다. 조회 시각은 시세 기준 시각이 아닙니다.
+삼성전자 공개 live smoke는 `005930`, KRW, LSEG, `lastTradedAt`을 실제 반환했지만
+거래소·지연 상태는 미제공이므로 실시간 KRX feed라고 보증하지 않습니다.
 
 `run_tests`도 승인된 외부 격리 샌드박스가 없어 명시적 미구성 오류만 반환합니다.
 호스트/GPU에서 업로드·모델 생성 코드를 실행하지 않으며 테스트 통과를 꾸미지 않습니다.
