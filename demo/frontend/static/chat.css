@@ -3,8 +3,9 @@
   --soft: #f4f4f4; --hover: #ececec; --user: #f1f1f1; --accent: #e5002b; --accent-soft: #fdecef;
   --ok: #10a37f; --busy: #d18a00; --off: #a0a0a0; --error: #d93025; --code-bg: #171717; --code-head: #2f2f2f;
   --shadow: 0 4px 24px rgba(0, 0, 0, .06), 0 0 0 1px rgba(0, 0, 0, .06);
+  --chat-width: 1200px; --chat-gutter: clamp(18px, 3vw, 48px);
   font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, -apple-system, sans-serif;
-  font-size: 16px; line-height: 1.7; color: var(--text); background: var(--bg);
+  font-size: 18px; line-height: 1.7; color: var(--text); background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 @media (prefers-color-scheme: dark) {
@@ -51,14 +52,14 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
 /* --------------------------------------------------------------- layout */
 .app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
-.topbar { display: flex; align-items: center; justify-content: space-between; padding: .55rem .9rem; flex: none; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: .7rem 1.1rem; flex: none; }
 .title { display: flex; align-items: center; gap: .4rem; font-weight: 600; font-size: 1.05rem; padding: .3rem .5rem; }
 .title span:not(.dot) { font-weight: 400; color: var(--muted); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); flex: none; margin-left: .2rem; }
 .dot.ok { background: var(--ok); }
 .dot.busy { background: var(--busy); animation: pulse 1.4s ease-in-out infinite; }
-.messages { flex: 1; overflow-y: auto; padding: 1rem 1rem 2rem; }
-.messages > * { max-width: 768px; margin-left: auto; margin-right: auto; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; padding: 1.2rem var(--chat-gutter) 2rem; }
+.messages > *, .dock > * { width: 100%; max-width: var(--chat-width); margin-left: auto; margin-right: auto; }
 
 /* --------------------------------------------------------------- welcome */
 .welcome { min-height: 100%; display: flex; flex-direction: column; justify-content: center; text-align: center; padding-bottom: 4rem; }
@@ -104,6 +105,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .tool-icon svg { width: 15px; height: 15px; }
 .tool-name { font-weight: 600; flex: none; }
 .tool-preview { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.artifact-name { min-width: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-card > summary > button { flex: none; padding: .25rem .65rem; border: 1px solid var(--line); border-radius: 8px; }
 .tool-state { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: #fff; }
 .tool-state svg { width: 12px; height: 12px; stroke-width: 3; }
 .tool-card.error .tool-state { background: var(--error); }
@@ -160,8 +163,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .plain { white-space: pre-wrap; }
 
 /* --------------------------------------------------------------- composer */
-.dock { padding: 0 1rem .6rem; background: linear-gradient(to bottom, transparent, var(--bg) 1.2rem); }
-.dock > * { max-width: 768px; margin-left: auto; margin-right: auto; }
+.dock { padding: 0 var(--chat-gutter) .8rem; background: linear-gradient(to bottom, transparent, var(--bg) 1.2rem); }
 .banner { margin-bottom: .6rem; padding: .6rem .9rem; border-radius: 14px; font-size: .88rem; background: var(--soft); color: var(--muted);
   display: flex; align-items: center; gap: .6rem; }
 .banner::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--busy); flex: none; animation: pulse 1.4s infinite; }
@@ -180,9 +182,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .chip .remove { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; line-height: 1; color: var(--muted); }
 .chip .remove:hover { background: var(--hover); color: var(--text); }
 .composer-bar { display: flex; align-items: center; gap: .35rem; margin-top: .35rem; }
-.icon-btn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--muted); cursor: pointer; }
+.icon-btn { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--muted); cursor: pointer; flex: none; }
 .icon-btn:hover { background: var(--soft); color: var(--text); }
-.pill { position: relative; display: inline-flex; align-items: center; gap: .35rem; height: 36px; padding: 0 .8rem; border-radius: 999px; font-size: .86rem;
+.pill { position: relative; display: inline-flex; align-items: center; gap: .35rem; height: 42px; padding: 0 .9rem; border-radius: 999px; font-size: .9rem;
   border: 1px solid var(--line); color: var(--muted); cursor: pointer; user-select: none; transition: all .15s; }
 .pill svg { width: 16px; height: 16px; }
 .pill input { position: absolute; opacity: 0; pointer-events: none; }
@@ -193,7 +195,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .hint { flex: 1; min-width: 0; font-size: .8rem; color: var(--faint); text-align: right; padding-right: .3rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hint.error { color: var(--error); }
-.round-btn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--text); color: var(--bg); flex: none; }
+.round-btn { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--text); color: var(--bg); flex: none; }
 .round-btn svg { width: 18px; height: 18px; stroke-width: 2.4; }
 #stop svg { fill: currentColor; stroke: none; }
 .round-btn:disabled { opacity: 1; background: var(--hover); color: var(--faint); }
@@ -208,8 +210,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
 /* --------------------------------------------------------------- mobile */
 @media (max-width: 800px) {
-  .messages { padding: .5rem .8rem 1.5rem; }
+  .messages { padding: .5rem var(--chat-gutter) 1.5rem; }
   .msg.user .bubble { max-width: 88%; }
   .welcome h2 { font-size: 1.5rem; }
-  .dock { padding: 0 .6rem .5rem; }
+  .dock { padding: 0 var(--chat-gutter) .5rem; }
 }

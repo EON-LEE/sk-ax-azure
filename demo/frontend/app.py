@@ -16,7 +16,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -26,6 +26,7 @@ from hub import ChatRelay, Full, Gate, Hub
 from store import RUN, Store, check_password, hash_password, new_password, token_digest
 from supervisor import Supervisor, load_module
 from workspace import LIMIT as FILE_LIMIT, Workspaces, safe_preview
+from web_iq import WebIQ
 
 HERE = Path(__file__).resolve().parent
 COOKIES = {"demo": ("axk2_demo", 24 * 3600), "admin": ("axk2_admin", 12 * 3600)}
@@ -562,6 +563,8 @@ def create_app(config=None, azure=None, start_supervisor=True):
     app.state.config, app.state.store, app.state.hub, app.state.gate = config, store, hub, gate
     app.state.supervisor, app.state.auth = supervisor, auth
     workspaces = Workspaces()
+    web_iq = WebIQ()
+    app.state.web_iq = web_iq
     upload_gate = asyncio.Semaphore(2)
 
     @app.exception_handler(Problem)
@@ -613,7 +616,14 @@ def create_app(config=None, azure=None, start_supervisor=True):
 
     @app.get("/healthz")
     async def healthz():
-        return {"ok": True, "agent": "maf-1.20.0", "web_iq": "not_configured", "sandbox": "not_configured"}
+        return {"ok": True, "agent": "maf-1.20.0", "web_iq": web_iq.status()["state"],
+                "sandbox": "not_configured"}
+
+    @app.get("/api/capabilities")
+    async def capabilities(request: Request):
+        require_demo(request)
+        await web_iq.prepare()
+        return {"web_iq": web_iq.status(), "ocr": "not_configured", "sandbox": "not_configured"}
 
     async def login(request, roles, cookie):
         body = await read_json(request, 4096)
@@ -713,8 +723,10 @@ def create_app(config=None, azure=None, start_supervisor=True):
             data = space.get(path)
         except ValueError as exc:
             raise Problem(404, "file", str(exc))
-        return Response(data, media_type="application/octet-stream",
-                        headers={"Content-Disposition": "attachment; filename=\"artifact\""})
+        name = path.rsplit("/", 1)[-1]
+        fallback = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+        disposition = f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+        return Response(data, media_type="application/octet-stream", headers={"Content-Disposition": disposition})
 
     @app.post("/api/workspace/remove")
     async def remove_attachment(request: Request):
@@ -727,6 +739,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
         for name in names:
             space.files.pop(name, None)
             space.original.pop(name, None)
+            space.pdf_checked.discard(name)
         return {"ok": True}
 
     @app.post("/api/agent")
@@ -735,6 +748,20 @@ def create_app(config=None, azure=None, start_supervisor=True):
         space = workspace_for(request)
         raw = await read_json(request, CHAT_LIMIT)
         body = chat_body(raw)
+        attachments = raw.get("attachments", [])
+        if (not isinstance(attachments, list) or len(attachments) > 100
+                or any(not isinstance(p, str) for p in attachments)):
+            raise Problem(400, "attachments", "attachments must be a bounded list of workspace file paths")
+        try:
+            for path in attachments:
+                space.get(path)
+        except ValueError as exc:
+            raise Problem(400, "attachments", str(exc))
+        pdfs = {p for p in attachments if p.lower().endswith(".pdf")}
+        if len(pdfs) > 3:
+            raise Problem(400, "attachments", "한 번에 PDF는 3개까지 읽을 수 있습니다.")
+        if pdfs and not raw.get("tools"):
+            raise Problem(400, "tools_disabled", "PDF를 읽으려면 도구를 켜 주세요. 파일 형식이나 스캔 여부는 아직 확인하지 않았습니다.")
         if any(m["role"] not in ("user", "assistant") or m.get("tool_calls") for m in body["messages"]):
             raise Problem(400, "bad_messages", "Agent input accepts only user/assistant text, not client tool results")
         if hub.ready_link() is None:
@@ -742,7 +769,8 @@ def create_app(config=None, azure=None, start_supervisor=True):
         if space.busy:
             raise Problem(409, "workspace_busy", "This chat is already running")
         space.busy = True
-        return agent_response(hub, gate, body, space, bool(raw.get("tools")), tool_gate=upload_gate)
+        return agent_response(hub, gate, body, space, bool(raw.get("tools")), tool_gate=upload_gate,
+                              attachment_paths=attachments, web_iq=web_iq)
 
     @app.get("/api/workspace/preview")
     async def preview(request: Request):
