@@ -15,13 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "demo" / "frontend"))
 from agent import agent_response
 from hub import Gate
-from web_iq import MAX_RESPONSE, TOPICS, WebIQ, WebIQProblem, citations
+from web_iq import MAX_RESPONSE, PublicSearchPermission, VERTICALS, WebIQ, WebIQProblem, citations
 from workspace import Workspace
 sys.path.pop(0)
 from tests.test_demo_agent import FixtureHub, FixtureLink
 
 SETTINGS = {
-    "AXK2_WEBIQ_ENDPOINT": "https://enterprise.example.test/mcp",
+    "AXK2_WEBIQ_ENDPOINT": "https://enterprise.example.org/mcp",
     "AXK2_WEBIQ_BEARER_TOKEN": "fixture-secret-only",
     "AXK2_WEBIQ_ACCESS_APPROVED": "1",
     "AXK2_WEBIQ_TOOL": "public_lookup",
@@ -104,14 +104,13 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(provider.verified_search)
             self.assertEqual([t.name for t in provider.tools()], ["web_iq_search"])
             result = json.loads(await provider.search("agent-framework"))
-            self.assertEqual(calls, [{"q": TOPICS["agent-framework"], "count": 2}])
+            self.assertEqual(calls, [{"q": "agent-framework", "count": 2}])
             self.assertEqual(result["citations"][0]["title"], "Actual fixture provenance")
             self.assertEqual(result["citations"][0]["provenance"]["snippet"],
                              "Returned by the protocol fixture, not live Web IQ.")
             self.assertTrue(provider.verified_search)
-            with self.assertRaises(WebIQProblem):
-                await provider.search("uploaded confidential text")
-            self.assertEqual(len(calls), 1)
+            await provider.search("Samsung stock latest news")
+            self.assertEqual(len(calls), 2)
 
     async def test_discovered_contract_not_guessed_and_arguments_validated(self):
         async with provider_fixture() as (provider, calls):
@@ -134,7 +133,7 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
             await provider.prepare()
             self.assertTrue(provider.ready, provider.reason)
             result = json.loads(await provider.search("agent-framework"))
-            self.assertEqual(calls, [{"query": TOPICS["agent-framework"], "maxResults": 5,
+            self.assertEqual(calls, [{"query": "agent-framework", "maxResults": 5,
                                      "contentFormat": "passage", "maxLength": 1500, "safeSearch": "strict"}])
             self.assertTrue(provider.verified_search)
             self.assertEqual(result["citations"][0]["title"], "Bounded fixture")
@@ -156,24 +155,26 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
         async with provider_fixture() as (provider, calls):
             space = Workspace()
             space.put("confidential.txt", b"never send this secret")
-            link = FixtureLink("web_iq_search", {"topic": "python"})
+            link = FixtureLink("web_iq_search", {"q": "Python docs"})
             response = agent_response(FixtureHub(link), Gate(1, 2), {
-                "messages": [{"role": "user", "content": "look up public Python docs"}], "model": "axk2"},
+                "messages": [{"role": "user", "content": "search public Python docs"}], "model": "axk2"},
                 space, True, web_iq=provider)
             output = b"".join([chunk async for chunk in response.body_iterator]).decode()
             self.assertIn('"state": "success"', output)
             self.assertIn('"citations"', output)
-            self.assertEqual(calls, [{"q": TOPICS["python"], "count": 2}])
+            self.assertEqual(calls, [{"q": "Python docs", "count": 2}])
             self.assertNotIn("confidential", str(calls))
             self.assertNotIn("fixture-secret-only", output + str(link.requests))
             self.assertEqual(len(link.requests), 2)
 
-    async def test_invalid_model_topic_is_visible_error_without_provider_query(self):
+    async def test_upload_derived_query_is_visible_error_without_provider_query(self):
         async with provider_fixture() as (provider, calls):
-            link = FixtureLink("web_iq_search", {"topic": "uploaded confidential contents"})
+            link = FixtureLink("web_iq_search", {"q": "uploaded confidential contents"})
+            space = Workspace()
+            space.put("private.txt", b"uploaded confidential contents")
             response = agent_response(FixtureHub(link), Gate(1, 2), {
                 "messages": [{"role": "user", "content": "invalid topic fixture"}], "model": "axk2"},
-                Workspace(), True, web_iq=provider)
+                space, True, web_iq=provider)
             output = b"".join([chunk async for chunk in response.body_iterator]).decode()
             self.assertIn('"state": "error"', output)
             self.assertNotIn('"state": "success"', output)
@@ -194,6 +195,8 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
         provider.ready = True
         from jsonschema import Draft202012Validator
         provider.validator = Draft202012Validator({"type": "object"})
+        provider.catalog[provider.name] = ({"type": "object", "properties": {"q": {"type": "string"}, "count": {"type": "integer"}}},
+                                           provider.validator, "q", "fixture")
         with self.assertRaises(WebIQProblem) as caught:
             await provider.search("python")
         self.assertNotIn("secret-bearer-value", str(caught.exception))

@@ -43,7 +43,10 @@
     read_file: "문서 읽기", read_pdf: "PDF 페이지 읽기", ocr_pdf: "PDF OCR (미구성)",
     search_files: "파일 검색", write_file: "파일 수정", diff_file: "변경 비교",
     analyze_table: "표 분석", chart_table: "차트", preview_html: "HTML 미리보기",
-    web_iq_search: "Web IQ 공개 문서 검색", run_tests: "실행 샌드박스 (미구성)" };
+    web_iq_search: "Web IQ 검색", web_iq_web: "웹 검색", web_iq_news: "뉴스 검색",
+    web_iq_finance: "금융 데이터", web_iq_places: "장소 검색", web_iq_browse: "공개 페이지 읽기",
+    web_iq_images: "이미지 검색", web_iq_videos: "동영상 검색", web_iq_sports: "스포츠 검색",
+    web_iq_sonic: "통합 검색", web_iq_autosuggest: "검색어 제안", run_tests: "실행 샌드박스 (미구성)" };
 
   async function workspace() {
     if (state.workspace) return state.workspace;
@@ -412,9 +415,31 @@
         el("pre", { text: clip(pretty(JSON.stringify(action.arguments)), 250000) }));
     }
     if (action.result !== undefined) {
+      const items = action.result && action.result.items;
+      if (Array.isArray(items)) {
+        body.append(el("p", { class: "tiny", text: `조회 시각: ${action.result.retrieved_at || "알 수 없음"} · 자료/시세 기준 시각과 다를 수 있습니다.` }));
+        if (!items.length) body.append(el("p", { text: "표시할 결과가 없습니다. 검색 성공이 자료의 존재나 실시간성을 보장하지 않습니다." }));
+        for (const item of items.slice(0, 10)) {
+          const entry = el("div", { class: "search-result" });
+          entry.append(el("strong", { text: item.title || item.kind }));
+          if (item.snippet) entry.append(el("p", { text: clip(item.snippet, 700) }));
+          if (item.quote) {
+            const q = item.quote;
+            entry.append(el("p", { text: `${q.symbol || "종목 미상"} · ${q.price ?? "가격 미상"} ${q.currency || ""} · 거래소: ${q.exchange || "미제공"}` }),
+              el("p", { class: "tiny", text: `기준: ${q.lastTradedAt || "미제공"} (${q.exchangeTimeZone || "시간대 미상"}) · 출처: ${q.primaryDataProvider || "미제공"} · 지연: ${q.isDelayed === true ? "지연" : q.isDelayed === false ? "비지연(제공자 표시)" : "미확인"}` }));
+          }
+          if (item.location) entry.append(el("p", { text: ["addressLine", "city", "region", "country"].map(k => item.location[k]).filter(Boolean).join(", ") || "주소 미제공" }));
+          const date = item.publishedAt || item.datePublished || item.lastUpdatedAt;
+          if (date) entry.append(el("p", { class: "tiny", text: `자료 시각: ${date}` }));
+          if (item.media_notice) entry.append(el("p", { class: "tiny", text: "원본 출처 링크만 제공합니다. 이미지·동영상 사용권은 별도 확인하세요." }));
+          if (typeof item.url === "string" && /^https?:\/\//i.test(item.url)) entry.append(el("a", { href: item.url, target: "_blank", rel: "noopener noreferrer", text: "출처 열기" }));
+          body.append(entry);
+        }
+      }
       const resultText = typeof action.result === "string" ? action.result : JSON.stringify(action.result, null, 2);
       if (resultText && resultText.trim()) {
-        body.append(el("div", { class: "tiny", text: "결과" }), el("pre", { text: clip(resultText, 30000) }));
+        if (Array.isArray(items)) body.append(el("details", null, el("summary", { text: "실제 반환 데이터" }), el("pre", { text: clip(resultText, 30000) })));
+        else body.append(el("div", { class: "tiny", text: "결과" }), el("pre", { text: clip(resultText, 30000) }));
       }
       const artifact = action.result && action.result.artifact;
       if (artifact && artifact.kind !== "download") body.append(artifactButton(artifact));
@@ -703,7 +728,7 @@
       if (!response.ok) throw new Error((await AX.problem(response)).message);
       const capabilities = await response.json();
       ui.tools.title = capabilities.web_iq.state === "ready"
-        ? "문서·파일·데이터 도구 / Web IQ: 고정 공개 문서 주제만 검색"
+        ? `문서·파일·데이터 도구 / Web IQ: ${(capabilities.web_iq.tools || []).join(", ")} · 공개 검색 (첨부 내용 자동 전송 금지)`
         : "문서·파일·데이터 도구 / Web IQ 미구성: 기업용 엔드포인트·계약·접근 설정 필요";
     }).catch((error) => {
       ui.tools.title = "도구 구성 조회 실패: " + error.message;

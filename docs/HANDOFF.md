@@ -37,8 +37,18 @@ sources. The existing A.X job executed `web_iq_search` through real MAF,
 streamed thinking and synthesized an answer citing actual returned URLs;
 `/api/capabilities` reported `ready` and `verified_search: true`.
 An independent browser showed the real search card and returned source
-links. Search remains restricted to five fixed public documentation topics;
-OCR and isolated code execution are still unavailable. No GPU changes.
+links. The subsequent public-search extension removes the original five-topic
+cap and registers all ten actually advertised MCP verticals as native MAF tools:
+web/news/finance/places/autosuggest/browse/images/videos/sports/sonic.
+Each tool has its own discovered schema and bounded options. Public provider
+smoke calls returned all ten responses; Samsung finance returned symbol 005930,
+KRW and LSEG with a trade timestamp, but no exchange/delay fields. Autosuggest
+returned no suggestion list; sports returned games without citation URLs.
+No invented sources, live-feed claims or media embedding rights. Attachments
+require explicit current-turn public search terms; upload-derived queries are
+blocked. Browse is indexed-only with public-domain/DNS/credential URL checks,
+no live crawl/dynamic rendering. OCR and isolated code execution remain
+unavailable. No GPU changes.
 Tests require an approved external isolated sandbox; no uploaded/generated
 code is executed on App Service or GPU, and no test pass is invented.
 Do not provision resources or grant permissions without user approval.
