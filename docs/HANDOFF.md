@@ -28,6 +28,17 @@ key/access (see `demo/README.md`); do not create a connection or grant new
 permissions. `/api/capabilities` reports the actual state and whether a real
 query succeeded. No operational search tool is registered before discovery.
 Protocol-fixture tests alone do not establish live enterprise access.
+
+Web IQ activation was verified on 2026-10-07 using the user's separate
+AX-only key input (`.env.webiq`, git-excluded and never bundled) and an
+approved memory-only transfer to secure App Service settings. Real MCP
+initialize/discovery and bounded passage queries return Microsoft Learn
+sources. The existing A.X job executed `web_iq_search` through real MAF,
+streamed thinking and synthesized an answer citing actual returned URLs;
+`/api/capabilities` reported `ready` and `verified_search: true`.
+An independent browser showed the real search card and returned source
+links. Search remains restricted to five fixed public documentation topics;
+OCR and isolated code execution are still unavailable. No GPU changes.
 Tests require an approved external isolated sandbox; no uploaded/generated
 code is executed on App Service or GPU, and no test pass is invented.
 Do not provision resources or grant permissions without user approval.

@@ -168,6 +168,19 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("fixture-secret-only", output + str(link.requests))
             self.assertEqual(len(link.requests), 2)
 
+    async def test_invalid_model_topic_is_visible_error_without_provider_query(self):
+        async with provider_fixture() as (provider, calls):
+            link = FixtureLink("web_iq_search", {"topic": "uploaded confidential contents"})
+            response = agent_response(FixtureHub(link), Gate(1, 2), {
+                "messages": [{"role": "user", "content": "invalid topic fixture"}], "model": "axk2"},
+                Workspace(), True, web_iq=provider)
+            output = b"".join([chunk async for chunk in response.body_iterator]).decode()
+            self.assertIn('"state": "error"', output)
+            self.assertNotIn('"state": "success"', output)
+            self.assertEqual(calls, [])
+            self.assertNotIn("fixture-secret-only", output)
+            self.assertEqual(len(link.requests), 2)
+
     async def test_failure_redaction_and_size_bound(self):
         class Session:
             async def call_tool(self, *args):
