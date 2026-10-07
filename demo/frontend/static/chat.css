@@ -65,7 +65,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 /* --------------------------------------------------------------- welcome */
 .welcome { min-height: 100%; display: flex; flex-direction: column; justify-content: center; text-align: center; padding-bottom: 4rem; }
 .welcome h2 { font-size: 1.85rem; font-weight: 600; letter-spacing: -.02em; margin: 0 0 1.75rem; }
-.suggestions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .6rem; text-align: left; }
+.suggestions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; text-align: left; }
+@media (min-width: 1200px) { .suggestions { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .suggestion { display: flex; flex-direction: column; gap: .15rem; padding: .85rem 1rem; border-radius: 16px; border: 1px solid var(--line);
   background: var(--bg); transition: background .15s, border-color .15s, transform .15s; }
 .suggestion:hover { background: var(--soft); transform: translateY(-1px); }
