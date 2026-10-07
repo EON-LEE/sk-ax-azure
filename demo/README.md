@@ -77,6 +77,7 @@ MAF의 `options.instructions`를 실제 vLLM system 메시지로 전달합니다
 
 데스크톱 화면의 채팅과 입력창은 동일한 1200px 상한과 좌우 gutter를 사용합니다.
 본문 18px, 주요 전송·첨부·토글 컨트롤 42px이며 좁은 패널에서는 함께 줄어듭니다.
+대화와 입력 영역 모두 동일한 stable scrollbar gutter를 예약하여 긴 대화에서도 정렬을 유지합니다.
 CSS zoom/transform 확대나 상시 IDE 패널은 사용하지 않습니다.
 
 지원 도구: 유리수 기반 정확 계산, IANA 시간대, 파일 목록/읽기/문자열 검색/텍스트 수정/
