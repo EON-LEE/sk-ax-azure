@@ -4,6 +4,7 @@ import sys
 import unittest
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 from unittest.mock import patch
 
 import httpx
@@ -41,6 +42,16 @@ async def provider_fixture():
         return {"results": [{"title": "Actual fixture provenance",
                              "url": "https://learn.microsoft.com/agent-framework/overview/",
                              "snippet": "Returned by the protocol fixture, not live Web IQ."}]}
+
+    @server.tool()
+    async def bounded_public_lookup(query: str, maxResults: int = 10, maxLength: int = 10000,
+                                    contentFormat: Literal["passage", "html"] = "html",
+                                    safeSearch: Literal["off", "strict"] = "strict") -> dict:
+        arguments = {"query": query, "maxResults": maxResults, "maxLength": maxLength,
+                     "contentFormat": contentFormat, "safeSearch": safeSearch}
+        calls.append(arguments)
+        return {"results": [{"url": "https://learn.microsoft.com/agent-framework/",
+                             "title": "Bounded fixture", "passage": "Actual fixture text" * maxLength}]}
 
     app = server.streamable_http_app()
     original_client = httpx.AsyncClient
@@ -115,6 +126,31 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(invalid.reason, reason)
                 self.assertEqual(invalid.tools(), [])
             self.assertEqual(calls, [])
+
+    async def test_advertised_passage_bounds_avoid_oversized_html_defaults(self):
+        async with provider_fixture() as (_, calls):
+            provider = WebIQ(dict(SETTINGS, AXK2_WEBIQ_TOOL="bounded_public_lookup",
+                                  AXK2_WEBIQ_QUERY_FIELD="query", AXK2_WEBIQ_ARGUMENTS_JSON="{}"))
+            await provider.prepare()
+            self.assertTrue(provider.ready, provider.reason)
+            result = json.loads(await provider.search("agent-framework"))
+            self.assertEqual(calls, [{"query": TOPICS["agent-framework"], "maxResults": 5,
+                                     "contentFormat": "passage", "maxLength": 1500, "safeSearch": "strict"}])
+            self.assertTrue(provider.verified_search)
+            self.assertEqual(result["citations"][0]["title"], "Bounded fixture")
+            self.assertLess(len(json.dumps(result).encode()), MAX_RESPONSE)
+            self.assertNotIn("maxResults", (WebIQ(SETTINGS)).arguments)
+
+    async def test_explicit_valid_provider_bounds_are_not_overwritten(self):
+        async with provider_fixture() as (_, calls):
+            provider = WebIQ(dict(SETTINGS, AXK2_WEBIQ_TOOL="bounded_public_lookup",
+                                  AXK2_WEBIQ_QUERY_FIELD="query",
+                                  AXK2_WEBIQ_ARGUMENTS_JSON='{"maxResults":2,"maxLength":800}'))
+            await provider.prepare()
+            self.assertTrue(provider.ready, provider.reason)
+            await provider.search("python")
+            self.assertEqual((calls[0]["maxResults"], calls[0]["maxLength"]), (2, 800))
+            self.assertEqual((calls[0]["contentFormat"], calls[0]["safeSearch"]), ("passage", "strict"))
 
     async def test_actual_maf_function_action_replay_and_no_private_query(self):
         async with provider_fixture() as (provider, calls):
