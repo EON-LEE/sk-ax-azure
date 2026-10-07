@@ -171,6 +171,12 @@ class Workspace:
         self.files, self.original = {}, {}
         self.busy = False
         self.pdf_checked = set()
+        self.pdf_outcomes = {}
+        self.history = []
+        self.tool_events = []
+        self.active_task = None
+        self.active_turn = None
+        self.closed = False
 
     def put(self, name, data, original=False):
         name = filename(name)
@@ -211,17 +217,9 @@ class Workspace:
         return self.files[name]
 
     def read_pdf(self, path, start_page=1, page_count=3, offset=0):
-        from pdf_documents import PDFProblem, read_pdf
+        from pdf_documents import read_pdf
         data = self.get(path)
-        try:
-            result = read_pdf(data, path, start_page, page_count, offset)
-        except PDFProblem as exc:
-            if exc.result["error"] != "pdf_range":
-                self.pdf_checked.add(path)
-            raise
-        else:
-            self.pdf_checked.add(path)
-            return result
+        return read_pdf(data, path, start_page, page_count, offset)
 
     def tools(self):
         from agent_framework import tool

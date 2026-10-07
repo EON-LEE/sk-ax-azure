@@ -694,6 +694,30 @@ def create_app(config=None, azure=None, start_supervisor=True):
             raise Problem(503, "workspace_capacity", str(exc))
         return {"token": space.token, "expires_after_seconds": workspaces.ttl}
 
+    @app.post("/api/workspace/cancel")
+    async def cancel_turn(request: Request):
+        space = workspace_for(request, allow_busy=True)
+        if space.active_task:
+            space.active_task.cancel()
+            await asyncio.gather(space.active_task, return_exceptions=True)
+        return {"ok": True, "state": "cancelled"}
+
+    @app.post("/api/workspace/close")
+    async def close_workspace(request: Request):
+        space = workspace_for(request, allow_busy=True)
+        space.closed = True
+        if space.active_task:
+            space.active_task.cancel()
+            await asyncio.gather(space.active_task, return_exceptions=True)
+        space.files.clear()
+        space.original.clear()
+        space.history.clear()
+        space.tool_events.clear()
+        space.pdf_checked.clear()
+        space.pdf_outcomes.clear()
+        workspaces.items.pop(space.token, None)
+        return {"ok": True}
+
     @app.post("/api/workspace/upload")
     async def upload(request: Request):
         space = workspace_for(request)
@@ -740,6 +764,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
             space.files.pop(name, None)
             space.original.pop(name, None)
             space.pdf_checked.discard(name)
+            space.pdf_outcomes.pop(name, None)
         return {"ok": True}
 
     @app.post("/api/agent")
@@ -747,6 +772,8 @@ def create_app(config=None, azure=None, start_supervisor=True):
         from agent import agent_response
         space = workspace_for(request)
         raw = await read_json(request, CHAT_LIMIT)
+        if not isinstance(raw.get("tools", False), bool):
+            raise Problem(400, "tools", "tools must be a boolean")
         body = chat_body(raw)
         attachments = raw.get("attachments", [])
         if (not isinstance(attachments, list) or len(attachments) > 100
@@ -764,12 +791,14 @@ def create_app(config=None, azure=None, start_supervisor=True):
             raise Problem(400, "tools_disabled", "PDF를 읽으려면 도구를 켜 주세요. 파일 형식이나 스캔 여부는 아직 확인하지 않았습니다.")
         if any(m["role"] not in ("user", "assistant") or m.get("tool_calls") for m in body["messages"]):
             raise Problem(400, "bad_messages", "Agent input accepts only user/assistant text, not client tool results")
+        if body["messages"][-1]["role"] != "user":
+            raise Problem(400, "bad_messages", "Agent input must end with the current user request")
         if hub.ready_link() is None:
             raise Problem(503, "not_ready", "모델 서버가 아직 준비되지 않았습니다.")
         if space.busy:
             raise Problem(409, "workspace_busy", "This chat is already running")
         space.busy = True
-        return agent_response(hub, gate, body, space, bool(raw.get("tools")), tool_gate=upload_gate,
+        return agent_response(hub, gate, body, space, raw.get("tools") is True, tool_gate=upload_gate,
                               attachment_paths=attachments, web_iq=web_iq)
 
     @app.get("/api/workspace/preview")

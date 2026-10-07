@@ -113,7 +113,8 @@ class PDFIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("매출 120", output)
         self.assertIn("[page 1]", output)
         self.assertIn(path, space.pdf_checked)
-        self.assertEqual(link.requests[0]["tool_choice"], {"type": "function", "function": {"name": "read_pdf"}})
+        self.assertEqual(link.requests[0]["tool_choice"], "auto")
+        self.assertIn("text_extracted", next(m["content"] for m in link.requests[0]["messages"] if m["role"] == "tool"))
         self.assertEqual(link.requests[1]["tool_choice"], "auto")
         tools = {t["function"]["name"]: t["function"] for t in link.requests[0]["tools"]}
         self.assertIn("Korean", tools["read_pdf"]["description"])
