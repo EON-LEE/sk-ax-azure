@@ -59,6 +59,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .dot.ok { background: var(--ok); }
 .dot.busy { background: var(--busy); animation: pulse 1.4s ease-in-out infinite; }
 .messages { flex: 1; min-height: 0; overflow-y: auto; padding: 1.2rem var(--chat-gutter) 2rem; }
+.messages, .dock { scrollbar-gutter: stable both-edges; }
 .messages > *, .dock > * { width: 100%; max-width: var(--chat-width); margin-left: auto; margin-right: auto; }
 
 /* --------------------------------------------------------------- welcome */
@@ -163,7 +164,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .plain { white-space: pre-wrap; }
 
 /* --------------------------------------------------------------- composer */
-.dock { padding: 0 var(--chat-gutter) .8rem; background: linear-gradient(to bottom, transparent, var(--bg) 1.2rem); }
+.dock { overflow-y: auto; padding: 0 var(--chat-gutter) .8rem; background: linear-gradient(to bottom, transparent, var(--bg) 1.2rem); }
 .banner { margin-bottom: .6rem; padding: .6rem .9rem; border-radius: 14px; font-size: .88rem; background: var(--soft); color: var(--muted);
   display: flex; align-items: center; gap: .6rem; }
 .banner::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--busy); flex: none; animation: pulse 1.4s infinite; }

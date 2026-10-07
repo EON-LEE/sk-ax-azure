@@ -26,6 +26,7 @@ class FilesTests(unittest.TestCase):
         js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()
         self.assertIn("--chat-width: 1200px", css)
         self.assertIn(".messages > *, .dock > *", css)
+        self.assertIn(".messages, .dock { scrollbar-gutter: stable both-edges; }", css)
         self.assertIn("font-size: 18px", css)
         self.assertIn("width: 42px; height: 42px", css)
         self.assertNotIn("zoom:", css)
