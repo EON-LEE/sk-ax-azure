@@ -91,7 +91,8 @@ from pathlib import Path
 root, target = Path(sys.argv[1]), sys.argv[2]
 front = root / "demo" / "frontend"
 files = {p.relative_to(front).as_posix(): p for p in front.rglob("*")
-         if p.is_file() and "__pycache__" not in p.parts}
+         if p.is_file() and "__pycache__" not in p.parts
+         and not any(part.startswith(".env") for part in p.relative_to(front).parts)}
 files["aml/render_job.py"] = root / "aml" / "render_job.py"
 files["aml/jobs/demo-fp8-nd96.yml"] = root / "aml" / "jobs" / "demo-fp8-nd96.yml"
 for p in (root / "aml" / "src").iterdir():

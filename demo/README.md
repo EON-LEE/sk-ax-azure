@@ -124,6 +124,13 @@ Foundry 연결에서 키를 관리하더라도 검색은 MCP에 직접 보내며
 별도 계약의 bearer auth는 `AXK2_WEBIQ_BEARER_TOKEN`이며 API key와 동시에 설정하지 않습니다.
 리디렉션·자동 OAuth/가입·권한 생성은 하지 않습니다. 연결 설정 변경 후 frontend를 다시 시작합니다.
 
+로컬에서 키를 제공할 때는 AX worktree 루트의 git-excluded `.env.webiq`에
+`AXK2_WEBIQ_API_KEY`와 `AXK2_WEBIQ_ENDPOINT`만 입력하고 저장 사실을 알려 주세요.
+키 값을 채팅에 붙여 넣지 않습니다. 이 파일은 서버가 자동 로드하지 않으며,
+운영자가 해당 파일만 읽도록 승인받은 뒤 실제 공개 검색을 검증하고 secure App Service
+setting으로 전달합니다. 배포 bundle은 루트 입력 파일을 포함하지 않고 frontend 안의
+모든 `.env`-prefixed 파일/디렉터리도 제외합니다.
+
 검색은 Agent Framework, Document Intelligence, Python, Web Platform, Web IQ의 **고정 공개 문서 주제**
 중 하나로 제한합니다. 모델이 임의 검색어·파일명·코드·문서·secret을 외부로 보낼 수 없습니다.
 요청 30초, 응답 192 KiB, 표시 citation 최대 12개이며 실제 공급자가 반환한 URL/원본 provenance만
