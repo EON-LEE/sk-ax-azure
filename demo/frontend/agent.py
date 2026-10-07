@@ -10,6 +10,7 @@ from agent_framework import (Agent, BaseChatClient, ChatResponse, ChatResponseUp
 from starlette.responses import StreamingResponse
 
 from hub import ChatRelay, sse
+from pdf_documents import PDFProblem
 
 LOG = logging.getLogger(__name__)
 INSTRUCTIONS = """You are SKT A.X K2, the customer's assistant. Use only the supplied tools.
@@ -191,7 +192,6 @@ class Actions(FunctionMiddleware):
             raise
         except Exception as exc:
             # MAF converts this into an actual tool-error result and allows A.X to explain it.
-            from pdf_documents import PDFProblem
             result = exc.result if isinstance(exc, PDFProblem) else {"error": str(exc)[:1000]}
             await self.emit("action", dict(action, state="error", result=result,
                                           milliseconds=round((time.monotonic() - started) * 1000)))
