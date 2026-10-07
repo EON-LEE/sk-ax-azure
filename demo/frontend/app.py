@@ -27,6 +27,7 @@ from store import RUN, Store, check_password, hash_password, new_password, token
 from supervisor import Supervisor, load_module
 from workspace import LIMIT as FILE_LIMIT, Workspaces, safe_preview
 from web_iq import WebIQ
+from comparison import install as install_comparison
 
 HERE = Path(__file__).resolve().parent
 COOKIES = {"demo": ("axk2_demo", 24 * 3600), "admin": ("axk2_admin", 12 * 3600)}
@@ -101,7 +102,8 @@ class Config:
     @property
     def link_url(self):
         parts = urlsplit(self.public_url)
-        return f"{'wss' if parts.scheme == 'https' else 'ws'}://{parts.netloc}/ws/link" if parts.netloc else ""
+        prefix = parts.path.rstrip("/")
+        return f"{'wss' if parts.scheme == 'https' else 'ws'}://{parts.netloc}{prefix}/ws/link" if parts.netloc else ""
 
     def node_price(self, region):
         return self.prices.get(region, self.price)
@@ -331,6 +333,44 @@ def chat_body(body):
     return out
 
 
+def agent_body(raw, space):
+    if "max_tokens" in raw:
+        value = raw["max_tokens"]
+        maximum = MAX_TOKENS[raw.get("thinking", True) is not False]
+        if isinstance(value, bool) or not isinstance(value, int) or not 16 <= value <= maximum:
+            raise Problem(400, "generation", f"출력 상한은 16부터 {maximum}까지의 정수여야 합니다.")
+    body = chat_body(raw)
+    generation = raw.get("generation", {})
+    if not isinstance(generation, dict) or set(generation) - {"temperature", "top_p"}:
+        raise Problem(400, "generation", "지원하지 않는 생성 설정입니다.")
+    for key, lower, upper in (("temperature", 0, 2), ("top_p", 0.000001, 1)):
+        value = generation.get(key, body[key])
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not lower <= value <= upper:
+            raise Problem(400, "generation", f"{key} 범위를 확인해 주세요.")
+        body[key] = value
+    if not isinstance(raw.get("tools", False), bool):
+        raise Problem(400, "tools", "tools must be a boolean")
+    attachments = raw.get("attachments", [])
+    if (not isinstance(attachments, list) or len(attachments) > 100
+            or any(not isinstance(p, str) for p in attachments)):
+        raise Problem(400, "attachments", "attachments must be a bounded list of workspace file paths")
+    try:
+        for path in attachments:
+            space.get(path)
+    except ValueError as exc:
+        raise Problem(400, "attachments", str(exc)) from exc
+    pdfs = {p for p in attachments if p.lower().endswith(".pdf")}
+    if len(pdfs) > 3:
+        raise Problem(400, "attachments", "한 번에 PDF는 3개까지 읽을 수 있습니다.")
+    if pdfs and not raw.get("tools"):
+        raise Problem(400, "tools_disabled", "PDF를 읽으려면 도구를 켜 주세요. 실제 판독은 아직 하지 않았습니다.")
+    if any(m["role"] not in ("user", "assistant") or m.get("tool_calls") for m in body["messages"]):
+        raise Problem(400, "bad_messages", "Agent input accepts only user/assistant text, not client tool results")
+    if body["messages"][-1]["role"] != "user":
+        raise Problem(400, "bad_messages", "Agent input must end with the current user request")
+    return body, attachments
+
+
 def eval_spec(body):
     suites = body.get("suites") or ",".join(SUITES)
     repeats, limit = str(body.get("repeats") or ""), body.get("limit") or 0
@@ -350,13 +390,16 @@ def read_file_json(path):
         return None
 
 
-def create_app(config=None, azure=None, start_supervisor=True):
+def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=None, archives=None,
+               profiles=True, model_id="fp8", shared_tool_gate=None, shared_web_iq=None):
+    if model_id not in {"fp8", "nvfp4"}:
+        raise ValueError("Unsupported model profile")
     config = config or Config.from_env()
     store = Store(config.data)
     gate = Gate(config.max_active, config.max_queue)
     hub = Hub(active=lambda: store.data["active"])
-    supervisor = Supervisor(config, store, hub, azure=azure)
-    auth = Auth(config, store)
+    supervisor = Supervisor(config, store, hub, azure=azure, archives=archives)
+    auth = shared_auth or Auth(config, store)
     evals = load_module("axk2_evals", config.aml_dir / "src" / "evals.py")  # stdlib-only imports
     summaries = {}  # run -> (stamp, live summary)
 
@@ -431,6 +474,19 @@ def create_app(config=None, azure=None, start_supervisor=True):
     hub.on_hello, hub.on_status, hub.on_eval, hub.on_close = on_hello, on_status, on_eval, on_close
 
     # ------------------------------------------------------------------------------------------ views
+    def is_profile_ready():
+        conn = hub.ready_link()
+        if conn is None:
+            return False
+        if model_id == "fp8":
+            return True  # The already-running legacy link is retained without requiring a GPU restart.
+        evidence = (conn.status or {}).get("provenance") or {}
+        job = store.data["jobs"].get(store.data["active"]) or {}
+        return (evidence.get("checkpoint") == "skt/A.X-K2-NVFP4"
+                and evidence.get("revision") == "9e2e804e80f8d1b3afba5d7938173cec1ed46b49"
+                and evidence.get("tp") == 8 and evidence.get("pp") == 1 and evidence.get("nodes") == 1
+                and bool(job.get("source_sha")) and evidence.get("source_sha") == job["source_sha"])
+
     def power():
         data = store.data
         nodes = sum((n or {}).get("total", 0) for n in data["nodes"].values())
@@ -438,7 +494,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
             return "stopping" if data["jobs"] or nodes else "off"
         conn = hub.active_link()
         if conn and conn.ready:
-            return "ready"
+            return "ready" if is_profile_ready() else "configuration_error"
         if conn:
             return "booting"
         if data["active"]:
@@ -463,7 +519,8 @@ def create_app(config=None, azure=None, start_supervisor=True):
                 "phase": status.get("phase"), "phase_since": status.get("since"), "note": status.get("note"),
                 "download_gb": status.get("download_gb"), "download_of_gb": status.get("download_of_gb"),
                 "load_step": status.get("load_step"), "load_pct": status.get("load_pct"),
-                "healthy": bool(status.get("healthy")), "metrics": status.get("metrics"),
+                "healthy": bool(status.get("healthy")) and is_profile_ready(), "metrics": status.get("metrics"),
+                "runtime_provenance":status.get("provenance"), "provenance_error":status.get("provenance_error"),
                 "sampled": status.get("t"), "uptime": status.get("uptime"), "regions": regions,
                 "nodes_per_job": config.nodes,
                 "queue": {"active": gate.active, "waiting": len(gate.waiting), "max_active": gate.max_active,
@@ -545,7 +602,10 @@ def create_app(config=None, azure=None, start_supervisor=True):
                 workspaces.prune()
         cleanup_task = asyncio.create_task(cleanup())
         try:
-            yield
+            async with contextlib.AsyncExitStack() as stack:
+                for child in children.values():
+                    await stack.enter_async_context(child.router.lifespan_context(child))
+                yield
         finally:
             cleanup_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -562,10 +622,26 @@ def create_app(config=None, azure=None, start_supervisor=True):
     app.add_middleware(SecurityHeaders)
     app.state.config, app.state.store, app.state.hub, app.state.gate = config, store, hub, gate
     app.state.supervisor, app.state.auth = supervisor, auth
+    app.state.public_status = public_status
+    app.state.is_ready = is_profile_ready
     workspaces = Workspaces()
-    web_iq = WebIQ()
+    app.state.workspaces = workspaces
+    web_iq = shared_web_iq or WebIQ()
     app.state.web_iq = web_iq
-    upload_gate = asyncio.Semaphore(2)
+    upload_gate = shared_tool_gate or asyncio.Semaphore(2)
+    app.state.tool_gate = upload_gate
+    children = {}
+    if profiles:
+        from dataclasses import replace
+        nv_config = replace(config, data=config.data / "models" / "nvfp4", nodes=1,
+                            template="demo-nvfp4-nd96.yml",
+                            public_url=config.public_url.rstrip("/") + "/models/nvfp4",
+                            workspaces={r: w for r, w in config.workspaces.items() if r == "uksouth"})
+        children["nvfp4"] = create_app(nv_config, start_supervisor=start_supervisor,
+                                      shared_auth=auth, archives=supervisor.archives, profiles=False,
+                                      model_id="nvfp4", shared_tool_gate=upload_gate, shared_web_iq=web_iq)
+        app.mount("/models/nvfp4", children["nvfp4"])
+    app.state.profiles = {model_id:app, **children}
 
     @app.exception_handler(Problem)
     async def problem(request, exc):
@@ -596,6 +672,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
         token = header[7:] if header[:7].lower() == "bearer " else ""
         if not token or token_digest(token) not in store.data["jobs"]:
             raise Problem(403, "forbidden", "unknown job token")
+        return store.data["jobs"][token_digest(token)]
 
     def page(name):
         return FileResponse(HERE / "static" / name, headers={"Cache-Control": "no-cache"})
@@ -663,11 +740,28 @@ def create_app(config=None, azure=None, start_supervisor=True):
         require_demo(request)
         return public_status()
 
+    @app.get("/api/models")
+    async def models(request: Request):
+        require_demo(request)
+        runtime = await asyncio.gather(*(profile.state.hub.model_info() for profile in app.state.profiles.values()))
+        limits = [info.get("max_context_tokens") for info in runtime]
+        common_limit = min(limits) if limits and all(type(value) is int and value > 0 for value in limits) else None
+        return {"common_context_tokens":common_limit,
+                "models": [{"id":name, "api_prefix":"" if name == "fp8" else "/models/nvfp4",
+                            "label":"A.X K2 FP8" if name == "fp8" else "A.X K2 NVFP4",
+                            "checkpoint":"skt/A.X-K2" if name == "fp8" else "skt/A.X-K2-NVFP4",
+                            "tp":8,"pp":2 if name == "fp8" else 1,
+                            "runtime":info,
+                            "job_provenance":(profile.state.store.data["jobs"].get(
+                                profile.state.store.data["active"]) or {}).get("facts"),
+                            "status":profile.state.public_status()}
+                           for (name, profile), info in zip(app.state.profiles.items(), runtime)]}
+
     @app.post("/api/chat")
     async def chat(request: Request):
         require_demo(request)
         body = chat_body(await read_json(request, CHAT_LIMIT))
-        if hub.ready_link() is None:
+        if not is_profile_ready():
             raise Problem(503, "not_ready", "모델 서버가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.")
         try:
             relay = ChatRelay(hub, gate, body)
@@ -683,6 +777,8 @@ def create_app(config=None, azure=None, start_supervisor=True):
             raise Problem(410, "workspace", str(exc))
         if space.busy and not allow_busy:
             raise Problem(409, "workspace_busy", "This chat is running; wait or cancel before modifying files")
+        if getattr(space, "comparison_snapshot", None) and not allow_busy:
+            raise Problem(409, "comparison_input_locked", "비교 입력은 고정돼 있습니다. 공유 첨부에서 새 비교를 시작해 주세요.")
         return space
 
     @app.post("/api/workspace")
@@ -697,25 +793,33 @@ def create_app(config=None, azure=None, start_supervisor=True):
     @app.post("/api/workspace/cancel")
     async def cancel_turn(request: Request):
         space = workspace_for(request, allow_busy=True)
-        if space.active_task:
-            space.active_task.cancel()
-            await asyncio.gather(space.active_task, return_exceptions=True)
+        await finish_workspace(space, close=False)
         return {"ok": True, "state": "cancelled"}
+
+    async def finish_workspace(space, close):
+        tasks = []
+        owned = [(app, space)]
+        for record in getattr(space, "comparisons", {}).values():
+            record["cancelled"] = True
+            owned.extend((a["profile"], a["space"]) for a in record["actors"].values())
+        for profile, item in owned:
+            item.cancel_requested = True
+            if close:
+                item.closed = True
+            if item.active_task:
+                item.active_task.cancel()
+                tasks.append(item.active_task)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if close:
+            for profile, item in owned:
+                item.expire()
+                profile.state.workspaces.items.pop(item.token, None)
 
     @app.post("/api/workspace/close")
     async def close_workspace(request: Request):
         space = workspace_for(request, allow_busy=True)
-        space.closed = True
-        if space.active_task:
-            space.active_task.cancel()
-            await asyncio.gather(space.active_task, return_exceptions=True)
-        space.files.clear()
-        space.original.clear()
-        space.history.clear()
-        space.tool_events.clear()
-        space.pdf_checked.clear()
-        space.pdf_outcomes.clear()
-        workspaces.items.pop(space.token, None)
+        await finish_workspace(space, close=True)
         return {"ok": True}
 
     @app.post("/api/workspace/upload")
@@ -763,6 +867,7 @@ def create_app(config=None, azure=None, start_supervisor=True):
         for name in names:
             space.files.pop(name, None)
             space.original.pop(name, None)
+            space.upload_versions.pop(name, None)
             space.pdf_checked.discard(name)
             space.pdf_outcomes.pop(name, None)
         return {"ok": True}
@@ -772,34 +877,20 @@ def create_app(config=None, azure=None, start_supervisor=True):
         from agent import agent_response
         space = workspace_for(request)
         raw = await read_json(request, CHAT_LIMIT)
-        if not isinstance(raw.get("tools", False), bool):
-            raise Problem(400, "tools", "tools must be a boolean")
-        body = chat_body(raw)
-        attachments = raw.get("attachments", [])
-        if (not isinstance(attachments, list) or len(attachments) > 100
-                or any(not isinstance(p, str) for p in attachments)):
-            raise Problem(400, "attachments", "attachments must be a bounded list of workspace file paths")
-        try:
-            for path in attachments:
-                space.get(path)
-        except ValueError as exc:
-            raise Problem(400, "attachments", str(exc))
-        pdfs = {p for p in attachments if p.lower().endswith(".pdf")}
-        if len(pdfs) > 3:
-            raise Problem(400, "attachments", "한 번에 PDF는 3개까지 읽을 수 있습니다.")
-        if pdfs and not raw.get("tools"):
-            raise Problem(400, "tools_disabled", "PDF를 읽으려면 도구를 켜 주세요. 파일 형식이나 스캔 여부는 아직 확인하지 않았습니다.")
-        if any(m["role"] not in ("user", "assistant") or m.get("tool_calls") for m in body["messages"]):
-            raise Problem(400, "bad_messages", "Agent input accepts only user/assistant text, not client tool results")
-        if body["messages"][-1]["role"] != "user":
-            raise Problem(400, "bad_messages", "Agent input must end with the current user request")
-        if hub.ready_link() is None:
+        space = workspace_for(request)
+        body, attachments = agent_body(raw, space)
+        if getattr(space, "comparison_snapshot", None):
+            raise Problem(409, "comparison", "비교 응답은 서버가 고정한 입력으로만 실행할 수 있습니다.")
+        if not is_profile_ready():
             raise Problem(503, "not_ready", "모델 서버가 아직 준비되지 않았습니다.")
         if space.busy:
             raise Problem(409, "workspace_busy", "This chat is already running")
         space.busy = True
         return agent_response(hub, gate, body, space, raw.get("tools") is True, tool_gate=upload_gate,
                               attachment_paths=attachments, web_iq=web_iq)
+
+    if profiles:
+        install_comparison(app, workspace_for, read_json, agent_body, Problem, CHAT_LIMIT)
 
     @app.get("/api/workspace/preview")
     async def preview(request: Request):
@@ -908,9 +999,13 @@ def create_app(config=None, azure=None, start_supervisor=True):
 
     @app.get("/api/link/src")
     async def link_source(request: Request):
-        require_job(request)
-        await asyncio.to_thread(supervisor.prepare)
-        return Response(supervisor.source, media_type="application/gzip", headers={"Cache-Control": "no-store"})
+        job = require_job(request)
+        try:
+            source = await asyncio.to_thread(supervisor.archives.for_job, job)
+        except (OSError, ValueError) as exc:
+            store.event("error", f"immutable source unavailable: {exc}", save=False)
+            raise Problem(503, "source_unavailable", "The job's verified source archive is unavailable") from exc
+        return Response(source, media_type="application/gzip", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/link/evals")
     async def link_records(request: Request, run: str = ""):

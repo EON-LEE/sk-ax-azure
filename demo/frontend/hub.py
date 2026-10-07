@@ -33,7 +33,7 @@ def upstream_error(status, text):
     lowered = detail.lower()
     if status == 400 and ("context length" in lowered or "maximum context" in lowered or "too long" in lowered
                           or "max_model_len" in lowered or "prompt length" in lowered):
-        return {"code": "too_long", "message": "입력이 모델의 최대 길이(262,144 토큰)를 넘습니다. 문서나 대화를 줄여 주세요.",
+        return {"code": "too_long", "message": "입력이 선택한 모델의 실제 컨텍스트 한도를 넘습니다. 문서나 대화를 줄여 주세요.",
                 "detail": detail}
     return {"code": "upstream", "status": status, "message": f"모델 서버가 요청을 처리하지 못했습니다 (HTTP {status}).",
             "detail": detail}
@@ -132,6 +132,51 @@ class Hub:
         conn = self.links.get(digest)
         if conn:
             conn.close()
+
+    async def model_info(self):
+        conn = self.ready_link()
+        if conn is None:
+            return {"state":"not_ready", "max_context_tokens":None}
+        cached = getattr(conn, "model_info", None)
+        if cached and time.time() - cached["sampled"] < 30:
+            return cached
+        rid = secrets.token_hex(8)
+        queue = conn.streams[rid] = asyncio.Queue()
+        conn.send({"type":"req", "id":rid, "path":"/v1/models", "body":None})
+        finished, status, text = False, None, ""
+        try:
+            async with asyncio.timeout(10):
+                while True:
+                    message = await queue.get()
+                    if message["type"] == "head":
+                        status = message.get("status")
+                    elif message["type"] == "data":
+                        text += message.get("chunk", "")
+                        if len(text) > 256_000:
+                            raise ValueError("Model metadata exceeds limit")
+                    elif message["type"] == "end":
+                        finished = True
+                        if status != 200:
+                            raise ValueError("Runtime model metadata request failed")
+                        entries = json.loads(text).get("data", [])
+                        if not entries or not isinstance(entries[0], dict):
+                            raise ValueError("Runtime returned no model metadata")
+                        length = entries[0].get("max_model_len")
+                        if not isinstance(length, int) or isinstance(length, bool) or not 0 < length <= 10_000_000:
+                            raise ValueError("Runtime did not provide a valid context limit")
+                        result = {"state":"verified", "max_context_tokens":length,
+                                  "served_model":entries[0].get("id"), "root":entries[0].get("root"),
+                                  "sampled":round(time.time(), 1)}
+                        conn.model_info = result
+                        return result
+                    else:
+                        raise ValueError("Runtime metadata link was lost")
+        except (ValueError, TimeoutError) as exc:
+            return {"state":"unavailable", "max_context_tokens":None, "reason":str(exc) or "metadata timeout"}
+        finally:
+            conn.streams.pop(rid, None)
+            if not finished:
+                conn.send({"type":"cancel", "id":rid})
 
     async def serve(self, ws, digest):
         conn = LinkConn(ws, digest)

@@ -23,6 +23,7 @@ FULL_IN="${2:-none}"
 RANK="${NODE_RANK:-0}"
 NNODES="${WORLD_SIZE:-1}"
 TP="${TP:-8}"; PP="${PP:-2}"; MODES="${MODES:-native dense}"
+DEMO_EXECUTOR="${DEMO_EXECUTOR:-ray}"
 SMOKE_MAX_MODEL_LEN="${SMOKE_MAX_MODEL_LEN:-16384}"; SMOKE_MAX_NUM_SEQS="${SMOKE_MAX_NUM_SEQS:-16}"
 SMOKE_GPU_MEM_UTIL="${SMOKE_GPU_MEM_UTIL:-0.85}"; SMOKE_HEALTH_TIMEOUT="${SMOKE_HEALTH_TIMEOUT:-2400}"
 FULL_MAX_MODEL_LEN="${FULL_MAX_MODEL_LEN:-65536}"; FULL_MAX_NUM_SEQS="${FULL_MAX_NUM_SEQS:-128}"
@@ -84,6 +85,10 @@ print(iface, ip, head)
 EOF
 )
 NGPU=$(nvidia-smi -L | wc -l)
+if [ "$DEMO_EXECUTOR" != ray ]; then
+  [ "$DEMO_EXECUTOR" = mp ] && [ "${PHASE_PLAN:-}" = demo ] && [ "$NNODES" = 1 ] &&
+    [ "$PP" = 1 ] && [ "$TP" -le "$NGPU" ] || die 31 "MP demo requires one node, PP1 and local GPUs"
+fi
 log "host=$(hostname) ip=$NODE_IP iface=$IFACE head=$HEAD_IP gpus=$NGPU nodes=$NNODES tp=$TP pp=$PP modes='$MODES'"
 nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,memory.total --format=csv -l 15 \
   > "$OUT/gpu-usage.csv" 2>&1 &
@@ -529,10 +534,10 @@ demo_phase() {
   local began restarts=0 misses
   local -a args=(--tool-call-parser hermes --enable-auto-tool-choice --max-num-batched-tokens 8192
                  --scheduling-policy priority --tensor-parallel-size "$TP" --pipeline-parallel-size "$PP"
-                 --distributed-executor-backend ray)
+                 --distributed-executor-backend "$DEMO_EXECUTOR")
   while true; do
     began=$(date +%s)
-    if [ "$restarts" -gt 0 ] && [ "$(ray_gpus)" -lt $((TP * PP)) ]; then
+    if [ "$DEMO_EXECUTOR" = ray ] && [ "$restarts" -gt 0 ] && [ "$(ray_gpus)" -lt $((TP * PP)) ]; then
       phase_result demo failed "$began" "a node left the Ray cluster"
       status failed "a node left the Ray cluster"; return 1
     fi
@@ -589,6 +594,7 @@ if [ -n "$SMOKE_NATIVE" ]; then
   done
 fi
 
+if [ "$DEMO_EXECUTOR" = ray ]; then
 status ray "waiting for every node to join"
 ray start --head --node-ip-address="$NODE_IP" --port=6379 --num-gpus="$NGPU" --include-dashboard=false \
   --disable-usage-stats > "$OUT/ray-head.log" 2>&1 || { cat "$OUT/ray-head.log"; die 30 "the Ray head failed to start"; }
@@ -610,6 +616,7 @@ print(json.dumps([{"ip": n["NodeManagerAddress"], "gpus": n["Resources"].get("GP
 EOF
 log "Ray cluster: $(cat "$OUT/ray-nodes.json")"
 report "node0.ray" --file "$OUT/ray-nodes.json"
+fi
 
 if [ -n "$SMOKE_NATIVE" ]; then
   first_mode=${MODES%% *}
@@ -623,12 +630,9 @@ if [ "$FULL_IN" != "none" ]; then
   log "waiting for the full checkpoint on every node"
   status download "waiting for every node"
   # demo jobs: every node's download progress goes to the frontend through the status file
-  if python3 - "${DOWNLOAD_TIMEOUT:-5400}" "${LINK_PID:+$STATUS}" > "$OUT/full-download-status.json" <<'EOF'
+  if python3 - "${DOWNLOAD_TIMEOUT:-5400}" "${LINK_PID:+$STATUS}" "$DEMO_EXECUTOR" > "$OUT/full-download-status.json" <<'EOF'
 import json, os, sys, time
-import ray
-ray.init(address="auto", logging_level="ERROR")
 
-@ray.remote(num_cpus=0)
 def probe():
     import os, re, socket
     ready = open("/tmp/axk2-full.ready").read().strip() if os.path.exists("/tmp/axk2-full.ready") else None
@@ -646,11 +650,20 @@ def probe():
         pass
     return state
 
+executor = sys.argv[3]
+if executor != "mp":
+    import ray
+    ray.init(address="auto", logging_level="ERROR")
+    remote_probe = ray.remote(num_cpus=0)(probe)
+
 status, since = sys.argv[2], int(time.time())
 deadline = time.time() + int(sys.argv[1])
 while True:
-    ips = [n["NodeManagerAddress"] for n in ray.nodes() if n["Alive"]]
-    states = ray.get([probe.options(resources={f"node:{ip}": 0.001}).remote() for ip in ips])
+    if executor == "mp":
+        states = [probe()]
+    else:
+        ips = [n["NodeManagerAddress"] for n in ray.nodes() if n["Alive"]]
+        states = ray.get([remote_probe.options(resources={f"node:{ip}": 0.001}).remote() for ip in ips])
     if any(s["failed"] for s in states) or time.time() > deadline:
         print(json.dumps(states)); sys.exit(1)
     if all(s["seconds"] for s in states):

@@ -2,6 +2,33 @@
 
 Snapshot: 2026-10-06. Read this before allocating any GPU.
 
+## Dual-model chat implementation
+
+The approved UI retains the eight samples, composer/uploads, thinking, real MAF
+action cards and artifact controls. Default comparison is a chat timeline with one
+shared question and two real response columns; ordinary chat adds only a model selector.
+Tab changes preserve state without execution/cancellation/power side effects.
+Independent/common-context snapshots share the actual input conditions; continuation
+uses each model's actual history/files and explicitly marks differing contexts.
+Actors have separate capabilities and immutable input snapshots. New chat cancels and
+revokes both; expiry clears retained references as well as manager entries.
+Metrics are actual server lifecycle/usage, not estimated tokens or GPU-direct speeds.
+
+FP8 remains the root profile and existing persistent state. NVFP4 lives at
+`/models/nvfp4`, defaults off, has its own supervisor/queue/store, and targets only
+one UKSouth node using `demo-nvfp4-nd96.yml` and the verified SM80 port/MP executor.
+The user approved only existing LowPriority compute maximum 2 -> 3 and one extra
+NVFP4 node; minimum/priority/FP8 job must remain unchanged. Do not start benchmark
+jobs, change permissions/settings, or replace FP8. Actual readiness must be verified
+after allocation; approved capacity is not proof of available Spot stock.
+
+Bootstrap archives use deterministic gzip and immutable hash-addressed files under
+`/home/data/sources`. Before redeploy, preserve the exact running legacy job archive
+and job/hash binding; never serve current source against an old pinned checksum.
+Frontend-only deployment must retain these files and running-job state. Missing
+archive mappings fail explicitly. See `demo/README.md` for profile routes, provenance,
+comparison modes, context/metrics definitions and existing OCR/sandbox limits.
+
 ## 2026-10-07: AX Microsoft Agent Framework demo
 
 The frontend now uses Microsoft Agent Framework Python 1.20.0 `Agent`,

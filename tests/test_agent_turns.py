@@ -262,7 +262,7 @@ class TurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(retain_history(space, history))
         self.assertEqual(space.history, history[-2:])
         js = (ROOT / "demo/frontend/static/chat.js").read_text()
-        for fragment in ('turnEpoch !== state.epoch', 'releaseWorkspace("close")', 'releaseWorkspace("cancel")',
+        for fragment in ('turnEpoch !== state.epoch', 'releaseWorkspace("close", state.workspace, state)', 'releaseWorkspace("cancel")',
                          'cancelled: "중단됨"', 'view.status.remove()', 'state.busy = false'):
             self.assertIn(fragment, js)
         self.assertNotIn("localStorage", js)

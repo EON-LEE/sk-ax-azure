@@ -57,7 +57,9 @@
     if (!$("login").classList.contains("hidden")) return;
     let status;
     try {
-      status = await AX.api("/api/status");
+      const profiles = await AX.api("/api/models");
+      AX.chat.setModels(profiles.models);
+      status = AX.chat.status();
     } catch (error) {
       if (error.status === 401) locked();
       else showBanner("서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.", true);
@@ -84,10 +86,13 @@
     let text = "";
     if (power === "off") text = "지금은 모델 서버가 꺼져 있습니다. 담당자에게 문의해 주세요.";
     else if (power === "stopping") text = "모델 서버를 종료하는 중입니다.";
+    else if (power === "unknown") text = "모델 상태를 확인하는 중입니다.";
+    else if (power === "configuration_error") text = "실제 체크포인트·실행 구성을 확인하지 못해 이 모델의 요청을 차단했습니다. 담당자에게 문의해 주세요.";
     else if (power !== "ready") text = "모델 서버를 시작하는 중입니다. 준비되면 바로 대화할 수 있습니다 (수십 분 걸릴 수 있습니다).";
     else if (queue.waiting > 0) text = `요청이 많아 ${AX.num(queue.waiting)}건이 대기 중입니다. 보내면 순서대로 처리합니다.`;
     showBanner(text, false);
   }
 
   checkLogin();
+  window.addEventListener("ax:view-change", () => poll());
 })();
