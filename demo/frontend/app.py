@@ -679,10 +679,14 @@ def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=No
 
     @app.get("/")
     async def index():
+        if model_id != "fp8":
+            raise Problem(404, "profile_api_only", "모델별 경로는 API 전용입니다. 채팅 화면은 루트 주소를 사용해 주세요.")
         return page("index.html")
 
     @app.get("/admin")
     async def admin_page():
+        if model_id != "fp8":
+            raise Problem(404, "profile_api_only", "이 모델은 별도 관리자 API로 관리합니다. 루트 관리 화면은 FP8 전용입니다.")
         return page("admin.html")
 
     @app.get("/static/{name}")
