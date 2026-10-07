@@ -203,6 +203,13 @@ class WebIQ:
                         raise WebIQProblem("query_field_does_not_match_advertised_schema")
                     Draft202012Validator.check_schema(schema)
                     self.validator = Draft202012Validator(schema)
+                    # Opt into bounded passages only when the real provider advertises these fields.
+                    for name, value in {"maxResults": 5, "contentFormat": "passage", "maxLength": 1500,
+                                        "safeSearch": "strict"}.items():
+                        if name in schema.get("properties", {}) and name not in self.arguments:
+                            candidate = dict(self.arguments, **{name: value, self.query_field: TOPICS["python"]})
+                            if self.validator.is_valid(candidate):
+                                self.arguments[name] = value
                     for query in TOPICS.values():
                         self.validator.validate(dict(self.arguments, **{self.query_field: query}))
                     self.ready, self.reason = True, None

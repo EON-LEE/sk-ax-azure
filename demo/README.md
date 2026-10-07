@@ -135,6 +135,10 @@ setting으로 전달합니다. 배포 bundle은 루트 입력 파일을 포함�
 중 하나로 제한합니다. 모델이 임의 검색어·파일명·코드·문서·secret을 외부로 보낼 수 없습니다.
 요청 30초, 응답 192 KiB, 표시 citation 최대 12개이며 실제 공급자가 반환한 URL/원본 provenance만
 유지합니다. 성공한 실제 query가 있어야 `verified_search`가 true입니다.
+실제 Web IQ `web` schema에서 광고한 경우 기본 검색을 최대 5개 결과,
+`contentFormat=passage`, `maxLength=1500`, `safeSearch=strict`로 제한합니다.
+기본 HTML 전문 응답은 안전한 응답 크기를 초과할 수 있으므로 사용하지 않습니다.
+운영자가 명시한 옵션은 덮어쓰지 않으며 실제 광고된 schema로 검증합니다.
 입력/결과/시간은 접이식 action 카드, 출처는 해당 카드의 링크로 확인합니다. 대체 검색은 없습니다.
 
 `run_tests`도 승인된 외부 격리 샌드박스가 없어 명시적 미구성 오류만 반환합니다.
