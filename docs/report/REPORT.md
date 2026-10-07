@@ -206,6 +206,10 @@ NVFP4 1노드 종량제 $17.38.
   모델 추론은 기존 A.X K2만 수행합니다. 문서·표·프로젝트 파일 읽기/검색/수정/diff/다운로드,
   정적 차트·안전한 HTML 미리보기를 제공합니다. 데스크톱 채팅/입력창 상한은 1200px, 본문은 18px입니다.
   PDF는 실제 native parser와 페이지 참조·typed 오류를 사용하며 OCR은 미구성입니다.
+  새 PDF는 도구가 허용된 경우 실제 MAF 첫 페이지 판독 결과를 먼저 모델에 전달합니다.
+  대화·파일·함수 결과는 같은 탭/토큰의 제한된 RAM에서만 이어지며 새 채팅은 취소/폐기합니다.
+  장기 기억은 없습니다. 도구 금지와 취소는 서버 경계에서 적용하며 계획 문장은 실행이 아닙니다.
+  호출 없는 실행 약속은 한 번만 재요청하고 실제 실행이 없으면 미실행을 표시합니다.
   Web IQ는 기존 검증된 직접 MCP 계약의 SDK adapter와 schema discovery를 구현했고
   안전하게 구성된 enterprise 연결에서만 도구를 등록합니다(실제 상태는 `/api/capabilities`).
   일반 공개 검색과 실제 발견된 10개 도구(web/news/finance/places/autosuggest/browse/images/videos/sports/sonic)를

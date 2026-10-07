@@ -19,11 +19,21 @@ be parsed before any classification. The custom relay now transports MAF's
 the exact workspace inventory. Do not infer that a private PDF is scanned
 from its filename or size; OCR remains unavailable.
 
+Same-token native conversation/tool replay is RAM-only and bounded; no long-term
+memory is implemented. New chat cancels the actual task and revokes its workspace.
+Per-turn tools-off and clear direct search/tool prohibitions are enforced at registration
+and invocation. Execution requests use bounded A.X continuation rather than fictitious
+progress. New authorized PDFs use actual MAF `read_pdf`/middleware first-page preflight,
+including real failure cards; failed/cancelled reads are not marked checked. This fixes
+the former mandatory-PDF guard that could terminate on a model's wrong/missing call,
+not a demonstrated parser failure in the user's private document. More pages still
+require actual reads. Terminal state is event-driven; no work continues after stream end.
+
 Web IQ has a genuine standard MCP adapter, with input-schema discovery and
 direct `x-apikey` authentication verified against existing authorized
 `EON-LEE/tmap-webiq-poc` prior art. It does not invoke Foundry inference.
-Only fixed public documentation topics can leave the server; no uploaded
-content or filenames. Securely configure the existing approved enterprise
+General public queries are supported; uploaded content and filenames cannot be
+automatically sent externally. Securely configure the existing approved enterprise
 key/access (see `demo/README.md`); do not create a connection or grant new
 permissions. `/api/capabilities` reports the actual state and whether a real
 query succeeded. No operational search tool is registered before discovery.

@@ -58,12 +58,23 @@
         const response = await fetch("/api/workspace", { method: "POST" });
         if (!response.ok) throw new Error((await AX.problem(response)).message);
         const info = await response.json();
-        if (epoch !== state.epoch) throw new Error("대화가 변경되었습니다.");
+        if (epoch !== state.epoch) {
+          releaseWorkspace("close", info.token);
+          throw new DOMException("대화가 변경되었습니다.", "AbortError");
+        }
         state.workspace = info.token;
         return info.token;
       })().finally(() => { if (epoch === state.epoch) state.workspacePromise = null; });
     }
     return state.workspacePromise;
+  }
+
+  function releaseWorkspace(action, token = state.workspace) {
+    if (!token) return;
+    fetch(`/api/workspace/${action}`, { method: "POST", credentials: "same-origin",
+      headers: { "X-AX-Workspace": token } }).then(response => {
+      if (!response.ok && response.status !== 410) throw new Error(`HTTP ${response.status}`);
+    }).catch(() => flash("이전 작업 종료 요청에 실패했습니다. 브라우저 응답 연결은 중단했습니다."));
   }
 
   class TurnError extends Error {
@@ -296,6 +307,7 @@
 
   // One request to the model. Streams into `round` and repaints; throws TurnError, or AbortError on stop.
   async function streamRound(payload, view, box, round, thinking, timing) {
+    const turnEpoch = state.epoch;
     let requested = performance.now();
     view.currentBox = box;
     let response;
@@ -323,6 +335,7 @@
     };
     try {
       for await (const { event, data } of readEvents(response)) {
+        if (turnEpoch !== state.epoch) throw new DOMException("대화가 변경되었습니다.", "AbortError");
         if (event === "round") {
           const index = (json(data) || {}).index || 1;
           if (index > 1) {
@@ -338,6 +351,13 @@
           timing.calls = index;
         } else if (event === "action") {
           actionCard(view, box, json(data) || {});
+        } else if (event === "notice") {
+          note(view, (json(data) || {}).message || "실행 상태를 확인할 수 없습니다.", false);
+        } else if (event === "policy") {
+          const policy = json(data) || {};
+          if (policy.reason === "user_prohibition" || policy.reason === "search_prohibition") {
+            note(view, policy.tools ? "이번 턴은 사용자 요청에 따라 웹 검색 없이 답합니다." : "이번 턴은 사용자 요청에 따라 도구 없이 답합니다.", false);
+          }
         } else if (event === "queue") {
           const info = json(data) || {};
           view.status.textContent = info.position ? `대기열 ${AX.num(info.position)}번째 · 곧 시작합니다` : "대기 중";
@@ -346,6 +366,7 @@
           timing.wait += started - requested;
           view.status.textContent = "입력을 읽는 중";
         } else if (event === "end") {
+          if ((json(data) || {}).state === "cancelled") throw new DOMException("실행이 취소되었습니다.", "AbortError");
           ended = true;
         } else if (event === "error") {
           const info = json(data) || {};
@@ -409,7 +430,7 @@
       box.tools.append(card);
       view.actions.set(action.id, card);
     }
-    const labels = { pending: "대기", running: "실행 중", success: "완료", error: "오류" };
+    const labels = { pending: "대기", running: "실행 중", success: "완료", error: "오류", cancelled: "중단됨" };
     card.classList.toggle("error", action.state === "error");
     const body = el("div", { class: "tool-body" });
     if (action.arguments && Object.keys(action.arguments).length) {
@@ -548,11 +569,6 @@
   }
 
   // --------------------------------------------------------------------------------------------- a turn
-  function compose(question, files) {
-    if (!files.length) return question;
-    return `Attached workspace files (use file tools to read): ${JSON.stringify(files.flatMap(f => f.files))}\n\n${question}`;
-  }
-
   const bytes = (text) => new TextEncoder().encode(text).length;
 
   // One user turn; MAF owns bounded model/tool rounds on the server.
@@ -569,7 +585,7 @@
     const thinking = ui.thinking.checked;
     const useTools = ui.tools.checked;
     const turnStart = state.history.length;
-    state.history.push({ role: "user", content: compose(question, files) });
+    state.history.push({ role: "user", content: question });
     if (state.history.length > 360 ||
         bytes(JSON.stringify({ messages: state.history, thinking, tools: useTools })) > BODY_LIMIT) {
       state.history.length = turnStart;
@@ -635,10 +651,11 @@
         state.history.push({ role: "assistant", content: partial });
         note(view, stopped ? "(중단됨)" : `답변이 중간에 끊겼습니다. ${failure.message}`, !stopped, failure.detail);
       } else {
-        state.history.length = turnStart;
-        userNode.classList.add("failed");
+        state.history.push({ role: "assistant", content: stopped
+          ? "이 턴은 중단됐습니다. 실제 완료된 도구 결과와 파일만 유지되며, 백그라운드 작업은 없습니다."
+          : "이 턴은 오류로 종료됐습니다. 실제 완료된 도구 결과와 파일만 유지됩니다." });
         view.node.classList.add("failed");
-        note(view, stopped ? "중단했습니다. 이 질문은 대화 기록에서 뺐습니다." : failure.message || "오류가 발생했습니다.",
+        note(view, stopped ? "중단했습니다. 이미 완료된 결과와 파일은 현재 대화에 유지됩니다. 백그라운드 작업은 없습니다." : failure.message || "오류가 발생했습니다.",
              !stopped, failure.detail);
         if (!ui.input.value.trim() && !state.attachments.length) {
           ui.input.value = typed;
@@ -657,12 +674,15 @@
   function reset() {
     state.epoch += 1;
     if (state.controller) state.controller.abort();
+    releaseWorkspace("close");
     state.controller = null;
     state.busy = false;
     state.history = [];
     state.workspace = null;
     state.workspacePromise = null;
     state.attachments = [];
+    ui.input.value = "";
+    ui.grow();
     renderAttachments();
     ui.messages.replaceChildren(ui.welcome);
     AX.show(ui.welcome, true);
@@ -706,6 +726,7 @@
       }
     });
     ui.stop.addEventListener("click", () => {
+      releaseWorkspace("cancel");
       if (state.controller) state.controller.abort();
     });
     ui.newChat.addEventListener("click", reset);
