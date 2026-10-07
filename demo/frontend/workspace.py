@@ -63,21 +63,8 @@ def extract(name, data):
     if suffix in {".docx", ".xlsx"}:
         unzip(data)  # expansion limits before Office parsers allocate
     if suffix == ".pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted or len(reader.pages) > 100:
-            raise ValueError("PDF must be unencrypted and have at most 100 pages")
-        refs, size = [], 0
-        for index, page in enumerate(reader.pages, 1):
-            stream = page.get_contents()
-            if stream is not None and len(stream.get_data()) > 2 * 1024 * 1024:
-                raise ValueError("PDF page content is too large")
-            text = page.extract_text() or ""
-            size += len(text)
-            if size > TEXT_LIMIT:
-                raise ValueError("Extracted PDF text exceeds limit")
-            refs.append(f"[page {index}]\n{text}")
-        return "\n\n".join(refs)
+        from pdf_documents import all_text
+        return all_text(data, name)
     if suffix == ".docx":
         from docx import Document
         doc = Document(io.BytesIO(data))
@@ -183,6 +170,7 @@ class Workspace:
         self.touched = time.monotonic()
         self.files, self.original = {}, {}
         self.busy = False
+        self.pdf_checked = set()
 
     def put(self, name, data, original=False):
         name = filename(name)
@@ -222,6 +210,19 @@ class Workspace:
             raise ValueError("File not found")
         return self.files[name]
 
+    def read_pdf(self, path, start_page=1, page_count=3, offset=0):
+        from pdf_documents import PDFProblem, read_pdf
+        data = self.get(path)
+        try:
+            result = read_pdf(data, path, start_page, page_count, offset)
+        except PDFProblem as exc:
+            if exc.result["error"] != "pdf_range":
+                self.pdf_checked.add(path)
+            raise
+        else:
+            self.pdf_checked.add(path)
+            return result
+
     def tools(self):
         from agent_framework import tool
 
@@ -242,11 +243,40 @@ class Workspace:
 
         @tool
         def read_file(path: str, start: int = 1, count: int = 80) -> str:
-            """Extract document/file text with page/paragraph/line references. Read bounded lines."""
+            """Read TXT/MD/code, DOCX (paragraph refs), CSV/XLSX. PDF is supported: use read_pdf for page bounds.
+            Default read_file on PDF returns the first 3 pages with typed outcomes, never guesses scan from size."""
             if start < 1 or not 1 <= count <= 200:
                 raise ValueError("start >= 1 and count 1..200 required")
+            if path.lower().endswith(".pdf"):
+                if start != 1 or count != 80:
+                    raise ValueError("For PDF pagination use read_pdf(start_page, page_count, offset)")
+                return json.dumps(self.read_pdf(path), ensure_ascii=False)
             text = extract(path, self.get(path))
             return "\n".join(text.splitlines()[start - 1:start - 1 + count])[:30_000]
+
+        @tool
+        def read_pdf(path: str, start_page: int = 1, page_count: int = 3, offset: int = 0) -> str:
+            """Read an uploaded PDF using its actual native text layer, including Korean and complex layouts.
+            Only this chat's exact file path; 1-based pages, 1..5 pages/call, 10000 chars/page chunk.
+            Returns page citations, total_pages, next_page/next_offset and typed outcomes.
+            Image-only/blank, corrupt, encrypted and resource-limit results are distinct.
+            Never infer unsupported/scanned from filename/size. OCR is not configured; no visual chart analysis."""
+            return json.dumps(self.read_pdf(path, start_page, page_count, offset), ensure_ascii=False)
+
+        @tool
+        def ocr_pdf(path: str, start_page: int = 1, page_count: int = 3) -> str:
+            """OCR of image-only PDF pages is unavailable: no approved Azure Document Intelligence resource.
+            No document is sent externally, no billable OCR call is made and no output is invented."""
+            from pdf_documents import PDFProblem
+            self.get(path)
+            if not path.lower().endswith(".pdf"):
+                raise PDFProblem("pdf_unsupported", "OCR path accepts PDF files only.", path)
+            if start_page < 1 or not 1 <= page_count <= 5:
+                raise PDFProblem("pdf_range", "Use start_page >= 1 and page_count 1..5.", path)
+            raise PDFProblem("ocr_not_configured", "Azure AI Document Intelligence OCR is not configured. "
+                             "An approved existing resource endpoint, authorized managed identity, "
+                             "and document-transfer/page-charge approval are required. No OCR was performed.", path,
+                             method="ocr_not_performed")
 
         @tool
         def search_files(query: str) -> str:
@@ -335,17 +365,12 @@ class Workspace:
             return json.dumps({"artifact": {"kind": "preview", "path": path}})
 
         @tool
-        def web_iq_search(query: str) -> str:
-            """Web IQ public generic search: unavailable until enterprise access and verified API contract are configured."""
-            raise ValueError("Web IQ is not configured: enterprise endpoint, verified API contract and secure credentials required. No search was performed.")
-
-        @tool
         def run_tests(command: str) -> str:
             """External isolated test sandbox: unavailable. Never executes uploaded/generated code on frontend or GPU."""
             raise ValueError("Sandbox is not configured: approved isolated execution service with resource/time/network/credential limits required. No tests were run.")
 
-        return [calculator, get_current_time, list_files, read_file, search_files, write_file, diff_file,
-                analyze_table, chart_table, preview_html, web_iq_search, run_tests]
+        return [calculator, get_current_time, list_files, read_file, read_pdf, ocr_pdf, search_files, write_file, diff_file,
+                analyze_table, chart_table, preview_html, run_tests]
 
 
 class Workspaces:

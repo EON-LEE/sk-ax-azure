@@ -11,7 +11,7 @@
   const EXAMPLES = [
     { label: "모델 소개", text: "A.X K2가 어떤 모델인지 세 문장으로 소개해 줘." },
     { label: "추론 문제 풀기", text: "철수는 영희보다 사과를 3개 더 갖고 있고, 둘이 가진 사과는 모두 17개야. 각자 몇 개씩 갖고 있을까?" },
-    { label: "코드 작성", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘." },
+    { label: "코드 작성", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘.", tools: true },
     { label: "도구로 정확히 계산", text: "2의 64제곱에서 1을 뺀 값을 계산기로 정확히 구해 줘.", tools: true },
     { label: "세계 시각 확인", text: "지금 서울과 런던은 각각 몇 시야?", tools: true },
     { label: "파일 수정·미리보기", text: "간단한 소개 페이지 index.html을 만들고 다운로드와 미리보기를 제공해 줘.", tools: true },
@@ -40,9 +40,10 @@
   const state = { history: [], busy: false, controller: null, attachments: [], power: "unknown", epoch: 0,
                   workspace: null, workspacePromise: null, uploading: false };
   const LABELS = { calculator: "정확한 계산", get_current_time: "현재 시각", list_files: "파일 목록",
-    read_file: "문서 읽기", search_files: "파일 검색", write_file: "파일 수정", diff_file: "변경 비교",
+    read_file: "문서 읽기", read_pdf: "PDF 페이지 읽기", ocr_pdf: "PDF OCR (미구성)",
+    search_files: "파일 검색", write_file: "파일 수정", diff_file: "변경 비교",
     analyze_table: "표 분석", chart_table: "차트", preview_html: "HTML 미리보기",
-    web_iq_search: "Web IQ (미구성)", run_tests: "실행 샌드박스 (미구성)" };
+    web_iq_search: "Web IQ 공개 문서 검색", run_tests: "실행 샌드박스 (미구성)" };
 
   async function workspace() {
     if (state.workspace) return state.workspace;
@@ -405,26 +406,46 @@
     }
     const labels = { pending: "대기", running: "실행 중", success: "완료", error: "오류" };
     card.classList.toggle("error", action.state === "error");
-    const body = el("div", { class: "tool-body" },
-      el("div", { class: "tiny", text: "입력" }), el("pre", { text: clip(pretty(JSON.stringify(action.arguments)), 250000) }));
-    if (action.result !== undefined) {
-      body.append(el("div", { class: "tiny", text: "결과" }),
-                  el("pre", { text: clip(typeof action.result === "string" ? action.result :
-                    JSON.stringify(action.result, null, 2), 30000) }));
-      const artifact = action.result && action.result.artifact;
-      if (artifact) body.append(artifactButton(artifact));
+    const body = el("div", { class: "tool-body" });
+    if (action.arguments && Object.keys(action.arguments).length) {
+      body.append(el("div", { class: "tiny", text: "입력" }),
+        el("pre", { text: clip(pretty(JSON.stringify(action.arguments)), 250000) }));
     }
-    card.replaceChildren(el("summary", null,
+    if (action.result !== undefined) {
+      const resultText = typeof action.result === "string" ? action.result : JSON.stringify(action.result, null, 2);
+      if (resultText && resultText.trim()) {
+        body.append(el("div", { class: "tiny", text: "결과" }), el("pre", { text: clip(resultText, 30000) }));
+      }
+      const artifact = action.result && action.result.artifact;
+      if (artifact && artifact.kind !== "download") body.append(artifactButton(artifact));
+      const citations = action.result && action.result.citations;
+      if (Array.isArray(citations)) {
+        for (const source of citations.slice(0, 12)) {
+          if (!source || typeof source.url !== "string" || !/^https?:\/\//i.test(source.url)) continue;
+          body.append(el("p", null, el("a", { href: source.url, target: "_blank", rel: "noopener noreferrer",
+            text: source.title || source.url })));
+        }
+      }
+    }
+    const summary = el("summary", null,
       el("span", { class: "tool-icon" }, icon(action.name)),
       el("span", { class: "tool-name", text: LABELS[action.name] || action.name }),
       el("span", { class: "tool-preview", text: `${labels[action.state] || action.state}${action.milliseconds !== undefined
-        ? " · " + secs(action.milliseconds) : ""}` })), body);
+        ? " · " + secs(action.milliseconds) : ""}` }));
+    const artifact = action.state === "success" && action.result && action.result.artifact;
+    if (artifact && artifact.kind === "download" && typeof artifact.path === "string") {
+      summary.append(el("span", { class: "artifact-name", text: artifact.path.split("/").pop() }),
+        artifactButton(artifact));
+    }
+    card.replaceChildren(summary, body);
     if (nearBottom()) toBottom();
   }
 
   function artifactButton(artifact) {
     return el("button", { type: "button", text: artifact.kind === "download" ? "다운로드" : "미리보기 열기",
       onclick: async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         const button = event.currentTarget;
         try {
           let source;
@@ -546,7 +567,8 @@
     let answer = "";
     let failure = null;
     try {
-      const payload = JSON.stringify({ messages: state.history, thinking, tools: useTools });
+      const payload = JSON.stringify({ messages: state.history, thinking, tools: useTools,
+                                       attachments: files.flatMap(file => file.files) });
       if (state.history.length > 400 || bytes(payload) > BODY_LIMIT) throw new TurnError("too_large", MESSAGES.too_large);
       const round = { reasoning: "", content: "", calls: [], finish: null, usage: null, first: null, last: null };
       last = { round, box: roundBox(view) };
@@ -677,6 +699,15 @@
     });
     renderAttachments();
     updateControls();
+    fetch("/api/capabilities").then(async (response) => {
+      if (!response.ok) throw new Error((await AX.problem(response)).message);
+      const capabilities = await response.json();
+      ui.tools.title = capabilities.web_iq.state === "ready"
+        ? "문서·파일·데이터 도구 / Web IQ: 고정 공개 문서 주제만 검색"
+        : "문서·파일·데이터 도구 / Web IQ 미구성: 기업용 엔드포인트·계약·접근 설정 필요";
+    }).catch((error) => {
+      ui.tools.title = "도구 구성 조회 실패: " + error.message;
+    });
   }
 
   AX.chat = { init, setPower, reset, busy: () => state.busy };

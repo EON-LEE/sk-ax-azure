@@ -72,12 +72,28 @@ vLLM에 요청하며 `reasoning_content`와 도구 호출/결과를 다음 모�
 모델 판단·코드 생성·최종 답변은 기존 SKT A.X K2(FP8 native DSA, TP8×PP2)만 수행합니다.
 OpenAI/Azure OpenAI/Foundry 추론, 대체 LLM, Azure AI Search는 사용하지 않습니다.
 브라우저는 서버가 보낸 실제 추론과 도구 상태만 표시하며 실행 루프를 소유하지 않습니다.
+MAF의 `options.instructions`를 실제 vLLM system 메시지로 전달합니다. 도구 안내와
+현재 workspace 파일 목록이 모델에 누락되지 않도록 서버에서 매 턴 구성합니다.
+
+데스크톱 화면의 채팅과 입력창은 동일한 1200px 상한과 좌우 gutter를 사용합니다.
+본문 18px, 주요 전송·첨부·토글 컨트롤 42px이며 좁은 패널에서는 함께 줄어듭니다.
+CSS zoom/transform 확대나 상시 IDE 패널은 사용하지 않습니다.
 
 지원 도구: 유리수 기반 정확 계산, IANA 시간대, 파일 목록/읽기/문자열 검색/텍스트 수정/
 unified diff/다운로드, PDF 텍스트(page)/DOCX(paragraph)/TXT·MD(line) 참조,
 CSV·XLSX 첫 시트의 profile/sum/mean/min/max와 SVG 막대 차트, 정적 HTML 미리보기.
-XLSX 수식은 실행·평가하지 않고 오류로 안내합니다. OCR은 제공하지 않습니다.
+PDF는 새 첨부를 실제 `read_pdf`로 확인한 후 답변합니다. 파일명·크기·레이아웃만으로
+스캔 문서라고 추정하지 않습니다. 최대 100페이지, 호출당 1~5페이지(기본 3),
+페이지당 10000자 chunk와 `next_page`/`next_offset`을 제공합니다.
+Korean text layer도 읽으며 페이지 citation을 반환합니다. 암호화·손상·범위·자원 제한,
+텍스트 없음, 실제 이미지 객체가 있지만 텍스트가 없는 경우를 별도 typed 결과로 표시합니다.
+이미지-only 결과는 `ocr_not_configured`입니다. 복잡한 배치의 읽기 순서는 달라질 수 있고
+텍스트 추출은 차트의 시각적 해석이 아닙니다. OCR은 미구성이며 외부로 PDF를 전송하지 않습니다.
+XLSX 수식은 실행·평가하지 않고 오류로 안내합니다.
 가짜 날씨는 등록하지 않습니다. 코드·diff·결과는 접이식 카드 안에 표시되고
+실제 `write_file` 저장 성공 시 파일명과 다운로드 버튼은 카드를 펼치지 않아도 보입니다.
+`.py`를 포함한 지원 파일은 대화의 권한 토큰으로만 다운로드하며 저장된 bytes와 UTF-8 파일명을
+`Content-Disposition: attachment`로 전달합니다. 모델의 임의 링크를 다운로드 경로로 사용하지 않습니다.
 차트/HTML은 버튼을 눌러야 열립니다. HTML은 URL 속성·활성 태그를 제거한 뒤
 스크립트·폼·네트워크가 차단된 opaque sandbox iframe으로만 표시합니다
 (외부 CSS/JS·이미지 및 동적 앱 실행은 지원하지 않음).
@@ -90,12 +106,28 @@ XLSX 수식은 실행·평가하지 않고 오류로 안내합니다. OCR은 제
 추론은 최대 5회, 도구 실행 24회, 턴 15분으로 제한합니다.
 취소 시 기존 relay의 cancel을 통해 vLLM 요청을 중단하며 GPU 작업 자체는 계속 실행됩니다.
 
-**외부 서비스 제한:** 공개 [Web IQ 공식 문서](https://webiq.microsoft.ai/documentation/)는
-enterprise limited access 및 REST/MCP를 설명하지만 호출 endpoint/auth/request schema는
-공개하지 않습니다. 현재 App Service에도 관련 설정이 없으므로 `web_iq_search`는 실제 검색 없이
-명시적 미구성 오류를 반환합니다. enterprise 접근 권한, 공식 API 계약, 안전한 App Service
-자격증명 설정이 확보되기 전에는 임의 endpoint나 대체 검색 서비스를 연결하지 않습니다.
-업로드 문서/코드는 외부 검색으로 전송하지 않습니다.
+**Web IQ:** [공식 문서](https://webiq.microsoft.ai/documentation/)는 enterprise limited access를
+설명합니다. `web_iq.py`는 공식 `mcp==1.30.0` SDK로 initialize → tools/list → tools/call을
+수행합니다. 기존 승인된 사용자 프로젝트의 직접 MCP 계약
+(`https://api.microsoft.ai/v3/mcp`, `x-apikey`, `web`, `query`)을 지원하고,
+실제 서버가 광고한 input schema와 고정 옵션을 검증한 후에만 MAF 검색 도구를 등록합니다.
+Foundry 연결에서 키를 관리하더라도 검색은 MCP에 직접 보내며 Foundry 모델을 호출하지 않습니다.
+미구성/연결 실패 시 검색 도구를 등록하지 않으며 `/api/capabilities`와 모델 system 메시지가
+실제 상태와 blocker를 전달합니다. MCP 테스트 fixture는 실제 enterprise 검색 검증이 아닙니다.
+
+기존 Web IQ 접근을 연결하려면 운영자가 승인된 키를 **secure App Service setting**
+`AXK2_WEBIQ_API_KEY` 또는 승인된 secret reference로 설정하고
+`AXK2_WEBIQ_ACCESS_APPROVED=1`로 검색 사용 승인을 표시합니다. 키를 채팅·repo·로그에 넣지 않습니다.
+다른 검증된 enterprise 계약은 `AXK2_WEBIQ_ENDPOINT`, `AXK2_WEBIQ_TOOL`,
+`AXK2_WEBIQ_QUERY_FIELD`, `AXK2_WEBIQ_ARGUMENTS_JSON`으로 명시합니다.
+별도 계약의 bearer auth는 `AXK2_WEBIQ_BEARER_TOKEN`이며 API key와 동시에 설정하지 않습니다.
+리디렉션·자동 OAuth/가입·권한 생성은 하지 않습니다. 연결 설정 변경 후 frontend를 다시 시작합니다.
+
+검색은 Agent Framework, Document Intelligence, Python, Web Platform, Web IQ의 **고정 공개 문서 주제**
+중 하나로 제한합니다. 모델이 임의 검색어·파일명·코드·문서·secret을 외부로 보낼 수 없습니다.
+요청 30초, 응답 192 KiB, 표시 citation 최대 12개이며 실제 공급자가 반환한 URL/원본 provenance만
+유지합니다. 성공한 실제 query가 있어야 `verified_search`가 true입니다.
+입력/결과/시간은 접이식 action 카드, 출처는 해당 카드의 링크로 확인합니다. 대체 검색은 없습니다.
 
 `run_tests`도 승인된 외부 격리 샌드박스가 없어 명시적 미구성 오류만 반환합니다.
 호스트/GPU에서 업로드·모델 생성 코드를 실행하지 않으며 테스트 통과를 꾸미지 않습니다.

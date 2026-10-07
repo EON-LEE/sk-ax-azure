@@ -21,6 +21,20 @@ sys.path.pop(0)
 
 
 class FilesTests(unittest.TestCase):
+    def test_desktop_shared_width_native_typography_and_visible_download(self):
+        css = (ROOT / "demo" / "frontend" / "static" / "chat.css").read_text()
+        js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()
+        self.assertIn("--chat-width: 1200px", css)
+        self.assertIn(".messages > *, .dock > *", css)
+        self.assertIn("font-size: 18px", css)
+        self.assertIn("width: 42px; height: 42px", css)
+        self.assertNotIn("zoom:", css)
+        for selector in (":root", ".app", ".messages", ".dock", ".composer"):
+            style = css.split(selector + " {", 1)[1].split("}", 1)[0]
+            self.assertNotIn("transform: scale", style)
+        self.assertIn("summary.append", js)
+        self.assertIn("action.state === \"success\"", js)
+
     def test_exact_and_bounded_calculator(self):
         self.assertEqual(calculate("2^64-1"), "18446744073709551615")
         self.assertEqual(calculate("0.1+0.2"), "3/10")
@@ -162,6 +176,36 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"state": "error"', output)
         self.assertIn("No tests were run", output)
         self.assertNotIn('"state": "success"', output)
+
+    async def test_generated_python_saved_action_and_exact_authorized_download(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = create_app(Config(data=Path(folder), aml_dir=ROOT / "aml", session_secret="test", open_demo=True),
+                             start_supervisor=False)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                token = (await client.post("/api/workspace")).json()["token"]
+                other = (await client.post("/api/workspace")).json()["token"]
+                content = "def binary_search(items, target):\n    return -1\n"
+                link = FixtureLink("write_file", {"path": "binary_search.py", "content": content})
+                app.state.hub.ready_link = lambda: link
+                capabilities = (await client.get("/api/capabilities")).json()
+                self.assertEqual(capabilities["web_iq"]["state"], "unavailable")
+                response = await client.post("/api/agent", headers={"X-AX-Workspace": token}, json={
+                    "messages": [{"role": "user", "content": "write Python"}], "tools": True})
+                self.assertEqual(response.status_code, 200)
+                output = response.text
+                actions = [json.loads(line[6:]) for line in output.splitlines()
+                           if line.startswith("data: ") and '"state": "success"' in line]
+                result = actions[0]["result"]
+                self.assertEqual(result["artifact"], {"kind": "download", "path": "binary_search.py"})
+                self.assertEqual(actions[0]["arguments"]["content"], content)
+                downloaded = await client.get("/api/workspace/download?path=binary_search.py",
+                                               headers={"X-AX-Workspace": token})
+                self.assertEqual(downloaded.content, content.encode())
+                self.assertIn('filename="binary_search.py"', downloaded.headers["content-disposition"])
+                self.assertEqual(downloaded.headers["content-type"], "application/octet-stream")
+                denied = await client.get("/api/workspace/download?path=binary_search.py",
+                                           headers={"X-AX-Workspace": other})
+                self.assertEqual(denied.status_code, 404)
 
     async def test_cancellation_releases_gate_and_link(self):
         link, space, gate = FixtureLink(hold=True), Workspace(), Gate(1, 2)

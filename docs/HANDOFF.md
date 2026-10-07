@@ -11,10 +11,23 @@ The minimal chat renders actual pending/running/success/error events, files,
 diffs and on-demand sanitized HTML/SVG artifacts. See `demo/README.md` for
 capability isolation, expiry, upload limits and exact supported tools.
 
-Web IQ and code execution are **not configured**, not working integrations.
-The public Web IQ documentation redirects to an enterprise-access landing
-page without a callable API contract; no relevant app settings exist.
-Obtain the enterprise contract and credentials through secure settings first.
+The desktop follow-up uses a shared capped 1200px chat/composer width, 18px
+body text and 42px principal controls. Native PDF reading now uses explicit
+page chunks/citations and typed outcomes; newly attached PDFs must actually
+be parsed before any classification. The custom relay now transports MAF's
+`options.instructions` (previously omitted), including tool guidance and
+the exact workspace inventory. Do not infer that a private PDF is scanned
+from its filename or size; OCR remains unavailable.
+
+Web IQ has a genuine standard MCP adapter, with input-schema discovery and
+direct `x-apikey` authentication verified against existing authorized
+`EON-LEE/tmap-webiq-poc` prior art. It does not invoke Foundry inference.
+Only fixed public documentation topics can leave the server; no uploaded
+content or filenames. Securely configure the existing approved enterprise
+key/access (see `demo/README.md`); do not create a connection or grant new
+permissions. `/api/capabilities` reports the actual state and whether a real
+query succeeded. No operational search tool is registered before discovery.
+Protocol-fixture tests alone do not establish live enterprise access.
 Tests require an approved external isolated sandbox; no uploaded/generated
 code is executed on App Service or GPU, and no test pass is invented.
 Do not provision resources or grant permissions without user approval.
@@ -26,10 +39,11 @@ Existing benchmark samples remain partial and cannot establish equivalence.
 
 Verified on the live existing A.X job: exact `2^64-1` and Seoul time;
 README/HTML reads, HTML write + unified diff + sanitized preview + download;
-CSV sum + SVG chart; genuine error results for both unconfigured services.
+CSV sum + SVG chart; genuine error results for unconfigured services in the original release.
 Thinking-enabled file work preserved the real `reasoning_content` stream.
 Independent browser tab verified three model rounds, cards, on-demand preview,
-attachment read and 390px mobile layout (no permanent editor/admin chrome).
+attachment read and original 390px mobile layout (no permanent editor/admin chrome).
+The follow-up requirement is desktop only, not additional mobile work.
 These are functional demo checks, not new model-quality benchmarks.
 
 ## 2026-10-06: customer demo and model-card benchmarks
