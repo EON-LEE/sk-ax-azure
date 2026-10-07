@@ -50,6 +50,9 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/api/models")
         self.assertEqual({m["id"] for m in response.json()["models"]}, {"fp8","nvfp4"})
         self.assertEqual((await self.client.post("/models/unknown/api/agent", json={})).status_code, 404)
+        self.assertEqual((await self.client.get("/models/nvfp4/admin")).status_code, 404)
+        self.assertEqual((await self.client.get("/models/nvfp4/")).status_code, 404)
+        self.assertEqual((await self.client.post("/models/nvfp4/api/admin/power", json={"state":"off"})).status_code, 401)
 
     async def test_snapshot_same_actual_maf_input_and_tools_then_single_use(self):
         self.source.put("project.txt", b"public sample", original=True)
