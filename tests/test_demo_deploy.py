@@ -27,6 +27,7 @@ class DeploymentBundleTests(unittest.TestCase):
                 "demo/frontend/static/chat.js": "public fixture",
                 "aml/render_job.py": "public fixture",
                 "aml/jobs/demo-fp8-nd96.yml": "public fixture",
+                "aml/jobs/demo-nvfp4-nd96.yml": "public fixture",
                 "aml/src/public.py": "public fixture",
                 "docs/report/skt_published.json": "{}",
                 "docs/report/figures/throughput.json": "{}",
@@ -43,6 +44,7 @@ class DeploymentBundleTests(unittest.TestCase):
                 self.assertIn("app.py", names)
                 self.assertIn("static/chat.js", names)
                 self.assertIn("aml/src/public.py", names)
+                self.assertIn("aml/jobs/demo-nvfp4-nd96.yml", names)
                 self.assertFalse(any(part.startswith(".env") or part == "__pycache__"
                                      for name in names for part in name.split("/")))
                 self.assertFalse(any(b"never packaged" in archive.read(name) for name in names))

@@ -169,6 +169,8 @@ class Workspace:
         self.token = secrets.token_hex(32)
         self.touched = time.monotonic()
         self.files, self.original = {}, {}
+        self.upload_versions = {}
+        self.upload_version = 0
         self.busy = False
         self.pdf_checked = set()
         self.pdf_outcomes = {}
@@ -179,6 +181,8 @@ class Workspace:
         self.closed = False
 
     def put(self, name, data, original=False):
+        if self.closed:
+            raise ValueError("Chat workspace has been closed")
         name = filename(name)
         if len(self.files) >= 100 and name not in self.files:
             raise ValueError("Workspace has at most 100 files")
@@ -204,10 +208,14 @@ class Workspace:
                 raise ValueError("Workspace limits exceeded")
             for n, d in clean.items():
                 self.put(n, d, original=True)
+            self.upload_version += 1
+            self.upload_versions.update({n:self.upload_version for n in clean})
             return list(clean)
         if name in self.files:
             raise ValueError("Upload would overwrite an existing file; rename before uploading")
         self.put(name, data, original=True)
+        self.upload_version += 1
+        self.upload_versions[name] = self.upload_version
         return [name]
 
     def get(self, path):
@@ -215,6 +223,23 @@ class Workspace:
         if name not in self.files:
             raise ValueError("File not found")
         return self.files[name]
+
+    def expire(self):
+        self.closed = True
+        self.files.clear()
+        self.original.clear()
+        self.upload_versions.clear()
+        self.history.clear()
+        self.tool_events.clear()
+        self.pdf_checked.clear()
+        self.pdf_outcomes.clear()
+        self.comparison_snapshot = None
+        for row in getattr(self, "comparisons", {}).values():
+            for actor in row["actors"].values():
+                actor["space"].expire()
+                actor["profile"].state.workspaces.items.pop(actor["space"].token, None)
+        if hasattr(self, "comparisons"):
+            self.comparisons.clear()
 
     def read_pdf(self, path, start_page=1, page_count=3, offset=0):
         from pdf_documents import read_pdf
@@ -380,8 +405,11 @@ class Workspaces:
     def prune(self):
         now = time.monotonic()
         for token, space in list(self.items.items()):
-            if not space.busy and now - space.touched > self.ttl:
-                del self.items[token]
+            owned = [space] + [a["space"] for row in getattr(space, "comparisons", {}).values()
+                               for a in row["actors"].values()]
+            if not any(item.busy for item in owned) and now - max(item.touched for item in owned) > self.ttl:
+                space.expire()
+                self.items.pop(token, None)
 
     def create(self):
         self.prune()

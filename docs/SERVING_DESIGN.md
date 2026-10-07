@@ -742,6 +742,33 @@ node-hours: about USD 20 at the low-priority meter or USD 31 at the Spot
 meter. The GPU cluster was deleted at 15:36Z and the resource group at
 15:51Z.
 
+## 8.5 Dual-model persistent demo profiles
+
+The frontend separates the existing FP8 TP8/PP2 two-node service from an official
+NVFP4 TP8/PP1 one-node service. The user approved the existing UKSouth LowPriority
+compute maximum changing from 2 to 3, without changing its minimum, priority or
+running FP8 job. Available quota/configuration is not guaranteed Spot inventory.
+The new `demo-nvfp4-nd96.yml` is persistent serving, not the section 8.4 benchmark:
+one-node MP execution and a local checkpoint barrier, using the verified SM80
+Marlin W4A16/BF16 activation port, not native FP4 Tensor Core computation.
+
+Each profile owns its supervisor, reverse link, queue and persistent job state.
+Shared-compute node accounting uses actual AML RunIds. New NVFP4 readiness checks
+actual staged repo/revision, TP/PP/world size and source hash; a running legacy FP8
+link remains compatible without an intrusive restart. Its actual AML configuration
+and runtime model/context metadata are exposed separately from requested labels.
+
+Source bundles have gzip mtime 0 and immutable SHA-addressed storage independent
+of deployment code. Legacy active jobs require their exact original archive and
+job/hash mapping before rollout. Missing mappings fail rather than substituting
+a newly rendered archive with a different pinned checksum.
+
+The chat-style comparison freezes common inputs and separates model workspaces/
+artifacts. Independent/common-context modes omit prior model replies; continuation
+has deliberately different per-model histories. Tool execution can diverge.
+Displayed timing/token metrics use actual frontend lifecycle and model usage,
+not estimates or the earlier GPU-direct measurements. See `demo/README.md`.
+
 ## 9. Known limits and next steps
 
 - Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr

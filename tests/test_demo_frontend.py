@@ -105,6 +105,9 @@ class FakeAzure:
     def nodes(self, region):
         return self.counts.get(region, (0, 0))
 
+    def nodes_for(self, region, jobs):
+        return self.nodes(region)
+
     def cancel(self, region, name):
         self.cancelled.append(name)
         self.statuses[name] = "CancelRequested"
@@ -470,6 +473,9 @@ class LinkedTests(ServerCase):
             self.assertEqual(response.status, 400)
         async with client.get("/api/link/evals?run=r1", headers=auth) as response:
             self.assertEqual((await response.json())["records"], [record])
+        supervisor = self.app.state.supervisor
+        supervisor.prepare()
+        data["jobs"][token_digest(TOKEN)]["source_sha"] = supervisor.archives.put(supervisor.source)
         async with client.get("/api/link/src", headers=auth) as response:
             self.assertEqual(response.status, 200)
             source = await response.read()

@@ -16,6 +16,7 @@ The demo template also needs AXK2_LINK_URL and AXK2_LINK_TOKEN in the environmen
 frontend's supervisor calls render() with a fresh token for every submission instead.
 """
 import base64
+import gzip
 import hashlib
 import io
 import os
@@ -34,15 +35,16 @@ SAFE = re.compile(r"[A-Za-z0-9._~:/?=&%+-]+")  # URL/token characters; no quotes
 
 def payload():
     buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
-        for path in sorted((HERE / "src").iterdir()):
-            if not path.is_file() or path.suffix not in {".py", ".sh", ".json"}:
-                continue
-            data = path.read_bytes().replace(b"\r\n", b"\n")
-            info = tarfile.TarInfo(path.name)
-            info.size, info.mtime = len(data), 0
-            info.mode = 0o755 if path.suffix == ".sh" else 0o644
-            tar.addfile(info, io.BytesIO(data))
+    with gzip.GzipFile(fileobj=buffer, mode="wb", filename="", mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as tar:
+            for path in sorted((HERE / "src").iterdir()):
+                if not path.is_file() or path.suffix not in {".py", ".sh", ".json"}:
+                    continue
+                data = path.read_bytes().replace(b"\r\n", b"\n")
+                info = tarfile.TarInfo(path.name)
+                info.size, info.mtime = len(data), 0
+                info.mode = 0o755 if path.suffix == ".sh" else 0o644
+                tar.addfile(info, io.BytesIO(data))
     return base64.b64encode(buffer.getvalue()).decode()
 
 
@@ -53,7 +55,8 @@ def digest(encoded):
 def src_url(link_url):
     """wss://host/ws/link -> https://host/api/link/src (where a demo job downloads its scripts)."""
     parts = urlsplit(link_url)
-    return f"{'https' if parts.scheme == 'wss' else 'http'}://{parts.netloc}/api/link/src" if parts.netloc else ""
+    prefix = parts.path.removesuffix("/ws/link").rstrip("/")
+    return f"{'https' if parts.scheme == 'wss' else 'http'}://{parts.netloc}{prefix}/api/link/src" if parts.netloc else ""
 
 
 def render(text, encoded, values=None):

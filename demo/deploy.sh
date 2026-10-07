@@ -94,7 +94,8 @@ files = {p.relative_to(front).as_posix(): p for p in front.rglob("*")
          if p.is_file() and "__pycache__" not in p.parts
          and not any(part.startswith(".env") for part in p.relative_to(front).parts)}
 files["aml/render_job.py"] = root / "aml" / "render_job.py"
-files["aml/jobs/demo-fp8-nd96.yml"] = root / "aml" / "jobs" / "demo-fp8-nd96.yml"
+for name in ("demo-fp8-nd96.yml", "demo-nvfp4-nd96.yml"):
+    files["aml/jobs/" + name] = root / "aml" / "jobs" / name
 for p in (root / "aml" / "src").iterdir():
     if p.is_file() and p.suffix in {".py", ".sh", ".json"}:
         files["aml/src/" + p.name] = p

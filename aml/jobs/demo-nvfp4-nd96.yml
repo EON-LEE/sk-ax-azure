@@ -1,0 +1,47 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-demo
+display_name: demo-nvfp4-1xND96amsr-A100
+description: >-
+  Official skt/A.X-K2-NVFP4, one 8xA100-80GB node, TP8/PP1, native DSA and the verified SM80
+  Marlin W4A16/W8A16 port (BF16 activations, not native FP4 Tensor Core computation).
+  Persistent private reverse-link serving, no benchmarks. Context is fitted to available KV cache.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: managed
+resources:
+  instance_count: 1
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_URL: "__AXK2_SRC_URL__"
+  AXK2_SRC_SHA256: "__AXK2_SRC_SHA256__"
+  AXK2_LINK_URL: "__AXK2_LINK_URL__"
+  AXK2_LINK_TOKEN: "__AXK2_LINK_TOKEN__"
+  FULL_REPO: skt/A.X-K2-NVFP4
+  NVFP4_SM80_PORT: "1"
+  PHASE_PLAN: "demo"
+  DEMO_EXECUTOR: "mp"
+  FULL_MAX_MODEL_LEN: "-1"
+  FULL_MAX_NUM_SEQS: "128"
+  FULL_GPU_MEM_UTIL: "0.92"
+  FULL_HEALTH_TIMEOUT: "3600"
+  DOWNLOAD_TIMEOUT: "5400"
+  RUN_KERNEL_TESTS: "0"
+  JOIN_TIMEOUT: "5400"
+  DEMO_RESTARTS: "2"
+  TP: "8"
+  PP: "1"
+command: >-
+  mkdir -p /tmp/axk2src && for try in 1 2 3 4 5 6; do python3 -c "import hashlib, os, sys, urllib.request as u;
+  r = u.Request(os.environ['AXK2_SRC_URL']); r.add_header('Authorization', 'Bearer ' + os.environ['AXK2_LINK_TOKEN']);
+  d = u.urlopen(r, timeout=120).read(); ok = hashlib.sha256(d).hexdigest() == os.environ['AXK2_SRC_SHA256'];
+  ok and open('/tmp/axk2src.tgz', 'wb').write(d); sys.exit(0 if ok else 'source digest mismatch')" && break;
+  sleep 20; done && tar -xzf /tmp/axk2src.tgz -C /tmp/axk2src &&
+  bash /tmp/axk2src/entry.sh none hf:9e2e804e80f8d1b3afba5d7938173cec1ed46b49
+limits:
+  timeout: 604800

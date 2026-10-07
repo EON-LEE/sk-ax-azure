@@ -76,6 +76,21 @@ def progress(out):
     return result
 
 
+def staged_provenance():
+    pointer = Path("/tmp/axk2-full.dir")
+    if not pointer.exists():
+        return None
+    directory = Path(pointer.read_text().strip())
+    manifest = json.loads((directory / "STAGED_MANIFEST.json").read_text())
+    if manifest.get("passed") is not True or manifest.get("revision") != manifest.get("sha_reported_by_hub"):
+        raise ValueError("Checkpoint staging verification did not pass")
+    return {"checkpoint":manifest["repo"], "revision":manifest["sha_reported_by_hub"],
+            "tp":int(os.environ["TP"]), "pp":int(os.environ["PP"]),
+            "nodes":int(os.environ.get("WORLD_SIZE", "1")),
+            "source_sha":os.environ.get("AXK2_SRC_SHA256"),
+            "evidence":"verified staged Hub manifest and launcher environment"}
+
+
 def eval_spec(message):
     spec = {"run": str(message.get("run", "")), "suites": str(message.get("suites") or ",".join(sorted(SUITES))),
             "repeats": str(message.get("repeats") or ""), "limit": int(message.get("limit") or 0)}
@@ -91,7 +106,8 @@ class Link:
     def __init__(self, args):
         self.args, self.started = args, time.time()
         parts = urlsplit(args.url)
-        self.http_base = f"{'https' if parts.scheme == 'wss' else 'http'}://{parts.netloc}"
+        prefix = parts.path.removesuffix("/ws/link").rstrip("/")
+        self.http_base = f"{'https' if parts.scheme == 'wss' else 'http'}://{parts.netloc}{prefix}"
         self.tasks, self.outbox, self.http = {}, None, None
         self.pending_eval = self.eval_task = self.eval_proc = self.eval_info = None
         self.eval_stopping = False
@@ -197,6 +213,11 @@ class Link:
             state.update(json.loads(Path(self.args.status).read_text(encoding="utf-8")))
         except (OSError, ValueError, TypeError):
             pass
+        provenance = None
+        try:
+            provenance = staged_provenance()
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            state["provenance_error"] = str(exc)[:300]
         healthy, metrics = False, None
         try:
             healthy = (await self.get("/health"))[0] == 200
@@ -215,6 +236,7 @@ class Link:
             self.eval_stopping, self.eval_info = False, dict(spec, state="running", started=round(time.time()))
             self.eval_task = asyncio.create_task(self.run_eval(spec))
         return dict(state, **progress(self.args.out), type="status", healthy=healthy, metrics=metrics,
+                    provenance=provenance,
                     inflight=len(self.tasks), uptime=round(time.time() - self.started), eval=self.eval_info,
                     eval_pending=self.pending_eval is not None, eval_packages=packages, t=round(time.time(), 1))
 

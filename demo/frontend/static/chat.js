@@ -39,8 +39,14 @@
   }
 
   const ui = {};
-  const state = { history: [], busy: false, controller: null, attachments: [], power: "unknown", epoch: 0,
-                  workspace: null, workspacePromise: null, uploading: false };
+  const profilePrefix = model => model === "fp8" ? "" : "/models/nvfp4";
+  const session = mode => ({ mode, model: "fp8", prefix: "", history: [], busy: false, controller: null,
+    attachments: [], power: "unknown", epoch: 0, workspace: null, workspacePromise: null, uploading: false,
+    draft: "", scroll: 0, tools: mode === "chat", thinking: mode === "chat", previous: null });
+  const sessions = { chat: session("chat"), compare: session("compare") };
+  let state = sessions.compare;
+  let models = [];
+  const isCurrent = owner => owner === state;
   const LABELS = { calculator: "정확한 계산", get_current_time: "현재 시각", list_files: "파일 목록",
     read_file: "문서 읽기", read_pdf: "PDF 페이지 읽기", ocr_pdf: "PDF OCR (미구성)",
     search_files: "파일 검색", write_file: "파일 수정", diff_file: "변경 비교",
@@ -50,16 +56,18 @@
     web_iq_images: "이미지 검색", web_iq_videos: "동영상 검색", web_iq_sports: "스포츠 검색",
     web_iq_sonic: "통합 검색", web_iq_autosuggest: "검색어 제안", run_tests: "실행 샌드박스 (미구성)" };
 
-  async function workspace() {
+  async function workspace(owner = state) {
+    const state = owner;
     if (state.workspace) return state.workspace;
     if (!state.workspacePromise) {
       const epoch = state.epoch;
+      const prefix = state.prefix;
       state.workspacePromise = (async () => {
-        const response = await fetch("/api/workspace", { method: "POST" });
+        const response = await fetch(prefix + "/api/workspace", { method: "POST" });
         if (!response.ok) throw new Error((await AX.problem(response)).message);
         const info = await response.json();
         if (epoch !== state.epoch) {
-          releaseWorkspace("close", info.token);
+          releaseWorkspace("close", info.token, state, prefix);
           throw new DOMException("대화가 변경되었습니다.", "AbortError");
         }
         state.workspace = info.token;
@@ -69,12 +77,12 @@
     return state.workspacePromise;
   }
 
-  function releaseWorkspace(action, token = state.workspace) {
+  function releaseWorkspace(action, token = state.workspace, owner = state, prefix = owner.prefix) {
     if (!token) return;
-    fetch(`/api/workspace/${action}`, { method: "POST", credentials: "same-origin",
+    fetch(`${prefix}/api/workspace/${action}`, { method: "POST", credentials: "same-origin",
       headers: { "X-AX-Workspace": token } }).then(response => {
       if (!response.ok && response.status !== 410) throw new Error(`HTTP ${response.status}`);
-    }).catch(() => flash("이전 작업 종료 요청에 실패했습니다. 브라우저 응답 연결은 중단했습니다."));
+    }).catch(() => flash("이전 작업 종료 요청에 실패했습니다. 브라우저 응답 연결은 중단했습니다.", owner));
   }
 
   class TurnError extends Error {
@@ -102,7 +110,11 @@
     else ui.hint.textContent = "모델 서버가 준비되면 보낼 수 있습니다";
   }
 
-  function flash(message) {
+  function flash(message, owner = state) {
+    if (!isCurrent(owner)) {
+      owner.notice = message;
+      return;
+    }
     readyHint();
     ui.hint.textContent = message;
     ui.hint.classList.add("error");
@@ -111,79 +123,95 @@
 
   function updateControls() {
     ui.send.disabled = state.busy || state.uploading || state.power !== "ready";
+    ui.tools.disabled = state.busy || state.uploading;
+    ui.thinking.disabled = state.busy;
+    ui.file.disabled = state.busy || state.uploading;
     AX.show(ui.send, !state.busy);
     AX.show(ui.stop, state.busy);
     readyHint();
   }
 
   // ---------------------------------------------------------------------------------------- attachments
-  async function addFiles(list) {
+  async function addFiles(list, owner = state) {
+    const state = owner;
     if (state.busy || state.uploading) return;
     state.uploading = true;
     updateControls();
     const epoch = state.epoch;
+    const prefix = state.prefix;
     try {
     for (const file of Array.from(list || [])) {
       if (file.size > FILE_BYTES) {
-        flash(`${file.name}: 파일이 너무 큽니다.`);
+        flash(`${file.name}: 파일이 너무 큽니다.`, owner);
         continue;
       }
       try {
-        const token = await workspace();
-        const response = await fetch("/api/workspace/upload?name=" + encodeURIComponent(file.name),
+        const token = await workspace(state);
+        if (epoch !== state.epoch) return;
+        const response = await fetch(prefix + "/api/workspace/upload?name=" + encodeURIComponent(file.name),
           { method: "POST", headers: { "X-AX-Workspace": token }, body: file });
         if (!response.ok) throw new Error((await AX.problem(response)).message);
         const result = await response.json();
         if (epoch !== state.epoch) return;
         state.attachments.push({ name: file.name, text: "", size: file.size, files: result.files });
-        ui.tools.checked = true;
+        state.tools = true;
+        if (isCurrent(owner)) ui.tools.checked = true;
       } catch (error) {
-        flash(`${file.name}: ${error.message}`);
+        if (epoch !== state.epoch) return;
+        flash(`${file.name}: ${error.message}`, owner);
         continue;
       }
     }
-    renderAttachments();
+    renderAttachments(state);
     } finally {
-      state.uploading = false;
-      updateControls();
+      if (epoch === state.epoch) {
+        state.uploading = false;
+        if (isCurrent(owner)) updateControls();
+      }
     }
   }
 
-  function renderAttachments() {
+  function renderAttachments(owner = state) {
+    if (!isCurrent(owner)) return;
+    const state = owner;
     ui.attachments.replaceChildren(...state.attachments.map((item, index) => el("span", { class: "chip file" },
       `${item.name} · ${AX.num(item.size)} bytes`,
       el("button", { type: "button", class: "remove", title: "첨부 취소", "aria-label": `${item.name} 첨부 취소`,
                      text: "×", onclick: async () => {
                        if (state.busy || state.uploading) return;
+                       const epoch = state.epoch;
                        try {
-                         const response = await fetch("/api/workspace/remove", { method: "POST",
+                         const response = await fetch(state.prefix + "/api/workspace/remove", { method: "POST",
                            headers: { "Content-Type": "application/json", "X-AX-Workspace": state.workspace },
                            body: JSON.stringify({ files: item.files }) });
                          if (!response.ok) throw new Error((await AX.problem(response)).message);
+                         if (epoch !== state.epoch) return;
                          state.attachments.splice(index, 1);
-                         renderAttachments();
-                       } catch (error) { flash(error.message); }
+                         renderAttachments(state);
+                       } catch (error) {
+                         if (epoch === state.epoch) flash(error.message, owner);
+                       }
                      } }))));
     AX.show(ui.attachments, state.attachments.length > 0);
   }
 
   // -------------------------------------------------------------------------------------------- bubbles
-  function userBubble(text, files) {
+  function userBubble(text, files, parent = state.panel) {
     const node = el("div", { class: "msg user" }, el("div", { class: "bubble" },
       files.length ? el("div", { class: "chips" }, files.map((file) =>
         el("span", { class: "chip file", text: `${file.name} · ${AX.num(file.size)} bytes` }))) : null,
       el("div", { class: "plain", text })));
-    ui.messages.append(node);
+    parent.append(node);
     return node;
   }
 
-  function assistantBubble() {
+  function assistantBubble(parent = state.panel, owner = state) {
     const rounds = el("div", { class: "rounds" });
     const status = el("div", { class: "status", text: "요청을 보내는 중" });
     const foot = el("div", { class: "foot" });
     const node = el("div", { class: "msg assistant" }, el("div", { class: "bubble" }, rounds, status, foot));
-    ui.messages.append(node);
-    return { node, rounds, status, foot };
+    parent.append(node);
+    return { node, rounds, status, foot, owner };
   }
 
   // One model request inside a turn: its reasoning (collapsible), its answer and its tool cards.
@@ -226,7 +254,7 @@
   }
 
   function paint(view, box, round, thinking) {
-    const stick = nearBottom();
+    const stick = isCurrent(view.owner) && nearBottom();
     const { reasoning, content } = visible(round, thinking);
     if (reasoning) {
       const settled = !!(content || round.calls.length || round.finish);
@@ -306,16 +334,22 @@
   };
 
   // One request to the model. Streams into `round` and repaints; throws TurnError, or AbortError on stop.
-  async function streamRound(payload, view, box, round, thinking, timing) {
+  async function streamRound(payload, view, box, round, thinking, timing, endpoint = null) {
+    const state = view.owner;
+    const controller = state.controller;
+    const prefix = state.prefix;
     const turnEpoch = state.epoch;
     let requested = performance.now();
     view.currentBox = box;
     let response;
     try {
-      response = await fetch("/api/agent", { method: "POST", credentials: "same-origin", body: payload,
+      const token = endpoint ? endpoint.requestToken : await workspace(state);
+      view.capability = Object.freeze(endpoint
+        ? { prefix: endpoint.artifactPrefix, token: endpoint.artifactToken } : { prefix, token });
+      response = await fetch(endpoint ? endpoint.url : prefix + "/api/agent", { method: "POST", credentials: "same-origin", body: payload,
                                             headers: { "Content-Type": "application/json",
-                                                       "X-AX-Workspace": await workspace() },
-                                            signal: state.controller.signal });
+                                                       "X-AX-Workspace": token },
+                                            signal: controller.signal });
     } catch (error) {
       if (aborted(error)) throw error;
       throw new TurnError("network", "서버에 연결할 수 없습니다. 네트워크 연결을 확인해 주세요.");
@@ -349,6 +383,8 @@
                                    usage: null, first: null, last: null });
           }
           timing.calls = index;
+        } else if (event === "metrics") {
+          view.metrics = json(data) || {};
         } else if (event === "action") {
           actionCard(view, box, json(data) || {});
         } else if (event === "notice") {
@@ -431,6 +467,7 @@
       view.actions.set(action.id, card);
     }
     const labels = { pending: "대기", running: "실행 중", success: "완료", error: "오류", cancelled: "중단됨" };
+    card.dataset.state = action.state;
     card.classList.toggle("error", action.state === "error");
     const body = el("div", { class: "tool-body" });
     if (action.arguments && Object.keys(action.arguments).length) {
@@ -465,7 +502,7 @@
         else body.append(el("div", { class: "tiny", text: "결과" }), el("pre", { text: clip(resultText, 30000) }));
       }
       const artifact = action.result && action.result.artifact;
-      if (artifact && artifact.kind !== "download") body.append(artifactButton(artifact));
+      if (artifact && artifact.kind !== "download") body.append(artifactButton(artifact, view.capability));
       const citations = action.result && action.result.citations;
       if (Array.isArray(citations)) {
         for (const source of citations.slice(0, 12)) {
@@ -483,13 +520,23 @@
     const artifact = action.state === "success" && action.result && action.result.artifact;
     if (artifact && artifact.kind === "download" && typeof artifact.path === "string") {
       summary.append(el("span", { class: "artifact-name", text: artifact.path.split("/").pop() }),
-        artifactButton(artifact));
+        artifactButton(artifact, view.capability));
     }
     card.replaceChildren(summary, body);
-    if (nearBottom()) toBottom();
+    if (isCurrent(view.owner) && nearBottom()) toBottom();
   }
 
-  function artifactButton(artifact) {
+  function finishActions(view) {
+    for (const card of (view.actions || new Map()).values()) {
+      if (!["pending", "running"].includes(card.dataset.state)) continue;
+      card.dataset.state = view.outcome === "cancelled" ? "cancelled" : "error";
+      card.classList.add("error");
+      card.querySelector(".tool-preview").textContent = view.outcome === "cancelled"
+        ? "중단됨" : "실행 종료 · 완료 결과 미수신";
+    }
+  }
+
+  function artifactButton(artifact, capability) {
     return el("button", { type: "button", text: artifact.kind === "download" ? "다운로드" : "미리보기 열기",
       onclick: async (event) => {
         event.preventDefault();
@@ -501,8 +548,8 @@
             source = artifact.svg;
           } else {
             const route = artifact.kind === "preview" ? "preview" : "download";
-            const response = await fetch("/api/workspace/" + route + "?path=" + encodeURIComponent(artifact.path),
-              { headers: { "X-AX-Workspace": state.workspace } });
+            const response = await fetch(capability.prefix + "/api/workspace/" + route + "?path=" + encodeURIComponent(artifact.path),
+              { headers: { "X-AX-Workspace": capability.token } });
             if (!response.ok) throw new Error((await AX.problem(response)).message);
             if (artifact.kind === "download") {
               const url = URL.createObjectURL(await response.blob());
@@ -543,13 +590,14 @@
   }
 
   function footer(view, timing, answer) {
-    const parts = [];
-    if (timing.wait >= 1000) parts.push(`대기 ${secs(timing.wait)}`);
-    if (timing.ttft !== null) parts.push(`첫 토큰 ${secs(timing.ttft)}`);
-    if (timing.tokens) parts.push(`출력 ${AX.num(timing.tokens)} 토큰`);
-    if (timing.decodeMs > 0) parts.push(`초당 ${AX.num(timing.decodeTokens / (timing.decodeMs / 1000), 1)} 토큰`);
-    if (timing.calls > 1) parts.push(`모델 호출 ${timing.calls}회`);
-    const meta = el("span", { class: "meta", text: parts.join(" · ") });
+    const m = view.metrics || {};
+    const value = (number, digits = 0) => Number.isFinite(number) ? AX.num(number, digits) : "미제공";
+    const parts = [`TTFT ${value(m.ttft_seconds, 2)}초`, `전체 ${value(m.total_seconds, 2)}초`,
+      `입력 ${value(m.input_tokens)} / 출력 ${value(m.output_tokens)} 토큰`,
+      `출력 ${value(m.output_tokens_per_second, 1)} tok/s`,
+      ({ completed: "완료", error: "오류", cancelled: "중단됨" })[view.outcome] || "종료 상태 미제공"];
+    const meta = el("span", { class: "meta metrics", text: parts.join(" · "),
+      title: "서버 실측. TTFT는 요청 처리 시작부터 첫 답변 텍스트까지(대기·문서 판독·추론 포함). 토큰은 모델 호출별 실제 usage 합계. 출력률은 전체 모델 호출 시간(대기·prefill 포함) 기준이며 순수 decode 속도가 아닙니다." });
     if (!answer) {
       view.foot.replaceChildren(meta);
       return;
@@ -572,7 +620,9 @@
   const bytes = (text) => new TextEncoder().encode(text).length;
 
   // One user turn; MAF owns bounded model/tool rounds on the server.
-  async function send() {
+  async function send(owner = state) {
+    const state = owner;
+    if (state.mode === "compare") return sendComparison(state);
     if (state.busy || state.uploading) return;
     if (state.power !== "ready") {
       flash("모델 서버가 아직 준비되지 않았습니다.");
@@ -597,8 +647,8 @@
     state.attachments = [];
     renderAttachments();
     AX.show(ui.welcome, false);
-    const userNode = userBubble(question, files);
-    const view = assistantBubble();
+    const userNode = userBubble(question, files, state.panel);
+    const view = assistantBubble(state.panel, state);
     toBottom();
     const epoch = state.epoch;
     state.busy = true;
@@ -635,13 +685,8 @@
     state.busy = false;
     state.controller = null;
     view.status.remove();
+    view.outcome = failure ? aborted(failure) ? "cancelled" : "error" : "completed";
     if (failure) {
-      for (const card of (view.actions || new Map()).values()) {
-        if (/실행 중|대기/.test(card.querySelector("summary").textContent)) {
-          card.classList.add("error");
-          card.querySelector(".tool-preview").textContent = "중단됨";
-        }
-      }
       const stopped = aborted(failure);
       if (!stopped && !(failure instanceof TurnError)) console.error(failure);
       if (last) paint(view, view.currentBox || last.box, last.round, thinking);
@@ -657,7 +702,7 @@
         view.node.classList.add("failed");
         note(view, stopped ? "중단했습니다. 이미 완료된 결과와 파일은 현재 대화에 유지됩니다. 백그라운드 작업은 없습니다." : failure.message || "오류가 발생했습니다.",
              !stopped, failure.detail);
-        if (!ui.input.value.trim() && !state.attachments.length) {
+        if (isCurrent(owner) && !ui.input.value.trim() && !state.attachments.length) {
           ui.input.value = typed;
           ui.grow();
           state.attachments = files;
@@ -665,27 +710,157 @@
         }
       }
     }
+    finishActions(view);
     const stick = nearBottom();
     footer(view, timing, answer);
     updateControls();
-    if (stick) toBottom();
+    if (stick && isCurrent(owner)) toBottom();
   }
 
-  function reset() {
+  async function sendComparison(owner) {
+    if (owner.busy || owner.uploading) return;
+    if (owner.power !== "ready") return flash("준비된 모델이 없습니다.");
+    const typed = ui.input.value.trim();
+    const files = owner.attachments.slice();
+    if (!typed && !files.length) return;
+    const question = typed || "첨부한 문서를 요약해 줘.";
+    const thinking = ui.thinking.checked;
+    const raw = { messages: [{ role: "user", content: question }], thinking, tools: ui.tools.checked,
+      attachments: files.flatMap(file => file.files), previous: owner.previous,
+      mode: ui.contextMode.value, context: ui.commonContext.value,
+      max_tokens: Number(ui.outputLimit.value),
+      generation: { temperature: Number(ui.temperature.value), top_p: Number(ui.topP.value) } };
+    const epoch = owner.epoch;
+    owner.busy = true;
+    owner.controller = new AbortController();
+    ui.input.value = "";
+    ui.grow();
+    AX.show(owner.welcome, false);
+    userBubble(question, files, owner.panel);
+    const condition = el("details", { class: "turn-condition" },
+      el("summary", { text: "입력 조건 확인" }));
+    const pair = el("div", { class: "compare-turn" });
+    owner.panel.append(condition, pair);
+    const views = new Map();
+    for (const model of ["fp8", "nvfp4"]) {
+      const view = assistantBubble(pair, owner);
+      view.node.querySelector(".bubble").prepend(el("div", { class: "model-heading",
+        text: model === "fp8" ? "A.X K2 FP8 · 16 A100" : "A.X K2 NVFP4 · 8 A100" }));
+      views.set(model, view);
+    }
+    updateControls();
+    toBottom();
+    try {
+      const token = await workspace(owner);
+      if (epoch !== owner.epoch) return;
+      const response = await fetch("/api/compare", { method: "POST", signal: owner.controller.signal,
+        headers: { "Content-Type": "application/json", "X-AX-Workspace": token }, body: JSON.stringify(raw) });
+      if (!response.ok) throw new Error((await AX.problem(response)).message);
+      const run = await response.json();
+      if (epoch !== owner.epoch) return;
+      owner.previous = run.id;
+      owner.attachments = [];
+      renderAttachments(owner);
+      condition.append(el("p", { text: run.input_difference
+        ? "각자 대화 이어가기: 이전 답변·도구 결과·파일 변경이 달라 입력 문맥도 다릅니다."
+        : "서버가 질문·파일 스냅샷·시각·공통 문맥·생성 조건을 양쪽에 동일하게 고정했습니다." }),
+        el("p", { text: raw.tools ? "실제 에이전트 비교: 도구 호출과 결과는 모델별로 달라질 수 있습니다." : "도구 없음 · 실제 모델 응답 비교" }),
+        el("pre", { text: JSON.stringify(run.snapshot, null, 2) }));
+      await Promise.all(run.actors.map(async actor => {
+        const view = views.get(actor.model);
+        if (!view) throw new Error("서버가 지원하지 않는 비교 모델을 반환했습니다.");
+        const timing = { wait: 0, ttft: null, tokens: 0, decodeTokens: 0, decodeMs: 0, calls: 0 };
+        const round = { reasoning: "", content: "", calls: [], finish: null, usage: null, first: null, last: null };
+        let box = roundBox(view);
+        let answer = "";
+        try {
+          box = await streamRound("{}", view, box, round, thinking, timing, { url: actor.stream,
+            requestToken: token, artifactPrefix: profilePrefix(actor.model), artifactToken: actor.workspace });
+          answer = visible(round, thinking).content;
+          if (!answer.trim()) throw new Error("모델이 답변 텍스트를 제공하지 않았습니다.");
+          view.outcome = "completed";
+          if (round.finish === "length") note(view, "출력 상한에 도달했습니다.", false);
+        } catch (error) {
+          view.outcome = aborted(error) ? "cancelled" : "error";
+          answer = visible(round, thinking).content;
+          paint(view, view.currentBox || box, round, thinking);
+          note(view, aborted(error) ? "이 모델 응답은 중단됐습니다. 백그라운드 작업은 없습니다." : error.message, !aborted(error));
+        } finally {
+          finishActions(view);
+          view.status.remove();
+          footer(view, timing, answer);
+        }
+      }));
+    } catch (error) {
+      for (const view of views.values()) {
+        view.outcome = aborted(error) ? "cancelled" : "error";
+        view.status.remove();
+        note(view, aborted(error) ? "비교 요청이 중단됐습니다." : error.message, !aborted(error));
+        footer(view, {}, "");
+      }
+    } finally {
+      if (epoch === owner.epoch) {
+        owner.busy = false;
+        owner.controller = null;
+        updateControls();
+      }
+    }
+  }
+
+  function switchTab(mode) {
+    state.draft = ui.input.value;
+    state.tools = ui.tools.checked;
+    state.thinking = ui.thinking.checked;
+    state.scroll = ui.messages.scrollTop;
+    state = sessions[mode];
+    for (const [name, owner] of Object.entries(sessions)) {
+      AX.show(owner.panel, name === mode);
+      owner.welcome.removeAttribute("id");
+      owner.welcome.querySelector(".suggestions").removeAttribute("id");
+    }
+    ui.welcome = state.welcome;
+    ui.welcome.id = "welcome";
+    ui.welcome.querySelector(".suggestions").id = "examples";
+    ui.input.value = state.draft;
+    ui.tools.checked = state.tools;
+    ui.thinking.checked = state.thinking;
+    ui.grow();
+    ui.chatTab.setAttribute("aria-selected", String(mode === "chat"));
+    ui.compareTab.setAttribute("aria-selected", String(mode === "compare"));
+    AX.show(ui.modelSelect, mode === "chat");
+    AX.show(ui.conditions, mode === "compare");
+    renderAttachments();
+    updateControls();
+    ui.messages.scrollTop = state.scroll;
+    if (state.notice) {
+      flash(state.notice);
+      state.notice = null;
+    }
+    window.dispatchEvent(new CustomEvent("ax:view-change"));
+  }
+
+  function reset(owner = state) {
+    const state = owner;
     state.epoch += 1;
     if (state.controller) state.controller.abort();
-    releaseWorkspace("close");
+    releaseWorkspace("close", state.workspace, state);
     state.controller = null;
     state.busy = false;
+    state.uploading = false;
+    state.notice = null;
     state.history = [];
     state.workspace = null;
     state.workspacePromise = null;
     state.attachments = [];
-    ui.input.value = "";
-    ui.grow();
-    renderAttachments();
-    ui.messages.replaceChildren(ui.welcome);
-    AX.show(ui.welcome, true);
+    state.previous = null;
+    state.draft = "";
+    state.panel.replaceChildren(state.welcome);
+    AX.show(state.welcome, true);
+    if (isCurrent(owner)) {
+      ui.input.value = "";
+      ui.grow();
+      renderAttachments(state);
+    }
     updateControls();
     ui.input.focus();
   }
@@ -696,12 +871,43 @@
     updateControls();
   }
 
+  function setModels(value) {
+    models = value;
+    const contextLimits = models.map(model => model.runtime?.max_context_tokens);
+    const commonLimit = contextLimits.length === 2 && contextLimits.every(value => Number.isInteger(value) && value > 0)
+      ? Math.min(...contextLimits) : null;
+    document.getElementById("context-limits").textContent = models.map(model =>
+      `${model.label}: ${Number.isInteger(model.runtime?.max_context_tokens) ? AX.num(model.runtime.max_context_tokens) + " tokens" : "미제공"}`
+    ).join(" · ") + ` · 공통 문맥 한도: ${commonLimit === null ? "미제공" : AX.num(commonLimit) + " tokens"}`
+      + " (입력·출력·도구 문맥 포함, 실제 토큰화 한도 초과는 엔진이 명시적으로 거부)";
+    sessions.chat.power = (models.find(model => model.id === sessions.chat.model) || {}).status?.power || "unknown";
+    sessions.compare.power = models.some(model => model.status.power === "ready") ? "ready"
+      : (models.find(model => model.status.desired === "on") || models[0])?.status.power || "unknown";
+    updateControls();
+  }
+
+  function status() {
+    if (state.mode === "chat") return (models.find(model => model.id === state.model) || {}).status || { power: "unknown" };
+    const ready = models.find(model => model.status.power === "ready");
+    return (ready || models.find(model => model.status.desired === "on") || models[0])?.status || { power: "unknown" };
+  }
+
   function init() {
     for (const id of ["messages", "welcome", "examples", "composer", "attachments", "input", "thinking", "tools", "file",
-                      "new-chat", "hint", "stop", "send"]) {
+                      "new-chat", "hint", "stop", "send", "chat-tab", "compare-tab", "model-select", "conditions",
+                      "context-mode", "common-context", "output-limit", "temperature", "top-p"]) {
       ui[id.replace(/-(\w)/g, (match, letter) => letter.toUpperCase())] = document.getElementById(id);
     }
-    ui.examples.replaceChildren(...EXAMPLES.map((example) => el("button", {
+    const originalWelcome = ui.welcome;
+    for (const owner of Object.values(sessions)) {
+      owner.panel = el("section", { class: "timeline" });
+      owner.welcome = owner.mode === "chat" ? originalWelcome : originalWelcome.cloneNode(true);
+      owner.welcome.removeAttribute("id");
+      const examples = owner.welcome.querySelector(".suggestions");
+      examples.removeAttribute("id");
+      owner.panel.append(owner.welcome);
+      ui.messages.append(owner.panel);
+      examples.replaceChildren(...EXAMPLES.map((example) => el("button", {
       type: "button", class: "suggestion", onclick: () => {
         if (state.busy) return;
         ui.input.value = example.text;
@@ -709,6 +915,7 @@
         if (state.power === "ready") send();
         else ui.input.focus();
       } }, el("strong", { text: example.label }), el("span", { text: example.text }))));
+    }
     const grow = () => {
       ui.input.style.height = "auto";
       ui.input.style.height = `${Math.min(ui.input.scrollHeight, 220)}px`;
@@ -729,7 +936,21 @@
       releaseWorkspace("cancel");
       if (state.controller) state.controller.abort();
     });
-    ui.newChat.addEventListener("click", reset);
+    ui.newChat.addEventListener("click", () => reset());
+    ui.chatTab.addEventListener("click", () => switchTab("chat"));
+    ui.compareTab.addEventListener("click", () => switchTab("compare"));
+    ui.modelSelect.addEventListener("change", () => {
+      reset(sessions.chat);
+      sessions.chat.model = ui.modelSelect.value;
+      sessions.chat.prefix = profilePrefix(sessions.chat.model);
+      setModels(models);
+      window.dispatchEvent(new CustomEvent("ax:view-change"));
+    });
+    ui.contextMode.addEventListener("change", () => {
+      document.getElementById("condition-note").textContent = ui.contextMode.value === "continue"
+        ? "각자 이어가기는 두 번째 턴부터 각 모델의 실제 답변·도구 결과로 입력 문맥이 달라집니다."
+        : "독립 질문과 고정 공통 문맥은 이전 모델 답변을 넣지 않습니다. 실제 도구 결과는 달라질 수 있습니다.";
+    });
     ui.file.addEventListener("change", () => {
       addFiles(ui.file.files).finally(() => {
         ui.file.value = "";
@@ -747,6 +968,9 @@
     });
     renderAttachments();
     updateControls();
+    ui.tools.checked = state.tools;
+    ui.thinking.checked = state.thinking;
+    switchTab("compare");
     fetch("/api/capabilities").then(async (response) => {
       if (!response.ok) throw new Error((await AX.problem(response)).message);
       const capabilities = await response.json();
@@ -758,6 +982,6 @@
     });
   }
 
-  AX.chat = { init, setPower, reset, busy: () => state.busy };
+  AX.chat = { init, setPower, setModels, status, reset, busy: () => state.busy };
   init();  // scripts are deferred, so the page is parsed
 })();

@@ -23,11 +23,13 @@ import asyncio
 import base64
 import importlib.util
 import os
+import re
 import secrets
 import tempfile
 import time
 
 from store import token_digest
+from sources import SourceArchives
 
 RUNNING = {"Preparing", "Running", "Finalizing"}
 TERMINAL = {"Failed", "Canceled", "CancelRequested", "Completed", "NotResponding"}
@@ -71,10 +73,27 @@ class AzureML:
     def status(self, region, name):
         return self.client(region).jobs.get(name).status
 
+    def facts(self, region, name):
+        job = self.client(region).jobs.get(name)
+        values = job.environment_variables or {}
+        revision = re.findall(r"hf:([0-9a-f]{40})", job.command or "")
+        return {"checkpoint":values.get("FULL_REPO") or "skt/A.X-K2",
+                "revision":revision[-1] if revision else None,
+                "tp":int(values["TP"]), "pp":int(values["PP"]),
+                "nodes":job.resources.instance_count,
+                "source_sha":values.get("AXK2_SRC_SHA256"),
+                "evidence":"actual AML job command/environment/resource configuration"}
+
     def nodes(self, region):
         nodes = list(self.client(region).compute.list_nodes(self.config.compute))
         usable = [n for n in nodes if node_state(n) not in GONE]
         return len(nodes), len(usable)
+
+    def nodes_for(self, region, jobs):
+        names = set(jobs)
+        nodes = [n for n in self.client(region).compute.list_nodes(self.config.compute)
+                 if (vars(n).get("run_id") or vars(n).get("runId")) in names]
+        return len(nodes), sum(node_state(n) not in GONE for n in nodes)
 
     def submit(self, region, text):
         from azure.ai.ml import load_job
@@ -93,10 +112,11 @@ class AzureML:
 
 
 class Supervisor:
-    def __init__(self, config, store, hub, azure=None, clock=time.time):
+    def __init__(self, config, store, hub, azure=None, clock=time.time, archives=None):
         self.config, self.store, self.hub = config, store, hub
         self.azure, self.clock = azure or AzureML(config), clock
         self.wake, self.renderer, self.source = asyncio.Event(), None, b""
+        self.archives = archives or SourceArchives(config.data / "sources")
 
     def poke(self):
         self.wake.set()
@@ -110,6 +130,7 @@ class Supervisor:
             template = (self.config.aml_dir / "jobs" / self.config.template).read_text(encoding="utf-8")
             encoded = module.payload()
             self.source = base64.b64decode(encoded)  # served at /api/link/src; the job checks its digest
+            self.archives.put(self.source)
             self.renderer = lambda values: module.render(template, encoded, values)
 
     def job_text(self, token):
@@ -191,6 +212,11 @@ class Supervisor:
             if status != job.get("status"):
                 job["status"] = status
                 self.store.event("job", f"{job['region']} {job['name']}: {status}", save=False)
+            if not job.get("facts") and hasattr(self.azure, "facts"):
+                try:
+                    job["facts"] = await asyncio.to_thread(self.azure.facts, job["region"], job["name"])
+                except (ValueError, KeyError, AttributeError) as exc:
+                    self.store.event("error", f"{job['region']}: job provenance unavailable: {short(exc)}", save=False)
             if status in TERMINAL:
                 await self.release(digest, f"the job ended ({status})", cancel=False)
         regions = {job["region"] for job in data["jobs"].values()}
@@ -200,7 +226,8 @@ class Supervisor:
                 data["nodes"].pop(region, None)
                 continue
             try:
-                total, usable = await asyncio.to_thread(self.azure.nodes, region)
+                names = [j["name"] for j in data["jobs"].values() if j["region"] == region and j.get("name")]
+                total, usable = await asyncio.to_thread(self.azure.nodes_for, region, names)
             except Exception as exc:
                 self.store.event("error", f"{region}: listing nodes failed: {short(exc)}", save=False)
                 continue
@@ -297,6 +324,9 @@ class Supervisor:
         self.store.save()  # node 0 may dial in before create_or_update returns
         try:
             text = self.job_text(token)
+            if self.source:
+                data["jobs"][digest]["source_sha"] = self.archives.put(self.source)
+                self.store.save()
             name = await asyncio.to_thread(self.azure.submit, region, text)
         except Exception as exc:
             data["jobs"].pop(digest, None)

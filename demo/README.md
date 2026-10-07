@@ -1,22 +1,25 @@
 # A.X K2 데모 운영 가이드
 
-A100 80GB 16장(Standard_ND96amsr_A100_v4 × 2노드, Azure ML)에서 도는 A.X K2를 고객에게 보여 주는 데모입니다.
+A.X K2 FP8(16 A100, 2노드, TP8×PP2)와 공식 NVFP4(8 A100, 1노드, TP8)를
+별도 프로필로 제공하는 데모입니다. 실제 준비 여부·실행 구성·문맥 한도는 `/api/models`로 확인합니다.
 
 ```mermaid
 flowchart LR
   U[사용자 브라우저] -- HTTPS / SSE --> W[App Service<br/>Korea Central, B1<br/>demo/frontend]
   W -- 작업 제출·취소<br/>Managed Identity --> M[Azure ML<br/>uksouth → italynorth → francecentral]
-  M --> J[GPU 작업: ND96amsr_A100_v4 × 2<br/>vLLM TP8×PP2, FP8, native DSA]
+  M --> J[FP8: ND96amsr_A100_v4 × 2<br/>vLLM TP8×PP2, native DSA]
+  M --> N[NVFP4: UKSouth ND96amsr_A100_v4 × 1<br/>vLLM TP8×PP1, SM80 port]
   J -- WSS 링크(작업이 먼저 연결) --> W
+  N -- 별도 WSS 링크 --> W
 ```
 
 - 프런트엔드(App Service)는 항상 켜져 있습니다. 대화·파일은 임시 메모리에만 있으며 디스크에 저장하지 않습니다.
-- 화면은 ChatGPT 스타일 채팅 하나뿐입니다(추론 과정·도구 호출 카드 표시). 클러스터·벤치마크 결과는 웹에 두지 않고 `docs/report`에만 둡니다.
+- 화면은 기존 채팅과 채팅형 모델 비교의 두 탭입니다(기본 진입: 모델 비교). 추론·도구·파일 표면은 동일하며 클러스터/벤치마크 대시보드나 보관 대화 UI는 없습니다.
 - 기본은 **공개 데모 모드**(`AXK2_OPEN_DEMO=1`)입니다. 로그인 없이 주소만 알면 채팅할 수 있습니다(내부 데모용). 비밀번호로 막으려면 `AXK2_OPEN_DEMO=0`으로 `deploy.sh`를 다시 실행하세요. 관리자 페이지(`/admin`)는 어느 모드든 관리자 비밀번호가 필요합니다.
 - GPU는 관리자가 켤 때만 돕니다. 켜면 지역 3곳에 동시에 저우선(low priority) 작업을 내고, 먼저 2노드를 모두 받은 곳을 남기고 나머지는 취소합니다.
 - GPU 작업은 바깥에서 들어오는 포트가 없습니다. 작업 안의 `backend_link.py`가 App Service로 WebSocket을 열고, 채팅 요청은 이 링크를 타고 vLLM으로 갑니다.
 - 저우선 노드는 회수(preemption)될 수 있습니다. 그러면 슈퍼바이저가 같은 지역에 다시 내고, 안 되면 다시 3곳 경주를 합니다. 화면에는 "준비 중"으로 보입니다.
-- GPU 작업은 실행 스크립트(`aml/src`)를 작업 명령에 넣지 않고, 시작할 때 프런트엔드의 `/api/link/src`에서 내려받아 SHA-256을 확인합니다. Azure ML은 작업의 docker 인자(환경 변수+명령) 길이를 제한해서, 스크립트를 base64로 넣으면 시작 3분 만에 `ArgumentTooLong`으로 실패합니다.
+- GPU 작업은 실행 스크립트(`aml/src`)를 작업 명령에 넣지 않고, 시작할 때 해당 프로필의 `/api/link/src`에서 작업에 고정된 아카이브를 내려받아 SHA-256을 확인합니다. gzip timestamp는 0으로 고정하며 `/home/data/sources`의 hash-addressed 아카이브는 재배포와 독립적으로 보존합니다. 이전 작업도 정확한 원본 아카이브/작업 매핑을 보존한 뒤 배포해야 합니다. 매핑이 없으면 현재 코드로 대체하지 않고 명시적으로 실패합니다.
 - 켜고 나서 채팅이 되기까지 실측 약 25분입니다(노드 확보·InfiniBand 확인 → 가중치 676 GB 다운로드 약 18분 → 로드 약 5분). 노드를 기다리는 시간은 그때 용량에 따라 더 걸릴 수 있습니다.
 
 ## 처음 배포
@@ -33,6 +36,14 @@ AXK2_SUB=<구독 ID> bash demo/deploy.sh
 - 배포 중 게이트웨이 504가 보여도 Kudu 빌드는 계속됩니다. 스크립트가 `/healthz` 200을 확인할 때까지 기다립니다.
 
 ## 일상 운영 (`demo/ctl.sh`)
+
+기존 `ctl.sh` 명령과 루트 API는 **FP8만** 대상으로 합니다. NVFP4는
+`/models/nvfp4/api/admin/power`의 기존 관리자 인증을 사용하며 상태는
+`/models/nvfp4/api/status`에서 확인합니다. 두 프로필은 Store/Supervisor/Hub/Gate와
+작업 취소 범위를 분리하고, 동일 compute의 실제 AML RunId로 각자 노드를 계산합니다.
+NVFP4는 처음에는 꺼진 상태이며 UKSouth의 기존 compute에서 한 노드만 요청합니다.
+사용자가 승인한 maxNodeCount=3은 재고 보장이 아닙니다. FP8의 전원·작업은
+NVFP4 기동/복구에 의해 변경하지 않습니다. 탭/모델 선택도 GPU 기동을 유발하지 않습니다.
 
 | 명령 | 하는 일 |
 |---|---|
@@ -69,7 +80,7 @@ AXK2_SUB=<구독 ID> bash demo/deploy.sh
 `agent-framework-core==1.20.0`의 실제 `Agent`, `FunctionInvocationLayer`, 스트리밍,
 `FunctionMiddleware`를 사용합니다. `agent.py`의 `AXClient`는 기존 역방향 WebSocket으로만
 vLLM에 요청하며 `reasoning_content`와 도구 호출/결과를 다음 모델 호출에 재전달합니다.
-모델 판단·코드 생성·최종 답변은 기존 SKT A.X K2(FP8 native DSA, TP8×PP2)만 수행합니다.
+모델 판단·코드 생성·최종 답변은 선택한 self-hosted SKT A.X K2 프로필만 수행합니다.
 OpenAI/Azure OpenAI/Foundry 추론, 대체 LLM, Azure AI Search는 사용하지 않습니다.
 브라우저는 서버가 보낸 실제 추론과 도구 상태만 표시하며 실행 루프를 소유하지 않습니다.
 MAF의 `options.instructions`를 실제 vLLM system 메시지로 전달합니다. 도구 안내와
@@ -90,6 +101,40 @@ MAF의 `options.instructions`를 실제 vLLM system 메시지로 전달합니다
 본문 18px, 주요 전송·첨부·토글 컨트롤 42px이며 좁은 패널에서는 함께 줄어듭니다.
 대화와 입력 영역 모두 동일한 stable scrollbar gutter를 예약하여 긴 대화에서도 정렬을 유지합니다.
 CSS zoom/transform 확대나 상시 IDE 패널은 사용하지 않습니다.
+
+### 채팅형 모델 비교
+
+채팅 탭은 모델 선택 외에 기존 표면을 유지합니다. 모델 변경/새 대화는 이전 요청을
+취소하고 파일·대화 capability를 폐기합니다. 탭 전환은 각 탭의 입력·첨부·결과와
+실행을 보존하며 자동 실행/취소를 하지 않습니다.
+
+비교는 공유 질문/첨부를 한 번 표시하고 FP8/NVFP4 실제 응답을 좌우에 누적합니다.
+기본은 독립 질문(이전 답변 제외, 도구/추론 끔)이며, 접는 공통 조건에서 고정 공통
+문맥 또는 각자 대화 이어가기와 출력 상한/temperature/top_p를 선택합니다.
+서버는 질문·파일 bytes/hash·시각·지침·생성 조건을 동일 RAM snapshot으로 고정합니다.
+새 PDF의 실제 첫 판독도 동일 call ID/입력으로 두 MAF 실행에 전달합니다.
+각자 이어가기는 이전 실제 답변·결과·수정 파일이 달라 문맥도 달라집니다.
+도구를 켜면 에이전트 비교이며 이후 호출/결과는 달라질 수 있습니다.
+각 실행은 새 비교 ID와 모델별 파일/대화 토큰을 갖고, 입력 업로드는 공유 공간에서만
+허용합니다. 한쪽 미준비/오류/취소는 그대로 표시하며 다른 모델로 대체하지 않습니다.
+최대 8개 비교/대화와 기존 workspace 용량·30분 idle 만료를 적용합니다.
+새 대화/만료는 소유한 양쪽 공간과 보존 snapshot을 함께 폐기합니다.
+
+각 답변 아래 TTFT(요청 처리 시작부터 첫 답변 content까지, 대기·추론 포함),
+전체시간과 실제 입력/출력 usage를 표시합니다. output tok/s는 전체 모델 호출의
+completion tokens를 모델 호출 elapsed 합으로 나눈 값이며 queue/prefill을 포함합니다.
+순수 decode 속도나 GPU-direct 벤치마크가 아닙니다. 실제 usage가 없는 호출은
+토큰/속도를 추정하지 않고 `미제공`으로 표시합니다. 공통 문맥 한도는 두 실행 엔진의
+`/v1/models` 실제 한도 중 작은 값이며 어느 한쪽이 미확인이면 미제공입니다.
+입력·출력·system/tool 문맥을 모두 포함하고 실제 토큰화 초과는 해당 엔진이 거부합니다.
+
+NVFP4 지속 서빙 템플릿은 `aml/jobs/demo-nvfp4-nd96.yml`입니다.
+공식 checkpoint/revision과 기존 SM80 port를 사용하고 1노드 MP executor로 실행합니다.
+A100에는 FP4 Tensor Core가 없으며 Marlin W4A16/BF16 activation 경로이지
+native FP4 연산이 아닙니다. 벤치마크용 `nvfp4-a100-nd96.yml`을 제출하지 않습니다.
+NVFP4 readiness는 실제 staged checkpoint/revision/TP/PP/world size/source SHA를 검증합니다.
+이미 실행 중인 legacy FP8은 재시작 없이 기존 링크 및 실제 AML job/runtime evidence를
+보존하므로 새 staged-manifest 전송까지 소급 검증했다고 주장하지 않습니다.
 
 지원 도구: 유리수 기반 정확 계산, IANA 시간대, 파일 목록/읽기/문자열 검색/텍스트 수정/
 unified diff/다운로드, PDF 텍스트(page)/DOCX(paragraph)/TXT·MD(line) 참조,
