@@ -71,6 +71,14 @@ class VerticalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(provider.catalog), VERTICALS)
         tools = provider.tools()
         self.assertEqual({t.name for t in tools}, {"web_iq_" + name for name in VERTICALS})
+        for tool in tools:
+            props = tool.to_json_schema_spec()["function"]["parameters"]["properties"]
+            if "maxResults" in props:
+                self.assertEqual(props["maxResults"]["maximum"], 5)
+                self.assertIn("hard limit 5", props["maxResults"]["description"])
+            if "maxLength" in props:
+                self.assertEqual(props["maxLength"]["default"], 1500)
+                self.assertIn("1500", props["maxLength"]["description"])
         for name in VERTICALS:
             with self.subTest(name=name), patch.object(provider, "validate_browse"):
                 query = "https://example.org/" if name == "browse" else "Samsung public news"
@@ -106,6 +114,22 @@ class VerticalTests(unittest.IsolatedAsyncioTestCase):
             await provider.prepare()
             with patch.object(provider, "validate_browse"), self.assertRaises(asyncio.CancelledError):
                 await provider.search("https://example.org/" if name == "browse" else "public query", name)
+
+    async def test_real_error_code_and_limits_replayed_to_ax_without_category_override(self):
+        provider, calls = self.provider()
+        await provider.prepare()
+        for args in ({"query": "public query", "maxResults": 10},
+                     {"query": "public query", "_name": "finance"}):
+            link = FixtureLink("web_iq_web", args)
+            response = agent_response(FixtureHub(link), Gate(1, 2), {
+                "messages": [{"role": "user", "content": "public query"}], "model": "axk2"},
+                Workspace(), True, web_iq=provider)
+            output = b"".join([chunk async for chunk in response.body_iterator]).decode()
+            self.assertIn('"state": "error"', output)
+            self.assertNotIn('"state": "success"', output)
+            self.assertIn("provider_argument_limit" if "maxResults" in args else "Unexpected argument", output)
+            self.assertEqual(len(link.requests), 2)
+        self.assertEqual(calls, [])
 
     async def test_schema_options_and_unsafe_urls(self):
         provider, calls = self.provider()

@@ -413,11 +413,21 @@ class WebIQ:
         if not self.ready:
             return []
 
+        def bind(name, field):
+            async def invoke(**arguments):
+                query = arguments.pop(field)
+                try:
+                    return await self.search(query, name, arguments, permission)
+                except WebIQProblem as exc:
+                    # Real typed failure is visible to both the action card and AX's next tool round.
+                    return json.dumps({"status": "error", "provider": "Microsoft Web IQ",
+                                       "vertical": name, "error": exc.code,
+                                       "limits": {"maxResults": 5, "maxResultsWeb": 5, "maxLength": 1500},
+                                       "instruction": "No successful result. Correct invalid arguments or explain the actual provider limitation."})
+            return invoke
+
         result = []
         for name, (schema, _, field, description) in self.catalog.items():
-            async def invoke(_name=name, _field=field, **arguments):
-                query = arguments.pop(_field)
-                return await self.search(query, _name, arguments, permission)
             # Each native MAF tool advertises its own actual discovered schema, not a guessed union.
             exposed = copy.deepcopy(schema)
             exposed["additionalProperties"] = False
@@ -425,9 +435,14 @@ class WebIQ:
             for key, cap in {"maxResults": 5, "maxResultsWeb": 5, "maxLength": 1500}.items():
                 if key in exposed["properties"]:
                     exposed["properties"][key]["maximum"] = cap
+                    exposed["properties"][key]["description"] = f"Application hard limit {cap}; omit to use bounded default. Never exceed {cap}."
             for key, value in bounded.items():
                 if key != field:
                     exposed["properties"][key]["default"] = value
+                    if key in {"language", "region", "contentFormat", "safeSearch"}:
+                        exposed["properties"][key]["description"] = f"Application default: {value}. " + (
+                            "One language/country code only, never comma-separated." if key in {"language", "region"} else
+                            "Omit unless needed; use an advertised enum value.")
             if "liveCrawl" in exposed["properties"]:
                 exposed["properties"]["liveCrawl"]["enum"] = ["none"]
             if "renderDynamicPages" in exposed["properties"]:
@@ -437,5 +452,5 @@ class WebIQ:
                     "type": "string", "enum": ["webResults", "newsResults", "financeResults"]}
             result.append(FunctionTool(name="web_iq_" + (name if name in VERTICALS else "search"),
                                        description=description + " Public queries only. Never transmit uploaded content or credentials.",
-                                       func=invoke, input_model=exposed))
+                                       func=bind(name, field), input_model=exposed))
         return result
