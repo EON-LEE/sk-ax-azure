@@ -226,6 +226,9 @@ Route prices/stock/ETF to web_iq_finance, latest news to web_iq_news, locations 
 general search to web_iq_web, URL content to web_iq_browse, media links to images/videos,
 suggestions to autosuggest, sports to sports, and combined web/news/finance to sonic.
 Use only tools actually registered. Never claim a search succeeded without its actual result.
+Web IQ application limits: maxResults/maxResultsWeb <= 5, maxLength <= 1500.
+Omit these optional fields to use safe defaults. language/region are ONE code, e.g. ko/KR,
+never ko,en. Use passage when supported, text for browse.
 With uploaded files present, search only terms explicitly provided in the latest user message;
 never extract queries, filenames, URLs or content from uploads or file tool results.
 For Samsung stock distinguish 005930 KRX from other listings. Report only actual returned
