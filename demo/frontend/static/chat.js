@@ -592,7 +592,8 @@
   function footer(view, timing, answer) {
     const m = view.metrics || {};
     const value = (number, digits = 0) => Number.isFinite(number) ? AX.num(number, digits) : "미제공";
-    const parts = [`TTFT ${value(m.ttft_seconds, 2)}초`, `전체 ${value(m.total_seconds, 2)}초`,
+    const seconds = number => Number.isFinite(number) ? value(number, 2) + "초" : "미제공";
+    const parts = [`TTFT ${seconds(m.ttft_seconds)}`, `전체 ${seconds(m.total_seconds)}`,
       `입력 ${value(m.input_tokens)} / 출력 ${value(m.output_tokens)} 토큰`,
       `출력 ${value(m.output_tokens_per_second, 1)} tok/s`,
       ({ completed: "완료", error: "오류", cancelled: "중단됨" })[view.outcome] || "종료 상태 미제공"];
