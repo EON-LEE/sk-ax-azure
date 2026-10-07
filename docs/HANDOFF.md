@@ -68,6 +68,15 @@ deploy uses `AXK2_FRONTEND_ONLY=1` and must not change jobs/weights/cluster
 settings or start benchmarks. Older shutdown advice below is superseded.
 Existing benchmark samples remain partial and cannot establish equivalence.
 
+After the reliability release was stable, a separate bounded live MAF HTTP
+measurement on 2026-10-07 07:03:40–07:04:05 UTC used fresh conversations,
+tools/thinking off, 980 actual prompt tokens and 67–108 output tokens (cap 256).
+Two waves each at c1/c2/c4 gave aggregate output 38.091/50.184/94.805 tok/s,
+14 successful natural completions, no observed frontend queue, and one real
+cancel control with a drained Gate. These are not GPU-direct benchmark results
+or production capacity. See REPORT.md section 9.1 and its raw evidence JSON.
+No GPU/job/resource/settings changes.
+
 Verified on the live existing A.X job: exact `2^64-1` and Seoul time;
 README/HTML reads, HTML write + unified diff + sanitized preview + download;
 CSV sum + SVG chart; genuine error results for unconfigured services in the original release.
