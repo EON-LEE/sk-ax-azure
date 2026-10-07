@@ -2,6 +2,7 @@
 import asyncio
 import io
 import json
+import re
 import sys
 import tempfile
 import time
@@ -21,6 +22,21 @@ sys.path.pop(0)
 
 
 class FilesTests(unittest.TestCase):
+    def test_even_desktop_samples_and_web_iq_tool_enabling(self):
+        js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()
+        css = (ROOT / "demo" / "frontend" / "static" / "chat.css").read_text()
+        examples = js.split("const EXAMPLES = [", 1)[1].split("];", 1)[0]
+        samples = re.findall(r'\{ label: "([^"]+)", text: "([^"]+)", tools: true \}', examples)
+        self.assertEqual(len(samples), 8)
+        self.assertEqual(len(samples) % 2, 0)
+        self.assertEqual(sum(label.startswith("Web IQ") for label, _ in samples), 4)
+        for word in ("웹 검색", "뉴스 도구", "금융 도구", "장소 도구", "005930", "미확인", "문서·CSV"):
+            self.assertIn(word, examples)
+        self.assertIn("if (example.tools) ui.tools.checked = true;", js)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", css)
+        self.assertIn("@media (min-width: 1200px) { .suggestions { grid-template-columns: repeat(4, minmax(0, 1fr)); } }", css)
+        self.assertNotIn("repeat(auto-fit", css.split(".suggestions {", 1)[1].split("}", 1)[0])
+
     def test_desktop_shared_width_native_typography_and_visible_download(self):
         css = (ROOT / "demo" / "frontend" / "static" / "chat.css").read_text()
         js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()

@@ -9,12 +9,14 @@
   const FILE_BYTES = 8 * 1024 * 1024;
 
   const EXAMPLES = [
-    { label: "모델 소개", text: "A.X K2가 어떤 모델인지 세 문장으로 소개해 줘." },
-    { label: "추론 문제 풀기", text: "철수는 영희보다 사과를 3개 더 갖고 있고, 둘이 가진 사과는 모두 17개야. 각자 몇 개씩 갖고 있을까?" },
     { label: "코드 작성", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘.", tools: true },
     { label: "도구로 정확히 계산", text: "2의 64제곱에서 1을 뺀 값을 계산기로 정확히 구해 줘.", tools: true },
-    { label: "세계 시각 확인", text: "지금 서울과 런던은 각각 몇 시야?", tools: true },
+    { label: "문서·데이터 분석", text: "첨부한 문서·CSV를 읽고 핵심 내용과 합계를 정리해 줘. 파일이 없으면 먼저 첨부를 요청해 줘.", tools: true },
     { label: "파일 수정·미리보기", text: "간단한 소개 페이지 index.html을 만들고 다운로드와 미리보기를 제공해 줘.", tools: true },
+    { label: "Web IQ · 웹 검색", text: "Web IQ 웹 검색으로 서울의 산책하기 좋은 공원 두 곳을 찾고 실제 출처 링크를 알려 줘.", tools: true },
+    { label: "Web IQ · 최신 뉴스", text: "Web IQ 뉴스 도구로 최신 AI 뉴스 두 건을 찾아 기사 시각과 실제 출처 링크를 알려 줘.", tools: true },
+    { label: "Web IQ · 삼성전자 주가", text: "Web IQ 금융 도구로 오늘 삼성전자 005930 주가를 조회하고 출처·시세 기준 시각을 알려 줘. 지연 여부가 미제공이면 미확인으로 표시해 줘.", tools: true },
+    { label: "Web IQ · 주변 장소", text: "Web IQ 장소 도구로 서울 시청 근처 카페 두 곳을 찾아 실제 주소와 출처 링크를 알려 줘.", tools: true },
   ];
 
   const SVG = "http://www.w3.org/2000/svg";
