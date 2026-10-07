@@ -93,6 +93,16 @@ class TurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(turn_policy("Don't use tools. I'll just need an explanation.", True)["tools"])
         self.assertTrue(turn_policy("‘도구 쓰지 마’라는 문장을 해석해 줘", True)["tools"])
         self.assertFalse(turn_policy("웹검색하지 마", True)["external"])
+        policy = turn_policy("Web IQ로 AWS Azure를 검색해 줘. 장소나 금융 도구는 쓰지 마.", True)
+        self.assertTrue(policy["tools"])
+        self.assertTrue(policy["external"])
+        self.assertEqual(policy["denied"], ["web_iq_finance", "web_iq_places"])
+        self.assertEqual(requested_tool("Web IQ로 AWS Azure를 검색해 줘. 장소나 금융 도구는 쓰지 마.",
+                                       {"web_iq_web", "web_iq_places", "web_iq_finance"}), "web_iq_web")
+        output = await run(Workspace(), FixtureLink("calculator"), "계산기 도구는 쓰지 마. 설명해 줘", True)
+        self.assertIn("event: error", output)
+        self.assertEqual(turn_policy("계산기 도구는 다시 허용해", True)["denied"], [])
+        self.assertEqual(turn_policy("Don't use web_iq_finance. Search the web.", True)["denied"], ["web_iq_finance"])
 
     async def test_search_prohibition_correct_vertical_and_actual_external_execution(self):
         self.assertEqual(requested_tool("Web IQ로 최신 AWS Azure 한국 리전과 비용을 검색해 줘",
