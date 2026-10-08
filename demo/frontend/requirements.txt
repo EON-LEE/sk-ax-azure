@@ -12,3 +12,4 @@ bleach==6.2.0
 mcp==1.30.0
 httpx==0.28.1
 jsonschema==4.26.0
+PyJWT[crypto]==2.15.1

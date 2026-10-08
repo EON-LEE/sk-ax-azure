@@ -1,5 +1,6 @@
 """Foundry Responses -> MAF -> A.X relay; authenticated cloud mode is opt-in."""
 import json
+import logging
 import os
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
@@ -115,7 +116,9 @@ class AuthenticatedAXRelayClient(AXRelayClient):
         token = await self.credential.get_token(self.scope)
         if not token.token:
             raise RuntimeError("Gateway credential returned an empty access token")
-        return {"Authorization": f"Bearer {token.token}", "X-AX-Request-ID": uuid4().hex}
+        request_id = uuid4().hex
+        logging.getLogger("hosted_ax").info("hosted_model request_id=%s profile=nvfp4", request_id)
+        return {"Authorization": f"Bearer {token.token}", "X-AX-Request-ID": request_id}
 
 
 def create_server(client: AXRelayClient) -> ResponsesHostServer:
