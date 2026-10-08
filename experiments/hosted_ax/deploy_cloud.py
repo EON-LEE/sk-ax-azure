@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import re
 import shlex
 import subprocess
 import time
@@ -31,7 +32,10 @@ def az(*args):
         capture_output=True, text=True, check=False,
     )
     if result.returncode:
-        raise RuntimeError(f"Scoped Azure CLI operation failed ({args[0]}, exit {result.returncode}); no retry")
+        diagnostic = re.sub(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}",
+                            "[identifier]", result.stderr)
+        raise RuntimeError(f"Scoped Azure CLI operation failed ({args[0]}, exit {result.returncode}); "
+                           f"no retry: {diagnostic[:1200]}")
     return result.stdout.strip()
 
 
