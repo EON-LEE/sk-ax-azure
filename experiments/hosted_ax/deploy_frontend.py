@@ -1,5 +1,6 @@
 """Narrow approved frontend rollout with preserved known-good bundle and GPU state checks."""
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from deploy_cloud import ACCOUNT, AGENT, PROJECT, RG, api_app, az, foundry
+from deploy_cloud import ACCOUNT, AGENT, RG, api_app, az, foundry, token
 
 BASELINE = "f146262aa1a7d75608af4a490b7fac1ca3b9a4ac"
 APP = "axk2-a100-demo"
@@ -57,15 +58,13 @@ def bundle(path, *, rollout):
 
 
 def kudu(command):
-    credentials = json.loads(az("webapp", "deployment", "list-publishing-credentials",
-                               "--name", APP, "--resource-group", APP_RG, "-o", "json"))
     response = httpx.post(f"https://{APP}.scm.azurewebsites.net/api/command",
-                          auth=(credentials["publishingUserName"], credentials["publishingPassword"]),
+                          headers={"Authorization": "Bearer " + token("https://management.azure.com")},
                           json={"command": command, "dir": "/home"}, timeout=60, trust_env=False)
     response.raise_for_status()
     result = response.json()
     if result.get("ExitCode", 0):
-        raise RuntimeError("Read-only Kudu verification command failed")
+        raise RuntimeError("Read-only Kudu verification command failed: " + str(result.get("Error", ""))[:600])
     return result["Output"].strip()
 
 
@@ -82,7 +81,8 @@ sources=list((p/'sources').glob('*.tgz'))
 valid=bool(sources) and all(hashlib.sha256(path.read_bytes()).hexdigest()==path.stem for path in sources)
 print(json.dumps({'job_binding_digest':hashlib.sha256(json.dumps(rows,sort_keys=True).encode()).hexdigest(),
 'source_archives_valid':valid,'source_archive_count':len(sources)}))"""
-    return json.loads(kudu("python3 -c " + shlex.quote(code)))
+    encoded = base64.b64encode(code.encode()).decode()
+    return json.loads(kudu('python3 -c "exec(__import__(\'base64\').b64decode(\'' + encoded + '\'))"'))
 
 
 def deploy(path):
