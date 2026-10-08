@@ -13,6 +13,9 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p test_hosted_ax.py
 ```
 
+Run both Hosted and unregistered MCP contracts with
+`.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_hosted_ax*.py"`.
+
 The entry point accepts `AX_CHAT_ENDPOINT` ending in `/api/chat` (FP8) or
 `/models/nvfp4/api/chat` (NVFP4), **on loopback only**. It is an experiment, not an
 OpenAI-compatible model URL. Production `/api/agent` remains an App Service MAF
@@ -91,3 +94,47 @@ requires Microsoft 365 admin approval.
 
 Only a real company Teams message correlated with Hosted execution and an A.X
 inference trace will satisfy the final goal. Local fixture success does not.
+
+## Three clients, two integration contracts
+
+| Client | Connection to the common Hosted A.X agent | What success proves |
+| --- | --- | --- |
+| Company Teams | Foundry Activity bridge to Responses, individual publish scope | Real 1:1 reply with Hosted execution and A.X inference trace |
+| Microsoft 365 Copilot | Same Foundry Microsoft 365 publish flow and endpoint | Real Copilot agent conversation with correlated traces |
+| GitHub Copilot CLI/app/IDE | Explicit `ask_ax` MCP tool delegates to the Hosted Responses endpoint | Copilot invokes the tool and receives the actual Hosted A.X result |
+
+GitHub MCP delegation does **not** replace Copilot's main model, add A.X to its
+native model picker, or prove all Copilot reasoning runs on A.X. The Copilot host
+may process and summarize the returned text using its own model. Transmitting
+company prompts/results into either service requires the applicable approvals.
+
+`mcp_wrapper.py` is an **unregistered local-only** tool factory. Its tests use the
+real MCP SDK tool dispatcher, Responses host and MAF, with a deterministic model
+fixture; they do not use an actual Copilot client or cloud agent. Each call is
+single-turn with `store=False`, no caller-supplied conversation/response IDs, no
+automatic repo/history/file forwarding, a 4 KiB input bound, 64-token request,
+64 KiB response bound, and one in-flight call. These are local contract limits,
+not a deployed server-side quota. The confirmation argument is not human-consent
+proof; the actual Copilot tool approval and exact text delegation must be enabled.
+
+Before cloud use, replace the local-only restriction with an explicitly approved
+fixed HTTPS agent endpoint and Entra audience/tenant authentication. Prefer a
+local stdio wrapper using a user-authorized identity for the initial GitHub test;
+do not embed tokens, share demo/GPU credentials, or expose an unauthenticated
+remote MCP listener. A remote wrapper requires separate OAuth/MCP authorization,
+least-privilege agent access and trusted caller isolation. Keep channel
+conversations separate by default; cross-client history sharing is not approved.
+
+Local cancellation closes the Responses HTTP transport. It does **not** prove
+Hosted/GPU cancellation on disconnect. Before enabling long requests, verify
+MCP cancellation -> owning Responses response cancel -> A.X relay/GPU abort,
+using trusted caller-bound response IDs and bounded cleanup. No arbitrary
+response-ID cancel tool is exposed by this experiment.
+
+[GitHub's MCP documentation](https://docs.github.com/en/copilot/concepts/context/mcp)
+supports CLI/app/IDE tools; for company Copilot Business/Enterprise, the
+organization's **MCP servers in Copilot** policy must allow use. Actual policy,
+client registration, app installation and all cloud permissions remain
+unverified and require specific approval. The company Teams tenant gate still
+blocks cloud deployment; adding GitHub as a target does not authorize a different
+tenant, new resources or cross-tenant gateway.
