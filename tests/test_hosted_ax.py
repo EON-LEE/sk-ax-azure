@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
+from unittest.mock import AsyncMock
 
 os.environ["OTEL_SDK_DISABLED"] = "true"
 
@@ -12,7 +13,8 @@ import httpx
 from agent_framework import Agent, Content, Message, tool
 from azure.ai.agentserver.responses import InMemoryResponseProvider
 from agent_framework_foundry_hosting import ResponsesHostServer
-from experiments.hosted_ax.main import AXRelayClient
+from azure.core.credentials import AccessToken
+from experiments.hosted_ax.main import AXRelayClient, AuthenticatedAXRelayClient
 
 
 def model_stream(text="fixture answer", *, end=True):
@@ -125,6 +127,67 @@ class HostedAXTests(unittest.IsolatedAsyncioTestCase):
             await client.get_response([Message(role="user", contents=["test"])],
                                       options={"tools": [identity]})
         self.assertEqual(self.requests, [])
+
+    async def test_cloud_auth_uses_only_dedicated_audience_and_route(self):
+        credential = AsyncMock()
+        credential.get_token.return_value = AccessToken("fixture-access-token", 9999999999)
+        scope = "api://11111111-1111-1111-1111-111111111111/.default"
+
+        def handle(request):
+            self.requests.append(request)
+            return httpx.Response(200, text=model_stream(), headers={"content-type": "text/event-stream"})
+
+        client = AuthenticatedAXRelayClient(
+            "https://axk2-a100-demo.azurewebsites.net/models/nvfp4/api/hosted/chat",
+            scope=scope, credential=credential, transport=httpx.MockTransport(handle),
+        )
+        result = await client.get_response([Message(role="user", contents=["fixture only"])])
+        self.assertEqual(result.text, "fixture answer")
+        credential.get_token.assert_awaited_once_with(scope)
+        self.assertEqual(self.requests[0].headers["authorization"], "Bearer fixture-access-token")
+        self.assertEqual(len(self.requests[0].headers["x-ax-request-id"]), 32)
+        self.assertEqual(json.loads(self.requests[0].content)["max_tokens"], 64)
+
+    async def test_cloud_auth_errors_and_redirects_do_not_retry_or_forward_tokens(self):
+        credential = AsyncMock()
+        endpoint = "https://axk2-a100-demo.azurewebsites.net/models/nvfp4/api/hosted/chat"
+        scope = "api://11111111-1111-1111-1111-111111111111/.default"
+
+        def handle(request):
+            self.requests.append(request)
+            return httpx.Response(307, headers={"location": "https://other.example/chat"})
+
+        client = AuthenticatedAXRelayClient(
+            endpoint, scope=scope, credential=credential, transport=httpx.MockTransport(handle),
+        )
+        credential.get_token.side_effect = RuntimeError("fixture credential unavailable")
+        with self.assertRaisesRegex(RuntimeError, "credential unavailable"):
+            await client.get_response([Message(role="user", contents=["test"])])
+        self.assertEqual(self.requests, [])
+        credential.get_token.side_effect = None
+        credential.get_token.return_value = AccessToken("", 9999999999)
+        with self.assertRaisesRegex(RuntimeError, "empty access token"):
+            await client.get_response([Message(role="user", contents=["test"])])
+        self.assertEqual(self.requests, [])
+        credential.get_token.return_value = AccessToken("fixture-access-token", 9999999999)
+        with self.assertRaises(httpx.HTTPStatusError):
+            await client.get_response([Message(role="user", contents=["test"])])
+        self.assertEqual(len(self.requests), 1)
+
+    async def test_cloud_configuration_rejects_service_audiences_and_demo_routes(self):
+        credential = AsyncMock()
+        endpoint = "https://axk2-a100-demo.azurewebsites.net/models/nvfp4/api/hosted/chat"
+        scope = "api://11111111-1111-1111-1111-111111111111/.default"
+        for invalid_scope in ("https://ai.azure.com/.default", "https://management.azure.com/.default",
+                              "https://graph.microsoft.com/.default", "api://not-an-id/.default"):
+            with self.subTest(scope=invalid_scope), self.assertRaises(ValueError):
+                AuthenticatedAXRelayClient(endpoint, scope=invalid_scope, credential=credential)
+        for invalid_endpoint in (endpoint.replace("https:", "http:"), endpoint + "?key=fixture",
+                                 endpoint.replace("/api/hosted/chat", "/api/chat"),
+                                 endpoint.replace("/api/hosted/chat", "/api/agent")):
+            with self.subTest(endpoint=invalid_endpoint), self.assertRaises(ValueError):
+                AuthenticatedAXRelayClient(invalid_endpoint, scope=scope, credential=credential)
+        credential.get_token.assert_not_awaited()
 
     async def test_cancellation_closes_inflight_transport(self):
         started, closed = asyncio.Event(), asyncio.Event()

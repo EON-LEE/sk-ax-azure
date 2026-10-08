@@ -3,9 +3,10 @@
 This is **not a cloud deployment**. It exercises the real Microsoft Agent
 Framework and Foundry `ResponsesHostServer` against the existing A.X text-chat
 wire contract. Tests supply a deterministic transport, not A.X inference.
-The adapter rejects non-loopback endpoints until an authenticated gateway is
-approved. No GPT client, fallback, demo credentials, deployment command, or Teams
-publication is included.
+Local mode rejects non-loopback endpoints. The opt-in authenticated cloud mode
+accepts only the dedicated NVFP4 Hosted gateway route and its API application
+audience. No GPT client, fallback, demo credentials, or Teams publication is
+included. Credential fixtures are not proof of cloud identity support.
 
 ```powershell
 python -m venv .venv
@@ -21,6 +22,37 @@ The entry point accepts `AX_CHAT_ENDPOINT` ending in `/api/chat` (FP8) or
 OpenAI-compatible model URL. Production `/api/agent` remains an App Service MAF
 agent, and proxying it would not demonstrate Hosted Agent execution.
 
+## Standalone cloud experiment A
+
+The deployment experiment is separate from the company Teams/Microsoft 365
+channel bridge. Their tenants intentionally differ; direct Foundry publication
+is not the cross-tenant design. GitHub MCP work is on hold.
+
+For a Source ZIP, put `main.py` and the contents of `requirements-cloud.txt`
+(named `requirements.txt`) at the ZIP root. Select `python_3_13`, `remote_build`,
+Responses protocol `2.0.0`, and entry point `["python", "main.py"]`.
+The cloud package excludes MCP.
+
+Set `AX_HOSTED_RUNTIME=1`, `AX_CHAT_ENDPOINT` to
+`https://axk2-a100-demo.azurewebsites.net/models/nvfp4/api/hosted/chat`, and
+`AX_GATEWAY_SCOPE` to the approved gateway's `api://<application-id>/.default`.
+These are non-secret configuration. The runtime binds port 8088 and acquires
+tokens through `ManagedIdentityCredential`, without developer-login fallback
+or embedded credentials. Actual platform agent-identity issuance for this
+custom audience must be verified in cloud before declaring it usable.
+
+The gateway must enforce issuer, intended audience, expiry, signature,
+`Model.Invoke` role, and the approved Hosted caller identity. ARM, Graph, and
+Foundry-service tokens are not gateway tokens. HTTP redirects and automatic
+inference retries are disabled. Request correlation contains a random identifier,
+not prompt text. Text-only requests use at most 64 output tokens.
+
+The gateway's global three-call trial quota and concurrency-one gate cannot be
+replaced by a per-session Hosted lock. Only synthetic text is approved. Cloud
+agent deployment and the API identity/gateway are approved bounded operations;
+company channel registration/publication and resource deletion require separate
+approval. No live Hosted A.X success is claimed by these local tests.
+
 ## Approved-stage boundary
 
 Target path: Teams -> Foundry Activity bridge -> Responses -> Hosted MAF
@@ -28,7 +60,8 @@ orchestration -> authenticated model gateway -> existing A.X reverse relay.
 The gateway must forward model inference only; it must not invoke `/api/agent`.
 Its authorization must validate the agent identity and intended audience with
 least privilege. Demo cookies/passwords are not the production auth design.
-GPU ports remain private. Existing GPU jobs, compute and App Service are unchanged.
+GPU ports remain private. Existing GPU jobs and compute must remain unchanged;
+the approved frontend change is limited to the authenticated model-only route.
 The existing relay has no reviewed agent-identity model endpoint. A separate
 model-only route wired to `ChatRelay` may be needed; that is an operating-owner
 change requiring approval, not something an HTTP adapter alone can supply.
@@ -135,6 +168,6 @@ response-ID cancel tool is exposed by this experiment.
 supports CLI/app/IDE tools; for company Copilot Business/Enterprise, the
 organization's **MCP servers in Copilot** policy must allow use. Actual policy,
 client registration, app installation and all cloud permissions remain
-unverified and require specific approval. The company Teams tenant gate still
-blocks cloud deployment; adding GitHub as a target does not authorize a different
-tenant, new resources or cross-tenant gateway.
+unverified and require specific approval. These older integration sketches do
+not authorize company channel registration. Experiment A hosts in the existing
+AX tenant; experiment B owns the separately approved company channel bridge.
