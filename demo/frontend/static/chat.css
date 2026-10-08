@@ -220,7 +220,13 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .tabs { display:flex; gap:.15rem; margin-left:auto; background:var(--soft); border-radius:10px; padding:3px; }
 .tabs button { padding:.35rem .85rem; border-radius:8px; font-size:.85rem; color:var(--muted); }
 .tabs [aria-selected="true"] { background:var(--bg); color:var(--text); font-weight:600; }
-.model-select { background:var(--soft); color:var(--text); border:0; border-radius:8px; padding:.3rem .6rem; font:inherit; font-size:.85rem; }
+.model-slot { flex:none; padding:0 var(--chat-gutter); overflow:hidden; scrollbar-gutter:stable both-edges; }
+.model-scope { width:100%; max-width:var(--chat-width); height:3.3rem; margin:0 auto; display:flex; align-items:center; gap:.75rem; }
+.model-scope label { font-size:.85rem; color:var(--muted); }
+.model-select { width:12rem; min-width:12rem; height:2.145rem; background:var(--soft); color:var(--text);
+  border:0; border-radius:8px; padding:.35rem .85rem; font:inherit; font-size:.85rem; line-height:1.7; font-weight:600; }
+.model-note { font-size:.75rem; color:var(--muted); }
+.model-scope.inactive { visibility:hidden; }
 .timeline { min-height:100%; }
 .timeline:has(.welcome:not(.hidden)) { height:100%; }
 .compare-turn { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2.4rem; margin-bottom:2rem; }

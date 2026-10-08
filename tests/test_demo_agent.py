@@ -22,6 +22,29 @@ sys.path.pop(0)
 
 
 class FilesTests(unittest.TestCase):
+    def test_chat_model_selector_uses_reserved_content_row(self):
+        static = ROOT / "demo" / "frontend" / "static"
+        html = (static / "index.html").read_text()
+        css = (static / "chat.css").read_text()
+        js = (static / "chat.js").read_text()
+        header = html.split("<header", 1)[1].split("</header>", 1)[0]
+        scope = html.split('<div id="model-scope"', 1)[1].split("</div>", 1)[0]
+        self.assertNotIn('id="model-select"', header)
+        self.assertEqual(html.count('id="model-select"'), 1)
+        self.assertIn('for="model-select"', scope)
+        self.assertIn('aria-describedby="model-note"', scope)
+        self.assertIn("모델 변경 시 새 대화가 시작됩니다.", scope)
+        self.assertIn('value="fp8"', scope)
+        self.assertIn('value="nvfp4"', scope)
+        selector = css.split(".model-select {", 1)[1].split("}", 1)[0]
+        for rule in ("width:12rem", "min-width:12rem", "height:2.145rem",
+                     "padding:.35rem .85rem", "font-size:.85rem", "border-radius:8px"):
+            self.assertIn(rule, selector)
+        self.assertIn(".model-scope.inactive { visibility:hidden; }", css)
+        self.assertIn("max-width:var(--chat-width)", css.split(".model-scope {", 1)[1].split("}", 1)[0])
+        self.assertIn('ui.modelScope.classList.toggle("inactive", mode !== "chat");', js)
+        self.assertIn('"model-scope"', js)
+
     def test_even_desktop_samples_and_web_iq_tool_enabling(self):
         js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()
         css = (ROOT / "demo" / "frontend" / "static" / "chat.css").read_text()
