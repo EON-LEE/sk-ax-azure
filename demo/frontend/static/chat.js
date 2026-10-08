@@ -829,6 +829,7 @@
     ui.chatTab.setAttribute("aria-selected", String(mode === "chat"));
     ui.compareTab.setAttribute("aria-selected", String(mode === "compare"));
     AX.show(ui.modelSelect, mode === "chat");
+    ui.modelScope.classList.toggle("inactive", mode !== "chat");
     AX.show(ui.conditions, mode === "compare");
     renderAttachments();
     updateControls();
@@ -895,7 +896,7 @@
 
   function init() {
     for (const id of ["messages", "welcome", "examples", "composer", "attachments", "input", "thinking", "tools", "file",
-                      "new-chat", "hint", "stop", "send", "chat-tab", "compare-tab", "model-select", "conditions",
+                      "new-chat", "hint", "stop", "send", "chat-tab", "compare-tab", "model-select", "model-scope", "conditions",
                       "context-mode", "common-context", "output-limit", "temperature", "top-p"]) {
       ui[id.replace(/-(\w)/g, (match, letter) => letter.toUpperCase())] = document.getElementById(id);
     }
