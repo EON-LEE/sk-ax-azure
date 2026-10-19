@@ -28,6 +28,7 @@ from supervisor import Supervisor, load_module
 from workspace import LIMIT as FILE_LIMIT, Workspaces, safe_preview
 from web_iq import WebIQ
 from comparison import install as install_comparison
+from model_api import Settings as ModelApiSettings, install as install_model_api
 
 HERE = Path(__file__).resolve().parent
 COOKIES = {"demo": ("axk2_demo", 24 * 3600), "admin": ("axk2_admin", 12 * 3600)}
@@ -98,6 +99,7 @@ class Config:
     retry_window: float = 300
     cooldown: float = 600
     stale_limit: float = 1200
+    model_api: ModelApiSettings = field(default_factory=ModelApiSettings)  # AXK2_MODEL_API_*, see model_api.py
 
     @property
     def link_url(self):
@@ -128,7 +130,7 @@ class Config:
                    interval=number("AXK2_INTERVAL", 45.0), idle_interval=number("AXK2_IDLE_INTERVAL", 300.0),
                    nodes=number("AXK2_NODES", 2), partial_limit=number("AXK2_PARTIAL_LIMIT", 900.0),
                    retry_window=number("AXK2_RETRY_WINDOW", 300.0), cooldown=number("AXK2_COOLDOWN", 600.0),
-                   stale_limit=number("AXK2_STALE_LIMIT", 1200.0))
+                   stale_limit=number("AXK2_STALE_LIMIT", 1200.0), model_api=ModelApiSettings.from_env(env))
 
 
 class Problem(Exception):
@@ -213,6 +215,7 @@ class Auth:
         self.config, self.store = config, store
         self.signer = URLSafeTimedSerializer(config.session_secret or store.secret(), salt="axk2-demo-cookie")
         self.limiter = Limiter()
+        self.api_limiter = Limiter(per_ip=10, total=300, window=60)  # wrong keys on the model-only API
 
     def env_hash(self, role):
         return self.config.admin_hash if role == "admin" else self.config.demo_hash
@@ -642,6 +645,8 @@ def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=No
                                       model_id="nvfp4", shared_tool_gate=upload_gate, shared_web_iq=web_iq)
         app.mount("/models/nvfp4", children["nvfp4"])
     app.state.profiles = {model_id:app, **children}
+    install_model_api(app, settings=config.model_api, model_id=model_id, hub=hub, is_ready=is_profile_ready,
+                      power=power, limiter=auth.api_limiter, client_ip=client_ip)
 
     @app.exception_handler(Problem)
     async def problem(request, exc):
