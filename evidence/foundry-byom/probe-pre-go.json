@@ -37,8 +37,8 @@
       "body_keys": [
         "detail"
       ],
-      "apim_request_id": "d47c3c48-21c2-47b3-85bf-65b305e414c8",
-      "x_request_id": "d47c3c48-21c2-47b3-85bf-65b305e414c8"
+      "apim_request_id": "d47c3c48…",
+      "x_request_id": "d47c3c48…"
     },
     {
       "api": "fp8",
@@ -75,8 +75,8 @@
       "body_keys": [
         "detail"
       ],
-      "apim_request_id": "dfde4bf8-ef6c-4d7b-8137-de811b023044",
-      "x_request_id": "dfde4bf8-ef6c-4d7b-8137-de811b023044"
+      "apim_request_id": "dfde4bf8…",
+      "x_request_id": "dfde4bf8…"
     }
   ]
 }

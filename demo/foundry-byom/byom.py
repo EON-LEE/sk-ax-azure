@@ -40,6 +40,9 @@ PUBLIC_PATTERNS = ((r"[A-Za-z0-9.-]+\.azure-api\.net", "<apim-gateway>"),
                    (r"[A-Za-z0-9.-]+\.services\.ai\.azure\.com", "<foundry-endpoint>"),
                    (r"(?<=/home/)[A-Za-z0-9._-]+", "<user>"),
                    (r"(?<=/Users/)[A-Za-z0-9._-]+", "<user>"))
+# Request IDs are not secrets, but committed evidence keeps only their first characters, like the agent evidence.
+GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+ID_KEEP = 8
 
 
 def now():
@@ -89,6 +92,17 @@ def scrub(value, deployment):
         for pattern, placeholder in PUBLIC_PATTERNS:
             value = re.sub(pattern, placeholder, value, flags=re.IGNORECASE)
         return re.sub(re.escape(deployment), "<deployment>", value, flags=re.IGNORECASE)
+    return value
+
+
+def shorten_ids(value):
+    """Return a copy of a JSON value in which every GUID-shaped string keeps only its first eight characters."""
+    if isinstance(value, dict):
+        return {shorten_ids(key): shorten_ids(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [shorten_ids(item) for item in value]
+    if isinstance(value, str):
+        return GUID.sub(lambda found: found.group(0)[:ID_KEEP] + "…", value)
     return value
 
 
@@ -381,11 +395,14 @@ class Byom:
         print(json.dumps(report, indent=2))
 
     def save_evidence(self, name, value, forbidden):
-        text = json.dumps(scrub(value, self.name), indent=2)
+        scrubbed = scrub(value, self.name)
+        text = json.dumps(scrubbed, indent=2)
         if any(item in text for item in forbidden) or re.search(r"eyJ[\w-]{10,}\.", text):
             raise ValueError("Evidence contains a secret or identifier; not written")
+        # Shorten only after the refusal check: a shortened subscription or tenant ID would no longer match it.
+        text = json.dumps(shorten_ids(scrubbed), indent=2, ensure_ascii=False)
         EVIDENCE.mkdir(parents=True, exist_ok=True)
-        (EVIDENCE / f"{name}.json").write_text(text + "\n")
+        (EVIDENCE / f"{name}.json").write_text(text + "\n", encoding="utf-8")
 
     def log_query(self, text):
         """Run a read-only Log Analytics query against the BYOM workspace; rows come back as dictionaries."""

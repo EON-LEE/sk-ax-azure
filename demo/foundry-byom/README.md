@@ -513,10 +513,10 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 ## 15. 공개 저장소 규칙
 
 - 구독 ID, 테넌트 ID, 키, 토큰, 계정 이름을 저장소에 넣지 않는다. 비밀과 상태는 개인 디렉터리(디렉터리 0700, 파일 0600)에만 둔다.
-- 증거를 저장하는 `save_evidence`는 게이트웨이·웹앱·Foundry 호스트 이름, 홈 디렉터리의 사용자 이름, 배포 접두사를 자리표시자로 바꾼다. 호출자가 넘긴 키, 구독 ID, 테넌트 ID의 실제 값이나 JWT 형태의 토큰이 남아 있으면 저장을 거부한다.
-- `tests/test_foundry_byom.py`의 `RepositoryTests`가 `demo/foundry-byom`과 `evidence/foundry-byom`의 모든 파일에서 실제 호스트 이름을 검사한다.
+- 증거를 저장하는 `save_evidence`는 게이트웨이·웹앱·Foundry 호스트 이름, 홈 디렉터리의 사용자 이름, 배포 접두사를 자리표시자로 바꾼다. 호출자가 넘긴 키, 구독 ID, 테넌트 ID의 실제 값이나 JWT 형태의 토큰이 남아 있으면 저장을 거부한다. 거부 검사를 통과한 값 중 GUID 형태의 문자열(요청 ID 등)은 앞 8자와 `…`만 남겨 UTF-8로 기록한다.
+- `tests/test_foundry_byom.py`의 `RepositoryTests`가 `demo/foundry-byom`과 `evidence/foundry-byom`의 모든 파일에서 실제 호스트 이름을 검사하고, `evidence/foundry-byom/*.json`에 전체 GUID가 없는지도 검사한다.
 - 커밋하거나 푸시하기 전에 배포 접두사로 `git grep`을 실행해 결과가 0건인지 확인한다.
-- 요청 ID는 비밀이 아니므로 증거에 남아 있을 수 있다.
+- 요청 ID는 앞 8자와 `…`만 공개한다(예: `1a2b3c4d…`). 같은 요청은 증거 파일마다 같은 앞 8자를 가진다.
 
 ## 16. 파일
 
@@ -533,7 +533,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 | `observe_requests.py` | 시간 창 안의 게이트웨이 요청을 읽기 전용으로 관찰한다. 요청을 `Id`와 `ParentId`로 묶고 요청·응답 크기를 기록한다. `execute_tool` 스팬의 도구 이름과 결과 속성 유무도 센다 |
 | `../../tests/test_foundry_byom.py` | 오프라인 단위 테스트 |
 
-증거 파일은 `../../evidence/foundry-byom/`에 있다.
+증거 파일은 `../../evidence/foundry-byom/`에 있다. 파일 안의 요청 ID는 앞 8자와 `…`만 공개한다(15절).
 
 | 파일 | 관측 시각 | 내용 |
 | --- | --- | --- |

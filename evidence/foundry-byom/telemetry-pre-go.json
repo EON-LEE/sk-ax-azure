@@ -10,7 +10,7 @@
       "Api": "axk2-nvfp4",
       "Operation": "chat-completions",
       "Subscription": "",
-      "RequestId": "cfa6aca6-188f-436b-b8a3-8eed773c7676"
+      "RequestId": "cfa6aca6…"
     },
     {
       "TimeGenerated": "2026-10-19T10:13:29.8212363Z",
@@ -20,7 +20,7 @@
       "Api": "axk2-nvfp4",
       "Operation": "chat-completions",
       "Subscription": "",
-      "RequestId": "f5af8264-7a25-423e-9b8c-ef9466ace264"
+      "RequestId": "f5af8264…"
     },
     {
       "TimeGenerated": "2026-10-19T10:13:31.343293Z",
@@ -30,7 +30,7 @@
       "Api": "axk2-nvfp4",
       "Operation": "list-models",
       "Subscription": "foundry-byom",
-      "RequestId": "d47c3c48-21c2-47b3-85bf-65b305e414c8"
+      "RequestId": "d47c3c48…"
     },
     {
       "TimeGenerated": "2026-10-19T10:13:32.0010422Z",
@@ -40,7 +40,7 @@
       "Api": "axk2-fp8",
       "Operation": "chat-completions",
       "Subscription": "",
-      "RequestId": "fff2ca5c-2a6c-4a98-8632-5186bbc0343c"
+      "RequestId": "fff2ca5c…"
     },
     {
       "TimeGenerated": "2026-10-19T10:13:32.1535884Z",
@@ -50,7 +50,7 @@
       "Api": "axk2-fp8",
       "Operation": "chat-completions",
       "Subscription": "",
-      "RequestId": "227126d2-0012-4a41-bcf5-979dae74bf78"
+      "RequestId": "227126d2…"
     },
     {
       "TimeGenerated": "2026-10-19T10:13:32.3145219Z",
@@ -60,7 +60,7 @@
       "Api": "axk2-fp8",
       "Operation": "list-models",
       "Subscription": "foundry-byom",
-      "RequestId": "dfde4bf8-ef6c-4d7b-8137-de811b023044"
+      "RequestId": "dfde4bf8…"
     },
     {
       "TimeGenerated": "2026-10-19T10:18:13.8077067Z",
@@ -70,7 +70,7 @@
       "Api": "axk2-nvfp4",
       "Operation": "chat-completions",
       "Subscription": "foundry-byom",
-      "RequestId": "7f6a7859-289e-4185-a8cd-3dc085a6f894"
+      "RequestId": "7f6a7859…"
     },
     {
       "TimeGenerated": "2026-10-19T10:18:14.1181672Z",
@@ -80,7 +80,7 @@
       "Api": "axk2-fp8",
       "Operation": "chat-completions",
       "Subscription": "foundry-byom",
-      "RequestId": "6758015f-175c-4655-8c0d-585b8b9c53f1"
+      "RequestId": "6758015f…"
     }
   ],
   "traces": [

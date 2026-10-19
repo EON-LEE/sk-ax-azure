@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,10 @@ import verify_gateway  # noqa: E402
 
 SUB = "11111111-1111-4111-8111-111111111111"
 TENANT = "22222222-2222-4222-8222-222222222222"
+# Request IDs for the evidence tests, built from parts so that no real-looking GUID sits in the source.
+REQUEST_ID = "-".join(("5e0f8a21", "7c3b", "4d96", "9a14", "2b6c8d0e1f37"))
+OTHER_ID = "-".join(("c4d2b9a7", "1e08", "4f35", "b6a9", "7d3c5e81f204"))
+FULL_GUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 NAME = "demoprefix1"
 KEY = "fake-subscription-key-" + "x" * 20
 BACKEND_KEY = "fake-backend-key-" + "y" * 24
@@ -179,7 +184,7 @@ class ClientCase(unittest.TestCase):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
     def evidence_json(self, name):
-        return json.loads((self.evidence / f"{name}.json").read_text())
+        return json.loads((self.evidence / f"{name}.json").read_text(encoding="utf-8"))
 
 
 class ScrubTests(ClientCase):
@@ -207,6 +212,111 @@ class ScrubTests(ClientCase):
             with self.assertRaises(ValueError):
                 self.client.save_evidence("leaky", value, (KEY, SUB, TENANT))
         self.assertFalse((self.evidence / "leaky.json").exists())
+
+    def test_save_evidence_keeps_only_the_first_eight_characters_of_request_ids(self):
+        value = {"RequestId": REQUEST_ID, "rows": [{"apim_request_id": REQUEST_ID.upper()}, f"retry of {OTHER_ID}"]}
+        self.client.save_evidence("ids-test", value, (KEY, SUB, TENANT))
+        raw = (self.evidence / "ids-test.json").read_bytes()
+        self.assertIsNone(FULL_GUID.search(raw.decode("utf-8")))
+        self.assertEqual(json.loads(raw), {
+            "RequestId": REQUEST_ID[:8] + "…",
+            "rows": [{"apim_request_id": REQUEST_ID[:8].upper() + "…"}, f"retry of {OTHER_ID[:8]}…"]})
+        # UTF-8 with the ellipsis itself, like the agent evidence, not an escape sequence.
+        self.assertIn("…".encode("utf-8"), raw)
+        self.assertNotIn(b"\\u2026", raw)
+
+    def test_save_evidence_refuses_the_subscription_and_the_tenant_before_shortening(self):
+        # Both are GUID-shaped: shortened first, they would no longer match the refusal check.
+        for leak in (SUB, TENANT):
+            for value in ({"RequestId": REQUEST_ID, "leak": leak}, {"rows": [{"scope": f"on {leak} only"}]},
+                          {leak: "as key"}):
+                with self.assertRaises(ValueError):
+                    self.client.save_evidence("leaky", value, (KEY, SUB, TENANT))
+                self.assertFalse((self.evidence / "leaky.json").exists())
+
+    def test_shorten_ids_keeps_eight_characters_at_any_depth(self):
+        short, other = REQUEST_ID[:8] + "…", OTHER_ID[:8] + "…"
+        value = {"id": REQUEST_ID, "rows": [{"deep": [OTHER_ID.upper()]}], REQUEST_ID: "as key",
+                 "sentence": f"request {REQUEST_ID} failed after {OTHER_ID}",
+                 "glued": [f"req_{REQUEST_ID}", f"/operations/{OTHER_ID}/status"]}
+        self.assertEqual(byom.shorten_ids(value), {
+            "id": short, "rows": [{"deep": [OTHER_ID[:8].upper() + "…"]}], short: "as key",
+            "sentence": f"request {short} failed after {other}",
+            "glued": [f"req_{short}", f"/operations/{other}/status"]})
+        self.assertEqual(value["id"], REQUEST_ID)
+
+    def test_shorten_ids_leaves_other_values_alone_and_is_idempotent(self):
+        value = {"hex": "0123456789abcdef0123456789abcdef", "kept": "conv_0f775a44…", "dashes": "a1b2c3d4-e5f6",
+                 "nothing": None, "flag": True, "count": 3, "ratio": 1.5, "empty": []}
+        self.assertEqual(byom.shorten_ids(value), value)
+        once = byom.shorten_ids({"id": REQUEST_ID, "rows": [OTHER_ID]})
+        self.assertEqual(byom.shorten_ids(once), once)
+
+
+class RequestIdEvidenceTests(ClientCase):
+    """The probe and telemetry commands write request IDs to the evidence as their first eight characters only."""
+
+    def saved(self, name):
+        raw = (self.evidence / f"{name}.json").read_bytes()
+        self.assertIsNone(FULL_GUID.search(raw.decode("utf-8")), name)
+        return json.loads(raw)
+
+    @staticmethod
+    def logs(requests=(), traces=()):
+        def answer(text):
+            if text.startswith("AppRequests"):
+                return list(requests)
+            if text.startswith("AppTraces"):
+                return list(traces)
+            return [{"Count": 0}]
+        return answer
+
+    def test_probe_evidence_has_eight_character_request_ids(self):
+        def http(method, url, headers, body):
+            if url.endswith("/models"):
+                return 404, b'{"detail":"Not Found"}', {"x-apim-request-id": REQUEST_ID, "x-request-id": OTHER_ID}
+            return 401, b'{"message":"denied","statusCode":401}', {}
+
+        self.client.http = http
+        with contextlib.redirect_stdout(io.StringIO()) as console:
+            self.client.probe("test")
+        checks = self.saved("probe-test")["checks"]
+        self.assertEqual(len(checks), 6)
+        for check in checks:
+            expected = ((REQUEST_ID[:8] + "…", OTHER_ID[:8] + "…") if check["check"] == "valid-key-models"
+                        else (None, None))
+            self.assertEqual((check["apim_request_id"], check["x_request_id"]), expected, check["check"])
+        # The operator's console still shows the full value, which is what the gateway logs hold.
+        self.assertIn(REQUEST_ID, console.getvalue())
+
+    def test_telemetry_evidence_has_eight_character_request_ids(self):
+        row = {"TimeGenerated": "2026-01-01T00:00:00Z", "Name": "POST /nvfp4/v1/chat/completions",
+               "ResultCode": "200", "DurationMs": 12.5, "Api": "axk2-nvfp4", "Operation": "chat-completions",
+               "Subscription": "foundry-byom", "RequestId": REQUEST_ID}
+        traces = [{"TimeGenerated": "2026-01-01T00:00:01Z", "Message": json.dumps({"request_id": OTHER_ID})},
+                  {"TimeGenerated": "2026-01-01T00:00:02Z", "Message": f"not json: {REQUEST_ID}"}]
+        self.client.log_query = self.logs([row], traces)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.client.telemetry(60, "test", "SENTINEL")
+        report = self.saved("telemetry-test")
+        self.assertEqual(report["requests"][0]["RequestId"], REQUEST_ID[:8] + "…")
+        self.assertEqual([item["Message"] for item in report["traces"]],
+                         [{"request_id": OTHER_ID[:8] + "…"}, f"not json: {REQUEST_ID[:8]}…"])
+
+    def test_probe_still_refuses_a_subscription_or_tenant_id_in_a_header(self):
+        for leak in (SUB, TENANT):
+            self.client.http = lambda method, url, headers, body, leak=leak: (200, b"{}", {"x-request-id": leak})
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                self.client.probe("test")
+            self.assertFalse((self.evidence / "probe-test.json").exists())
+
+    def test_telemetry_still_refuses_a_subscription_or_tenant_id_in_a_trace(self):
+        for leak in (SUB, TENANT):
+            trace = {"TimeGenerated": "2026-01-01T00:00:01Z", "Message": f"scope {leak}"}
+            self.client.log_query = self.logs(traces=[trace])
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                self.client.telemetry(60, "test", "SENTINEL")
+            self.assertFalse((self.evidence / "telemetry-test.json").exists())
 
 
 class ProtocolTests(ClientCase):
@@ -1159,6 +1269,12 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(files)
         for path in files:
             self.assertIsNone(re.search(real_host, path.read_text(encoding="utf-8")), path.name)
+
+    def test_committed_evidence_holds_no_full_guid(self):
+        files = sorted((ROOT / "evidence" / "foundry-byom").glob("*.json"))
+        self.assertTrue(files)
+        for path in files:
+            self.assertIsNone(FULL_GUID.search(path.read_text(encoding="utf-8")), path.name)
 
 
 if __name__ == "__main__":
