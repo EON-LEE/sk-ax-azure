@@ -19,6 +19,21 @@
     <set-header name="x-request-id" exists-action="override">
       <value>@((string)context.Variables["reqId"])</value>
     </set-header>
+    <!-- Which credentials are still on the request that goes to the backend: presence flags only, never values. -->
+    <trace source="axk2-forwarded-headers" severity="information">
+      <message>@{
+        var o = new JObject();
+        o["kind"] = "forwarded-headers";
+        o["request_id"] = (string)context.Variables["reqId"];
+        o["method"] = context.Request.Method;
+        o["api_key_header"] = context.Request.Headers.ContainsKey("api-key");
+        o["subscription_key_header"] = context.Request.Headers.ContainsKey("Ocp-Apim-Subscription-Key");
+        o["authorization_header"] = context.Request.Headers.ContainsKey("Authorization");
+        o["api_key_query"] = context.Request.Url.Query.ContainsKey("api-key");
+        o["subscription_key_query"] = context.Request.Url.Query.ContainsKey("subscription-key");
+        return o.ToString(Newtonsoft.Json.Formatting.None);
+      }</message>
+    </trace>
     <!-- Request shape only (field names, roles, tool names): no message text is logged. -->
     <choose>
       <when condition="@(context.Request.Method == "POST")">

@@ -30,13 +30,16 @@ NAMED_VALUE = "axk2-backend-key"
 APIM_SUBSCRIPTION = "foundry-byom"
 BACKEND_KEY_FILE = "model-api-backend.key"
 SUBSCRIPTION_KEY_FILE = "apim-subscription.key"
-STAGES = ("foundation", "apim", "gateway", "connections")
+STAGES = ("foundation", "apim", "gateway", "connections", "tracing")
 TERMINAL = {"Succeeded", "Failed", "Canceled"}
 API_PATHS = {"nvfp4": "nvfp4/v1", "fp8": "fp8/v1"}
-# Committed evidence must not name the deployment: host names by suffix, then the deployment prefix.
-PUBLIC_HOSTS = ((r"[A-Za-z0-9.-]+\.azure-api\.net", "<apim-gateway>"),
-                (r"[A-Za-z0-9.-]+\.azurewebsites\.net", "<web-app>"),
-                (r"[A-Za-z0-9.-]+\.services\.ai\.azure\.com", "<foundry-endpoint>"))
+# Committed evidence must not name the deployment or the operator: host names by suffix, home directories,
+# then the deployment prefix.
+PUBLIC_PATTERNS = ((r"[A-Za-z0-9.-]+\.azure-api\.net", "<apim-gateway>"),
+                   (r"[A-Za-z0-9.-]+\.azurewebsites\.net", "<web-app>"),
+                   (r"[A-Za-z0-9.-]+\.services\.ai\.azure\.com", "<foundry-endpoint>"),
+                   (r"(?<=/home/)[A-Za-z0-9._-]+", "<user>"),
+                   (r"(?<=/Users/)[A-Za-z0-9._-]+", "<user>"))
 
 
 def now():
@@ -77,13 +80,13 @@ def body_keys(raw):
 
 
 def scrub(value, deployment):
-    """Return a copy of a JSON value without deployment-specific host names or the deployment prefix."""
+    """Return a copy of a JSON value without deployment-specific host names, home directories or the prefix."""
     if isinstance(value, dict):
         return {scrub(key, deployment): scrub(item, deployment) for key, item in value.items()}
     if isinstance(value, list):
         return [scrub(item, deployment) for item in value]
     if isinstance(value, str):
-        for pattern, placeholder in PUBLIC_HOSTS:
+        for pattern, placeholder in PUBLIC_PATTERNS:
             value = re.sub(pattern, placeholder, value, flags=re.IGNORECASE)
         return re.sub(re.escape(deployment), "<deployment>", value, flags=re.IGNORECASE)
     return value
@@ -188,6 +191,8 @@ class Byom:
             return {"apimName": self.apim, "aiName": self.insights, "tags": self.tags()}
         if stage == "gateway":
             return {"apimName": self.apim, "backendBaseUrl": self.web}
+        if stage == "tracing":
+            return {"accountName": self.account, "projectName": self.project, "aiName": self.insights}
         return {"accountName": self.account, "projectName": self.project, "apimName": self.apim}
 
     def init(self):
@@ -195,6 +200,32 @@ class Byom:
         self.state.setdefault("createdAt", now())
         self.save()
         print("Identity matches the target configuration; private state ready. No cloud changes.")
+
+    def tracing_connections(self):
+        """Names of the AppInsights connections that already exist, by scope."""
+        account = f"Microsoft.CognitiveServices/accounts/{self.account}"
+        found = {}
+        for scope, path in (("account", f"{account}/connections"),
+                            ("project", f"{account}/projects/{self.project}/connections")):
+            status, rows = self.arm("GET", path, api=FOUNDRY_API)
+            if status != 200:
+                raise RuntimeError(f"The {scope} connections could not be listed (HTTP {status})")
+            found[scope] = sorted(item["name"] for item in rows.get("value", [])
+                                  if item["properties"].get("category") == "AppInsights")
+        return found
+
+    def check_tracing_free(self):
+        """A project accepts one Application Insights connection; never add a second or replace another.
+
+        Either ARM list returns the account-level and the project-level connections,
+        so both expected names are accepted on both scopes."""
+        expected = {f"{self.account}-appinsights", self.insights}
+        for scope, names in self.tracing_connections().items():
+            print(f"Existing AppInsights connections on the {scope} list: {', '.join(names) or 'none'}")
+            others = [name for name in names if name not in expected]
+            if others:
+                raise ValueError(f"A different AppInsights connection exists ({', '.join(others)}); "
+                                 "a project accepts only one. Report before changing it.")
 
     def deploy(self, stage, plan_only):
         self.verify_identity()
@@ -208,6 +239,8 @@ class Byom:
         self.state.setdefault("createdAt", now())
         if stage == "gateway" and self.arm("GET", f"Microsoft.ApiManagement/service/{self.apim}/namedValues/{NAMED_VALUE}")[0] != 200:
             raise RuntimeError("Backend key named value is missing; run the key action before the gateway stage")
+        if stage == "tracing":
+            self.check_tracing_free()
         parameters = self.directory / f"params-{stage}.json"
         write_private(parameters, {
             "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
@@ -407,10 +440,13 @@ class Byom:
     def connections(self, label):
         """Connection records as ARM and the project data plane report them; secrets are never requested."""
         self.verify_identity()
-        status, found = self.arm("GET", f"Microsoft.CognitiveServices/accounts/{self.account}/projects/"
-                                 f"{self.project}/connections", api=FOUNDRY_API)
+        account = f"Microsoft.CognitiveServices/accounts/{self.account}"
+        status, found = self.arm("GET", f"{account}/projects/{self.project}/connections", api=FOUNDRY_API)
         if status != 200:
             raise RuntimeError(f"Connections could not be listed (HTTP {status})")
+        account_status, account_found = self.arm("GET", f"{account}/connections", api=FOUNDRY_API)
+        if account_status != 200:
+            raise RuntimeError(f"Account connections could not be listed (HTTP {account_status})")
         token = self.az("account", "get-access-token", "--resource", "https://ai.azure.com")["accessToken"]
         endpoint = f"https://{self.account}.services.ai.azure.com/api/projects/{self.project}"
 
@@ -429,6 +465,9 @@ class Byom:
                         if key.lower() not in ("id", "credentials", "key", "apikey", "systemdata")}
             if isinstance(value, list):
                 return [clean(item) for item in value]
+            if isinstance(value, str):
+                # Resource IDs of connected resources carry the subscription.
+                return value.replace(self.sub, "<subscription>").replace(self.tenant, "<tenant>")
             return value
 
         def readable(item):
@@ -442,8 +481,19 @@ class Byom:
 
         plane_status, plane_found = plane("connections")
         deployments_status, deployments = plane("deployments")
+        created = {}
+        for stage in ("connections", "tracing"):
+            record = self.state.get("deployments", {}).get(stage)
+            if record:
+                # The ARM reads answer for either scope, so only the deployment shows where each one was created.
+                ids = self.az("deployment", "group", "show", "-g", self.rg, "-n", record["name"],
+                              "--query", "properties.outputResources[].id") or []
+                created[stage] = sorted(item.split("/providers/", 1)[-1] for item in ids)
         report = {
             "observedAt": now(),
+            "createdByDeployment": created,
+            "armAccount": [readable({"name": item["name"], **clean(item["properties"])})
+                           for item in account_found.get("value", [])],
             "arm": [readable({"name": item["name"], **clean(item["properties"])}) for item in found.get("value", [])],
             "dataPlane": {
                 "httpStatus": plane_status,
@@ -452,10 +502,11 @@ class Byom:
                 "deploymentsHttpStatus": deployments_status,
                 "deploymentCount": len(deployments.get("value", [])) if deployments_status == 200 else None}}
         self.save_evidence(f"connections-{label}", report, (self.sub, self.tenant))
-        for item in report["arm"]:
-            metadata = item.get("metadata") or {}
-            print(f"{item['name']}: category={item.get('category')} auth={item.get('authType')} "
-                  f"deploymentInPath={metadata.get('deploymentInPath')} target={item.get('target')}")
+        for scope, key in (("account", "armAccount"), ("project", "arm")):
+            for item in report[key]:
+                metadata = item.get("metadata") or {}
+                print(f"[{scope}] {item['name']}: category={item.get('category')} auth={item.get('authType')} "
+                      f"deploymentInPath={metadata.get('deploymentInPath')} target={item.get('target')}")
         print(f"data plane HTTP {plane_status}, deployments {report['dataPlane']['deploymentCount']}. "
               f"Saved evidence/foundry-byom/connections-{label}.json")
 
@@ -513,6 +564,18 @@ def label_text(value):
     return value
 
 
+def open_deployment(core_directory, directory=None):
+    """Load the deployment named by the core directory after checking its private state directory."""
+    core = core_directory.expanduser().resolve()
+    directory = (directory or core.with_name(core.name + "-byom")).expanduser().resolve()
+    if directory == ROOT or ROOT in directory.parents:
+        raise ValueError("State and secrets must live outside the checkout")
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if directory.stat().st_mode & 0o077:
+        raise PermissionError("Private directory must be mode 0700 on a Linux filesystem, not a Windows mount")
+    return Byom(core, directory)
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -542,16 +605,9 @@ def main():
     args = parser.parse_args()
     if args.core_directory is None:
         parser.error("--core-directory or the AXK2_CORE_DIRECTORY environment variable is required")
-    core = args.core_directory.expanduser().resolve()
-    directory = (args.directory or core.with_name(core.name + "-byom")).expanduser().resolve()
-    if directory == ROOT or ROOT in directory.parents:
-        raise ValueError("State and secrets must live outside the checkout")
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if directory.stat().st_mode & 0o077:
-        raise PermissionError("Private directory must be mode 0700 on a Linux filesystem, not a Windows mount")
-    byom = Byom(core, directory)
+    byom = open_deployment(args.core_directory, args.directory)
     read_only = args.action in ("status", "probe", "telemetry", "connections")
-    with (directory / "operation.lock").open("a") as lock:
+    with (byom.directory / "operation.lock").open("a") as lock:
         if not read_only:
             import fcntl  # Linux only; imported here so the helpers stay importable elsewhere
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

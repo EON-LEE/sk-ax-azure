@@ -1,0 +1,57 @@
+{
+  "observedAt": "2026-10-19T11:45:28Z",
+  "phase": "correlate",
+  "smokeToolSha256": "38f9f10f56daf9804f4db42b56de34bfcd6267df78e3d4317cde15806c433e1d",
+  "gateway": "https://<apim-gateway>",
+  "model": "ax-k2-fp8",
+  "exitCode": 0,
+  "seconds": 0.573,
+  "result": {
+    "tool": "model_api_smoke",
+    "version": 1,
+    "run_id": "cc97a261",
+    "started_at": "2026-10-19T11:18:07Z",
+    "target": "https://<apim-gateway>/fp8/v1",
+    "auth_header": "api-key",
+    "model": "ax-k2-fp8",
+    "max_tokens": 64,
+    "admissions": 0,
+    "ok": true,
+    "total_s": 0.573,
+    "checks": {
+      "models": {
+        "ok": true,
+        "status": 200,
+        "x_request_id": "smoke-cc97a261-models",
+        "sent_request_id": "smoke-cc97a261-models",
+        "request_id_echoed": true,
+        "elapsed_s": 0.218,
+        "served_profile": "fp8",
+        "problems": [],
+        "model_ids": [
+          "ax-k2-fp8"
+        ]
+      },
+      "auth": {
+        "ok": true,
+        "problems": [],
+        "no_key": {
+          "status": 401,
+          "x_request_id": null,
+          "sent_request_id": "smoke-cc97a261-auth-no_key",
+          "request_id_echoed": false,
+          "elapsed_s": 0.175
+        },
+        "wrong_key": {
+          "status": 401,
+          "x_request_id": null,
+          "sent_request_id": "smoke-cc97a261-auth-wrong_key",
+          "request_id_echoed": false,
+          "elapsed_s": 0.165
+        },
+        "status": 401,
+        "x_request_id": null
+      }
+    }
+  }
+}
