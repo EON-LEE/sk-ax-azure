@@ -421,10 +421,26 @@ class Target:
             "smoke": "not_run; separately verify the rotated consumer connection"})
         print("Staged model API settings activated; original reverse links recovered.")
 
+    def model_api_state(self):
+        statuses = []
+        for prefix in ("", "/models/nvfp4"):
+            try:
+                self.request(self.url + prefix + "/v1/models", anonymous=True, timeout=20)
+            except urllib.error.HTTPError as exc:
+                if exc.code not in {401, 404}:
+                    raise ValueError("Model API activation state cannot be determined: HTTP " + str(exc.code)) from None
+                statuses.append(exc.code)
+            else:
+                raise ValueError("Model API unexpectedly accepted an unauthenticated state probe")
+        if statuses[0] != statuses[1]:
+            raise ValueError("Model API activation state differs between profiles")
+        return statuses[0]
+
     def deploy_revision(self, revision, allow_live_web_recycle=False):
         if not allow_live_web_recycle:
             raise ValueError("Live web deployment requires explicit --allow-live-web-recycle")
         self.staged_model_settings()
+        api_status = self.model_api_state()
         archive = self.directory / "candidate-frontend.zip"
         expected = bundle_revision(revision, archive)
         manifest = self.directory / "frontend-expected.json"
@@ -448,17 +464,19 @@ class Target:
         shutil.copyfile(previous_archive, rollback / "frontend.zip")
         write_private(rollback / "frontend-expected.json", previous)
         current = self.az("webapp", "config", "appsettings", "list", "-g", self.rg, "-n", self.name)
-        if any(item["name"] == "AXK2_MODEL_API_KEY_SHA256" and item["value"] for item in current):
-            raise ValueError("Initial disabled-code rollout requires an unset API digest; review rotation separately")
+        if self.model_api_state() != api_status:
+            raise ValueError("Model API activation state changed before deployment")
         write_private(rollback / "appsettings.json", {item["name"]: item["value"] for item in current})
         write_private(rollback / "models.json", baseline)
         write_private(self.directory / "candidate-proof.json", {
             "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-            "expected_files": len(expected), "state": "attempted", "rollback": rollback.name})
+            "expected_files": len(expected), "state": "attempted", "rollback": rollback.name,
+            "model_api_status": api_status})
         # Credential activation is a separate, explicitly approved command.
         self.publish(archive, expected)
         first_recovery = self.wait_web_recovery(baseline, stable_observations=3,
-                                                minimum_seconds=240, model_api_status=404)
+                                                minimum_seconds=240, model_api_status=api_status,
+                                                preserve_model_api_state=True)
         self.request(self.url + "/healthz")
         self.request(self.url + "/api/status")
         capabilities = self.request(self.url + "/api/capabilities")
@@ -467,26 +485,29 @@ class Target:
         for prefix in ("", "/models/nvfp4"):
             for route, body in (("/v1/models", None), ("/v1/chat/completions", {})):
                 try:
-                    self.request(self.url + prefix + route, body, anonymous=True)
+                    self.request(self.url + prefix + route, body, anonymous=True, timeout=20)
                 except urllib.error.HTTPError as exc:
-                    if exc.code != 404:
-                        raise ValueError("Unconfigured model API did not fail closed with HTTP 404") from None
+                    if exc.code != api_status:
+                        raise ValueError("Model API activation state changed after deployment") from None
                 else:
-                    raise ValueError("Unconfigured model API unexpectedly accepted a request")
+                    raise ValueError("Model API unexpectedly accepted an unauthenticated request")
         write_private(self.directory / "code-deployment-regression.json", {
             "revision": revision, "health": True, "status": True, "web_iq_ready": True,
-            "model_api_disabled": True, "models": first_recovery})
+            "model_api_disabled": api_status == 404, "model_api_status": api_status, "models": first_recovery})
         shutil.copyfile(archive, previous_archive)
         write_private(manifest, expected)
         write_private(self.directory / "candidate-proof.json", {
             "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-            "expected_files": len(expected), "state": "code_deployed_disabled",
+            "expected_files": len(expected),
+            "state": "code_deployed_disabled" if api_status == 404 else "deployed_links_recovered",
+            "model_api_status": api_status,
             "rollback": rollback.name, "gpu_binding_unchanged": True,
             "code_recycle": first_recovery,
             "model_api_smoke": "not_run; execute the candidate's reviewed smoke tool separately"})
-        print("Exact revision deployed disabled; regression passed. Explicit settings activation and smoke remain.")
+        print("Exact revision deployed; existing API activation state preserved. Smoke verification remains.")
 
-    def wait_web_recovery(self, baseline, stable_observations=1, minimum_seconds=0, model_api_status=None):
+    def wait_web_recovery(self, baseline, stable_observations=1, minimum_seconds=0, model_api_status=None,
+                          preserve_model_api_state=False):
         expected_ids = {"fp8", "nvfp4"}
         if {model["id"] for model in baseline["models"]} != expected_ids:
             raise ValueError("Both baseline profiles are required")
@@ -523,6 +544,9 @@ class Target:
                                 statuses.append(exc.code)
                             else:
                                 raise ValueError("Model API accepted an unauthenticated stability probe")
+                        if preserve_model_api_state and any(
+                                status in {401, 404} and status != model_api_status for status in statuses):
+                            raise ValueError("Model API activation state changed during deployment")
                         ready = ready and statuses == [model_api_status, model_api_status]
                     consecutive = consecutive + 1 if ready and time.monotonic() - started >= minimum_seconds else 0
                     if consecutive >= stable_observations:

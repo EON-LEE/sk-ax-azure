@@ -265,8 +265,8 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(result["unauthenticated_statuses"], [401, 401])
 
     def test_revision_rollout_regression_precedes_key_activation(self):
-        for closed in (True, False):
-            with self.subTest(closed=closed), tempfile.TemporaryDirectory() as directory:
+        for closed, api_status in ((True, 404), (True, 401), (False, 404), (False, 401)):
+            with self.subTest(closed=closed, api_status=api_status), tempfile.TemporaryDirectory() as directory:
                 instance = object.__new__(target.Target)
                 instance.directory = Path(directory)
                 instance.url, instance.rg, instance.name = "https://target.invalid", "rg-target", "target"
@@ -286,12 +286,12 @@ class TargetTests(unittest.TestCase):
                     path.write_bytes(b"candidate")
                     return {"app.py": "candidate"}
 
-                def request(url, body=None, anonymous=False):
+                def request(url, body=None, anonymous=False, timeout=None):
                     if "/v1/" in url:
                         self.assertTrue(anonymous)
                         events.append("disabled-check")
                         if closed:
-                            raise target.urllib.error.HTTPError(url, 404, "disabled", {}, None)
+                            raise target.urllib.error.HTTPError(url, api_status, "unauthenticated", {}, None)
                         return {}
                     if url.endswith("/api/models"):
                         return models
@@ -301,7 +301,8 @@ class TargetTests(unittest.TestCase):
 
                 def azure(*args):
                     if args[3] == "list":
-                        return [{"name": "unrelated", "value": "preserved"}]
+                        return [{"name": "unrelated", "value": "preserved"},
+                                {"name": "AXK2_MODEL_API_KEY_SHA256", "value": "fixture" if api_status == 401 else ""}]
                     events.append("activate")
                     return {}
 
@@ -309,20 +310,57 @@ class TargetTests(unittest.TestCase):
                         patch.object(instance, "request", side_effect=request), \
                         patch.object(instance, "az", side_effect=azure), \
                         patch.object(instance, "verify_archive"), \
-                        patch.object(instance, "wait_web_recovery", return_value={"healthy": True}), \
+                        patch.object(instance, "wait_web_recovery", return_value={"healthy": True}) as recover, \
                         patch.object(instance, "publish", side_effect=lambda *args: events.append("publish")), \
                         patch.object(instance, "power") as power, contextlib.redirect_stdout(io.StringIO()):
                     if closed:
                         instance.deploy_revision("a" * 40, True)
-                        self.assertEqual(events, ["publish", *["disabled-check"] * 4])
+                        self.assertEqual(events, [*["disabled-check"] * 4, "publish", *["disabled-check"] * 4])
                         result = json.loads((instance.directory / "candidate-proof.json").read_text())
-                        self.assertEqual(result["state"], "code_deployed_disabled")
+                        self.assertEqual(result["state"], "code_deployed_disabled" if api_status == 404
+                                         else "deployed_links_recovered")
+                        self.assertEqual(recover.call_args.kwargs, {
+                            "stable_observations": 3, "minimum_seconds": 240,
+                            "model_api_status": api_status, "preserve_model_api_state": True})
+                        self.assertEqual(result["model_api_status"], api_status)
                         self.assertIn("not_run", result["model_api_smoke"])
                     else:
                         with self.assertRaisesRegex(ValueError, "unexpectedly accepted"):
                             instance.deploy_revision("a" * 40, True)
                         self.assertNotIn("activate", events)
                     power.assert_not_called()
+
+    def test_model_api_state_rejects_mixed_or_unknown_before_any_write(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        for statuses in ((401, 404), (404, 401), (503, 503), (403, 403)):
+            failures = [target.urllib.error.HTTPError(instance.url, status, "status", {}, None)
+                        for status in statuses]
+            with self.subTest(statuses=statuses), patch.object(instance, "request", side_effect=failures), \
+                    patch.object(instance, "publish") as publish, patch.object(instance, "az") as az:
+                with self.assertRaises(ValueError):
+                    instance.model_api_state()
+                publish.assert_not_called()
+                az.assert_not_called()
+
+    def test_redeployment_rejects_api_state_change_in_recovery(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        models = {"models": [
+            {"id": name, "status": {"active_since": 1, "healthy": True,
+                                   "queue": {"active": 0, "waiting": 0}},
+             "runtime": {"state": "verified"}} for name in ("fp8", "nvfp4")]}
+        for expected in (401, 404):
+            def request(url, **kwargs):
+                if url.endswith("/v1/models"):
+                    raise target.urllib.error.HTTPError(url, 404 if expected == 401 else 401, "changed", {}, None)
+                if url.endswith("/api/models"):
+                    return models
+                return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
+
+            with self.subTest(expected=expected), patch.object(instance, "request", side_effect=request):
+                with self.assertRaisesRegex(ValueError, "activation state changed"):
+                    instance.wait_web_recovery(models, model_api_status=expected, preserve_model_api_state=True)
 
     def test_run_requires_bounded_lease(self):
         instance = object.__new__(target.Target)

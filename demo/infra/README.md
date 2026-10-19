@@ -189,11 +189,17 @@ against its manifest and the actual deployed archive, then retains that ZIP,
 manifest, app settings and current profile bindings in a new private rollback
 directory. Existing settings are preserved; only the staged API setting changes.
 It does not call GPU power, change compute, submit jobs or apply Terraform.
+Before any cloud write, it probes both profiles' anonymous `/v1/models` responses:
+404 means disabled, 401 means enabled. Both must agree; unknown/mixed states
+abort. It rechecks immediately before publishing, then requires that same
+activation state throughout recovery and final regression. A code-only update
+to an already enabled API therefore preserves 401 and never rewrites its digest.
+Do not run `model-settings` again merely to redeploy enabled code.
 
 Unlike the ordinary OFF-only `deploy`, this operation explicitly permits a live
 web recycle. App Service ZIP deployment and app-setting updates are **separate
 operations**. The approved procedure permits **two web recycles, zero GPU
-restarts**, in one coordinated window. The API code deploys first with no digest
+restarts**, in one coordinated window. On the initial rollout, API code deploys with no digest
 configured, so the new routes are briefly disabled (404). Before activation,
 check health, status, capabilities and disabled routes, and require both existing
 model reverse links to recover with unchanged profile activation times and empty
