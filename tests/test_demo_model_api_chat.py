@@ -1,13 +1,17 @@
 """What a chat call does, on loopback: the real app, the real backend_link.Link and a scripted fake vLLM. The
 request vLLM gets (built by the server from an allow-list), the answer in both forms (one chat.completion, or
-vLLM's own SSE chunks), tool calls and their round trip, the requests a Foundry agent sends and what is refused
-before the GPU sees it. Failures, limits and the log are in test_demo_model_api_failures.py."""
+vLLM's own SSE chunks), tool calls and their round trip, the requests a Foundry agent sends (also the one an APIM
+trace showed) and what is refused before the GPU sees it. Failures, limits and the log are in
+test_demo_model_api_failures.py."""
 import asyncio
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
+
+import aiohttp
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
@@ -353,6 +357,163 @@ class FoundryTests(LinkedCase):
         items, done = chunks(answer.text)
         self.assertTrue(done)
         self.assertEqual(content_of(items), "21도입니다.")
+
+
+OBSERVED_FIELDS = {"model", "messages", "stream", "max_completion_tokens", "stream_options", "temperature", "top_p"}
+
+
+def observed(**fields):
+    """The model request of one Foundry agent turn as an APIM trace showed it: these top-level fields and no other,
+    a system and a user message, no tools, stream on, max_completion_tokens (not max_tokens), no query string. The
+    values here are made up; `fields` replace some of them."""
+    request = {"model": "ax-k2-fp8",
+               "messages": [{"role": "system", "content": "당신은 간결하게 답하는 도우미입니다."},
+                            {"role": "user", "content": "서울은 어느 나라의 수도인가요?"}],
+               "stream": True, "max_completion_tokens": 256, "stream_options": {"include_usage": True},
+               "temperature": 1, "top_p": 1}
+    request.update(fields)
+    return request
+
+
+class FoundryWire(LinkedCase):
+    """The calls come from a client that, like the one in the trace, adds no User-Agent, Accept or
+    Accept-Encoding; `wire` records the names of the headers that went out with each request."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.wire = []
+
+        async def record(session, context, params):
+            self.wire.append((params.method, str(params.url), {name.lower() for name in params.headers}))
+
+        trace = aiohttp.TraceConfig()
+        trace.on_request_headers_sent.append(record)
+        self.bare = aiohttp.ClientSession(self.base, trace_configs=[trace],
+                                          skip_auto_headers=("User-Agent", "Accept", "Accept-Encoding"))
+        self.clients.append(self.bare)
+
+    async def foundry(self, request=None, path="/v1/chat/completions"):
+        """The call as the gateway forwards it: the Bearer key, a JSON body and nothing else."""
+        sent = {"Authorization": "Bearer " + support.KEY}
+        async with self.bare.post(path, json=observed() if request is None else request, headers=sent) as response:
+            return support.Answer(response.status, response.headers, await response.read())
+
+
+class ObservedFoundryRequestTests(FoundryWire):
+    """The observed request is served on the normal path for every value its fields may take: nothing in it is
+    a 400, and a max_completion_tokens above the server's cap is cut down to the cap (see the cap tests below)."""
+
+    async def test_the_observed_request_is_streamed_back_as_vllms_own_chunks(self):
+        self.assertEqual(set(observed()), OBSERVED_FIELDS)
+        blocks = say("서울", "입니다.")
+        self.script(Reply(*blocks))
+        answer = await self.foundry()
+        self.assertEqual(answer.status, 200, answer.text)
+        self.assertTrue(answer.headers["Content-Type"].startswith("text/event-stream"))
+        self.assertEqual((answer.headers["X-Axk2-Profile"], answer.headers["Cache-Control"]), ("fp8", "no-store"))
+        self.assertTrue(answer.headers["X-Request-Id"])
+        self.assertEqual(answer.text, "".join(blocks))  # the usage chunk was asked for, so it is there
+        self.assertTrue(answer.text.endswith("data: [DONE]\n\n"))
+        self.assertNotIn("event:", answer.text)
+        self.assertEqual(content_of(chunks(answer.text)[0]), "서울입니다.")
+        self.assertEqual(self.upstream(), {
+            "model": "axk2", "stream": True, "stream_options": {"include_usage": True},
+            "chat_template_kwargs": {"enable_thinking": False}, "max_tokens": 256, "temperature": 1, "top_p": 1,
+            "messages": [{"role": "system", "content": "당신은 간결하게 답하는 도우미입니다."},
+                         {"role": "user", "content": "서울은 어느 나라의 수도인가요?"}]})
+        ((method, url, names),) = self.wire
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/v1/chat/completions"), url)  # no query string
+        self.assertFalse({"user-agent", "accept", "accept-encoding"} & names, names)
+
+    async def test_the_same_request_with_text_parts_for_the_content(self):
+        def parts(text):
+            return [{"type": "text", "text": text}]
+
+        self.script(Reply(*say("ok")))
+        answer = await self.foundry(observed(messages=[{"role": "system", "content": parts("규칙")},
+                                                       {"role": "user", "content": parts("질문")}]))
+        self.assertEqual(answer.status, 200, answer.text)
+        self.assertEqual(self.upstream()["messages"], [{"role": "system", "content": "규칙"},
+                                                       {"role": "user", "content": "질문"}])
+
+    async def test_every_form_of_stream_options_is_accepted_and_include_usage_decides_the_usage_chunk(self):
+        forms = (({"include_usage": True}, True), ({}, False), ({"include_obfuscation": False}, False),
+                 ({"include_usage": True, "include_obfuscation": False}, True),
+                 ({"include_usage": False, "include_obfuscation": True}, False), (None, False))
+        for options, usage in forms:
+            with self.subTest(stream_options=options):
+                self.vllm.requests.clear()
+                blocks = say("a", "b")
+                self.script(Reply(*blocks))
+                answer = await self.foundry(observed(stream_options=options))
+                self.assertEqual(answer.status, 200, answer.text)
+                self.assertEqual(answer.text, "".join(blocks) if usage else without_usage(blocks))
+                items, done = chunks(answer.text)
+                self.assertTrue(done)
+                self.assertEqual((any(item.get("usage") for item in items), content_of(items)), (usage, "ab"))
+                self.assertEqual(self.upstream()["stream_options"], {"include_usage": True})  # always, and only that
+
+    async def test_temperature_and_top_p_as_whole_numbers_decimals_and_null(self):
+        cases = (((1, 1), (1, 1)), ((1.0, 1.0), (1, 1)), ((0.7, 0.9), (0.7, 0.9)), ((2, 1), (2, 1)),
+                 ((0, 0.5), (0, 0.5)), ((0.01, 0.0001), (0.01, 0.0001)), ((None, None), (0.6, 0.95)),
+                 ((None, 0.5), (0.6, 0.5)), ((0.2, None), (0.2, 0.95)), ((0, 0), (0, 1e-6)))  # top_p 0 is made > 0
+        for (temperature, top_p), wanted in cases:
+            with self.subTest(temperature=temperature, top_p=top_p):
+                self.vllm.requests.clear()
+                self.script(Reply(*say("ok")))
+                answer = await self.foundry(observed(temperature=temperature, top_p=top_p))
+                self.assertEqual(answer.status, 200, answer.text)
+                body = self.upstream()
+                self.assertEqual((body["temperature"], body["top_p"]), wanted)
+
+    async def test_max_completion_tokens_is_cut_down_to_the_cap_and_never_refused(self):
+        cases = ((256, 256), (256.0, 256), (1, 1), (8192, 8192), (8193, 8192), (10**6, 8192), (2**40, 8192),
+                 (None, 4096))
+        for sent, wanted in cases:
+            with self.subTest(max_completion_tokens=sent):
+                self.vllm.requests.clear()
+                self.script(Reply(*say("ok")))
+                answer = await self.foundry(observed(max_completion_tokens=sent))
+                self.assertEqual(answer.status, 200, answer.text)
+                body = self.upstream()
+                self.assertEqual(body["max_tokens"], wanted)
+                self.assertNotIn("max_completion_tokens", body)  # vLLM gets the name it knows
+
+    async def test_a_limit_that_cannot_be_a_token_count_is_still_a_400(self):
+        for sent in (0, -1, 2.5, "256", True):
+            with self.subTest(max_completion_tokens=sent):
+                answer = await self.foundry(observed(max_completion_tokens=sent))
+                self.refused(answer, 400, "invalid_value", "invalid_request_error", param="max_completion_tokens")
+        self.assertEqual(self.vllm.hits["chat"], 0)
+
+
+class ObservedFoundryCapTests(FoundryWire):
+    """The cap that max_completion_tokens is cut down to is the server setting, not a fixed number."""
+    options = {"max_tokens": 1000, "default_max_tokens": 300}
+
+    async def test_the_cap_and_the_default_follow_the_settings(self):
+        for sent, wanted in ((256, 256), (1000, 1000), (1001, 1000), (10**6, 1000), (None, 300)):
+            with self.subTest(max_completion_tokens=sent):
+                self.vllm.requests.clear()
+                self.script(Reply(*say("ok")))
+                answer = await self.foundry(observed(max_completion_tokens=sent))
+                self.assertEqual(answer.status, 200, answer.text)
+                self.assertEqual(self.upstream()["max_tokens"], wanted)
+
+
+class ObservedFoundryRequestWithoutALinkTests(support.ApiCase):
+    """No GPU link: the observed request is not refused for its shape. It is a plain JSON 503 at once (also with
+    stream on, no event stream), which the gateway or the SDK may retry."""
+
+    async def test_it_is_an_immediate_retryable_503(self):
+        started = time.monotonic()
+        answer = await self.chat(observed())
+        self.assertLess(time.monotonic() - started, 3)
+        self.refused(answer, 503, "backend_unavailable", "server_error")
+        self.assertEqual(answer.headers["Retry-After"], "30")
+        self.assertNotIn("data:", answer.text)
+        self.assertEqual((self.vllm.hits["chat"], self.model_api.gate.active), (0, 0))
 
 
 class RefusalTests(LinkedCase):

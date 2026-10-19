@@ -200,6 +200,17 @@ def printable(text, limit=64):
     return "".join(char for char in str(text) if char.isprintable())[:limit]
 
 
+def encodable(value):
+    """Whether a parsed JSON value is text that UTF-8, and so a WebSocket text frame, can carry. A JSON escape such
+    as \\ud800 parses to an unpaired surrogate, which it cannot: such text would fail the hub's writer and close
+    the one GPU link for every request in flight. A value nested beyond the encoder's depth fails the same way."""
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except (ValueError, RecursionError):  # UnicodeEncodeError is a ValueError
+        return False
+    return True
+
+
 def upstream_failure(status, text):
     """vLLM's non-200 answer as an API error; only validation problems keep vLLM's own words."""
     info = upstream_error(status, text)
@@ -284,9 +295,11 @@ def clean_calls(calls, where):
         if not isinstance(arguments, str) or len(arguments) > 256 * 1024:
             raise invalid(f"{place}.function.arguments", "arguments must be a JSON string.")
         try:
-            json.loads(arguments)
-        except ValueError:
+            parsed = json.loads(arguments)
+        except (ValueError, RecursionError):
             raise invalid(f"{place}.function.arguments", "arguments must be valid JSON.")
+        if not encodable(parsed):  # the arguments are JSON text: a \ud800 escape in it only becomes a surrogate here
+            raise invalid(f"{place}.function.arguments", "arguments must not contain an unpaired UTF-16 surrogate.")
         clean.append({"id": call["id"], "type": "function", "function": {"name": function["name"],
                                                                          "arguments": arguments}})
     return clean
@@ -459,6 +472,9 @@ def parse_json(raw):
         raise ApiError(400, "invalid_json", "The request body is not valid JSON.")
     if not isinstance(value, dict):
         raise ApiError(400, "invalid_json", "The request body must be a JSON object.")
+    if not encodable(value):
+        raise ApiError(400, "invalid_json", "The request body has text that cannot be encoded as UTF-8 (an unpaired "
+                       "UTF-16 surrogate) or is nested too deeply.")
     return value
 
 
