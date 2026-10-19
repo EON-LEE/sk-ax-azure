@@ -1,0 +1,71 @@
+{
+  "schema": "foundry-byom-external-report/1",
+  "provenance": "Reported by the infrastructure owner from a read-only readout of APIM gateway logs and Application Insights spans (no extra calls or probes). These scripts did not measure these values.",
+  "about": "redeploy-9cd2220-fp8-learn-never-tempdefault.run.json (FP8, model API 9cd2220, call started 2026-10-19T22:16:28+09:00, ended in Foundry HTTP 500 model_error)",
+  "client_side": {
+    "responses_create_calls": 1,
+    "openai_client_max_retries": 0,
+    "client_http": {"requests": 2, "responses_posts": 1}
+  },
+  "gateway_requests": [
+    {"at": "2026-10-19T22:16:30.985+09:00", "status": 200, "backend_status": 200, "backend_ms": 1127.9, "gateway_total_ms": 1129.1}
+  ],
+  "gateway_findings": {
+    "requests_for_this_call": 1,
+    "other_requests_within_30_s": 0,
+    "foundry_resend": false,
+    "status_5xx": false,
+    "request_missing": false,
+    "note": "The model API answered 200 and the gateway passed it on. The client then received the 500 from Foundry."
+  },
+  "request_shape": {
+    "method": "POST",
+    "path": "<connection target path>/chat/completions",
+    "query_string": false,
+    "api_version": false,
+    "top_level_fields": ["messages", "stream", "max_completion_tokens", "stream_options", "model", "temperature", "top_p", "tools", "parallel_tool_calls", "tool_choice"],
+    "max_tokens_field": false,
+    "values": {
+      "model": "ax-k2-fp8",
+      "stream": true,
+      "stream_options": {"include_usage": true},
+      "max_completion_tokens": 384,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "parallel_tool_calls": false,
+      "tool_choice": "auto"
+    },
+    "messages": ["system", "user"],
+    "tools": {"count": 1, "names": ["mcp___mcp_microsoft_learn___microsoft_docs_search"]},
+    "user_agent": "empty"
+  },
+  "comparison_with_normal_call": {
+    "call": "redeploy-9cd2220-fp8-learn-never-v2, first request, 2026-10-19T22:14:45+09:00",
+    "difference": "temperature only",
+    "temperature_in_normal_call": "0.3 (received as the JSON number 0.3000000119209289)",
+    "temperature_in_this_call": 1.0,
+    "same": ["numeric and boolean values", "field list", "tool name", "message roles"]
+  },
+  "gateway_logging": {
+    "note": "Since the APIM policy update at 21:43 KST, request values (numbers and booleans only), tool count, tool names and tool_choice presence are logged. Requests before that time do not have them. The response body is not logged."
+  },
+  "tracing": {
+    "invoke_agent_span": {"status": 500, "error_type": "unknown", "duration_ms": 1218},
+    "execute_tool_span": {
+      "present": true,
+      "tool_name_in_this_call": "functions.microsoft_learn.microsoft_docs_search",
+      "tool_name_in_normal_call": "mcp_microsoft_learn.microsoft_docs_search"
+    },
+    "chat_span": false,
+    "note": "The response body is not in the logs, so whether the model emitted a differently named tool call is not confirmed (inference by the reporter)."
+  },
+  "cumulative_budget": {
+    "as_of": "after the 22:16 ablation call and before the retest",
+    "apim_requests_from_this_work": 19,
+    "status_200": 15,
+    "status_503": 4,
+    "cap": 32,
+    "remaining": 13
+  },
+  "budget_rule": "Count model calls by gateway requests, not by responses.create calls."
+}

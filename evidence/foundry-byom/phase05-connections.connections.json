@@ -1,0 +1,210 @@
+{
+  "schema": "foundry-byom-connections/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-19T11:34:56+00:00",
+  "action": "inspected",
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "contract": {
+    "category": "ApiManagement",
+    "credential_type": "ApiKey",
+    "deployment_in_path": false,
+    "expected": [
+      {
+        "connection": "<conn-nvfp4>",
+        "models": [
+          "ax-k2-nvfp4"
+        ]
+      },
+      {
+        "connection": "<conn-fp8>",
+        "models": [
+          "ax-k2-fp8"
+        ]
+      }
+    ]
+  },
+  "connection_count": 4,
+  "connections": [
+    {
+      "connection": "<conn-nvfp4>",
+      "found": true,
+      "in_list": true,
+      "summary": {
+        "name": "<conn-nvfp4>",
+        "category": "ApiManagement",
+        "credential_type": "ApiKey",
+        "credential_value_returned": false,
+        "is_default": false,
+        "target_scheme": "https",
+        "target_path": "/nvfp4/v1",
+        "metadata_keys": [
+          "deploymentInPath",
+          "models"
+        ],
+        "metadata": {
+          "deploymentInPath": "false"
+        },
+        "deployment_in_path": false,
+        "auth_headers": null,
+        "model_discovery": null,
+        "models": [
+          {
+            "name": "ax-k2-nvfp4",
+            "format": "OpenAI"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "id": "category",
+          "status": "confirmed",
+          "detail": "category is 'ApiManagement', contract 'ApiManagement'"
+        },
+        {
+          "id": "credential_type",
+          "status": "confirmed",
+          "detail": "credential type is 'ApiKey', contract 'ApiKey'"
+        },
+        {
+          "id": "deployment_in_path",
+          "status": "confirmed",
+          "detail": "deploymentInPath is False, contract False"
+        },
+        {
+          "id": "models",
+          "status": "confirmed",
+          "detail": "model list contains ['ax-k2-nvfp4']"
+        },
+        {
+          "id": "credential_value_not_returned",
+          "status": "confirmed",
+          "detail": "no credential value in the response"
+        }
+      ]
+    },
+    {
+      "connection": "<conn-fp8>",
+      "found": true,
+      "in_list": true,
+      "summary": {
+        "name": "<conn-fp8>",
+        "category": "ApiManagement",
+        "credential_type": "ApiKey",
+        "credential_value_returned": false,
+        "is_default": true,
+        "target_scheme": "https",
+        "target_path": "/fp8/v1",
+        "metadata_keys": [
+          "deploymentInPath",
+          "models"
+        ],
+        "metadata": {
+          "deploymentInPath": "false"
+        },
+        "deployment_in_path": false,
+        "auth_headers": null,
+        "model_discovery": null,
+        "models": [
+          {
+            "name": "ax-k2-fp8",
+            "format": "OpenAI"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "id": "category",
+          "status": "confirmed",
+          "detail": "category is 'ApiManagement', contract 'ApiManagement'"
+        },
+        {
+          "id": "credential_type",
+          "status": "confirmed",
+          "detail": "credential type is 'ApiKey', contract 'ApiKey'"
+        },
+        {
+          "id": "deployment_in_path",
+          "status": "confirmed",
+          "detail": "deploymentInPath is False, contract False"
+        },
+        {
+          "id": "models",
+          "status": "confirmed",
+          "detail": "model list contains ['ax-k2-fp8']"
+        },
+        {
+          "id": "credential_value_not_returned",
+          "status": "confirmed",
+          "detail": "no credential value in the response"
+        }
+      ]
+    }
+  ],
+  "other_connections": [
+    {
+      "category": "AppInsights",
+      "credential_type": "ApiKey"
+    },
+    {
+      "category": "AppInsights",
+      "credential_type": "ApiKey"
+    }
+  ],
+  "checks": [
+    {
+      "id": "<conn-nvfp4>:category",
+      "status": "confirmed",
+      "detail": "category is 'ApiManagement', contract 'ApiManagement'"
+    },
+    {
+      "id": "<conn-nvfp4>:credential_type",
+      "status": "confirmed",
+      "detail": "credential type is 'ApiKey', contract 'ApiKey'"
+    },
+    {
+      "id": "<conn-nvfp4>:deployment_in_path",
+      "status": "confirmed",
+      "detail": "deploymentInPath is False, contract False"
+    },
+    {
+      "id": "<conn-nvfp4>:models",
+      "status": "confirmed",
+      "detail": "model list contains ['ax-k2-nvfp4']"
+    },
+    {
+      "id": "<conn-nvfp4>:credential_value_not_returned",
+      "status": "confirmed",
+      "detail": "no credential value in the response"
+    },
+    {
+      "id": "<conn-fp8>:category",
+      "status": "confirmed",
+      "detail": "category is 'ApiManagement', contract 'ApiManagement'"
+    },
+    {
+      "id": "<conn-fp8>:credential_type",
+      "status": "confirmed",
+      "detail": "credential type is 'ApiKey', contract 'ApiKey'"
+    },
+    {
+      "id": "<conn-fp8>:deployment_in_path",
+      "status": "confirmed",
+      "detail": "deploymentInPath is False, contract False"
+    },
+    {
+      "id": "<conn-fp8>:models",
+      "status": "confirmed",
+      "detail": "model list contains ['ax-k2-fp8']"
+    },
+    {
+      "id": "<conn-fp8>:credential_value_not_returned",
+      "status": "confirmed",
+      "detail": "no credential value in the response"
+    }
+  ],
+  "ok": true,
+  "complete": true
+}

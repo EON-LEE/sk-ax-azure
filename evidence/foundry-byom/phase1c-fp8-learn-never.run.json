@@ -1,0 +1,89 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-19T12:30:23+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-agent-fp8",
+    "agent_version": "1",
+    "prompt": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-3dd69517",
+    "nonce": "r-3dd69517",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "conversation_id": "conv_0685a5c3…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_0685a5c3…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "agent": {
+        "name": "byom-demo-mcp-agent-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_0685a5c3…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        }
+      ],
+      "final_answer": "BYOM(Bring Your Own Model)은 고객이 자체 AI 모델을 Azure AI Foundry에 가져와 Foundry Agent Service에서 활용할 수 있게 해주는 기능입니다.  \n이를 통해 기존의 Foundation Model을 기반으로 에이전트 서비스를 구축할 수 있어 유연성과 맞춤화가 크게 향상됩니다.  \n\n근거 URL: https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/use-custom-models  \n\nr-3dd69517",
+      "answer_chars": 289,
+      "answer_urls": [
+        "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/use-custom-models"
+      ],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 477,
+        "output_tokens": 88,
+        "total_tokens": 565,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation"
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1
+  },
+  "final_answer": "BYOM(Bring Your Own Model)은 고객이 자체 AI 모델을 Azure AI Foundry에 가져와 Foundry Agent Service에서 활용할 수 있게 해주는 기능입니다.  \n이를 통해 기존의 Foundation Model을 기반으로 에이전트 서비스를 구축할 수 있어 유연성과 맞춤화가 크게 향상됩니다.  \n\n근거 URL: https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/use-custom-models  \n\nr-3dd69517",
+  "final_answer_contains_nonce": true,
+  "item_sequence": [
+    "mcp_list_tools",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "mcp_list_tools",
+      "server_label": "microsoft_learn",
+      "tools": [
+        "microsoft_docs_search"
+      ]
+    }
+  ],
+  "ok": true
+}

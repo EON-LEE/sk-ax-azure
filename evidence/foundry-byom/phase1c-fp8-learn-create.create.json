@@ -1,0 +1,42 @@
+{
+  "schema": "foundry-byom-create/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-19T12:30:22+00:00",
+  "action": "created",
+  "agent": "byom-demo-mcp-agent-fp8",
+  "version": "1",
+  "model_reference": "<conn-fp8>/ax-k2-fp8",
+  "definition": {
+    "model": "<conn-fp8>/ax-k2-fp8",
+    "instructions": "간결한 한국어로 답한다. 최신 정보나 확인이 필요한 사실은 제공된 도구를 먼저 호출하고, 도구 결과에 있는 내용만 근거로 답한다. 도구 결과에 근거가 없으면 모른다고 답한다.",
+    "tools": [
+      {
+        "type": "mcp",
+        "server_label": "microsoft_learn",
+        "server_url": "https://learn.microsoft.com/api/mcp",
+        "allowed_tools": [
+          "microsoft_docs_search"
+        ],
+        "require_approval": "never"
+      }
+    ]
+  },
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "verification": {
+    "requested_model": "<conn-fp8>/ax-k2-fp8",
+    "agents_get": {
+      "version": "1",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "matches": true
+    },
+    "get_version": {
+      "version": "1",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "matches": true
+    },
+    "ok": true
+  }
+}

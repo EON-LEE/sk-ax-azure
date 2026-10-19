@@ -1,0 +1,125 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-19T12:47:19+00:00",
+  "request": {
+    "scenario": "function",
+    "agent_name": "byom-demo-fn-agent-nv",
+    "agent_version": "1",
+    "prompt": "재고 조회 도구로 SKU AX-100의 재고 수량을 확인한 뒤, 수량과 아래 확인 코드를 한 문장으로 알려 주세요. 확인 코드: r-fb696b91",
+    "nonce": "r-fb696b91",
+    "limits": {
+      "max_output_tokens": 256,
+      "max_tool_calls": 0,
+      "max_rounds": 3,
+      "timeout_s": 180
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "conversation_id": "conv_0d87cab5…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_0d87cab5…",
+      "status": "completed",
+      "model": "<conn-nvfp4>/ax-k2-nvfp4",
+      "agent": {
+        "name": "byom-demo-fn-agent-nv",
+        "version": "1"
+      },
+      "conversation_id": "conv_0d87cab5…",
+      "output_item_types": [
+        "function_call"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "function_call",
+          "name": "lookup_demo_stock",
+          "arguments": {
+            "sku": "AX-100"
+          },
+          "call_id": "call_chatcmpl-tool-8191996ffc31fcdf_agents",
+          "status": "completed"
+        }
+      ],
+      "final_answer": "",
+      "answer_chars": 0,
+      "answer_urls": [],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 309,
+        "output_tokens": 25,
+        "total_tokens": 334,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation"
+    },
+    {
+      "response_id": "resp_0d87cab5…",
+      "status": "completed",
+      "model": "<conn-nvfp4>/ax-k2-nvfp4",
+      "agent": {
+        "name": "byom-demo-fn-agent-nv",
+        "version": "1"
+      },
+      "conversation_id": "conv_0d87cab5…",
+      "output_item_types": [
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [],
+      "final_answer": "확인 코드 r-fb696b91 기준 AX-100의 데모 재고는 9620개입니다.",
+      "answer_chars": 44,
+      "answer_urls": [],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 367,
+        "output_tokens": 29,
+        "total_tokens": 396,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation"
+    }
+  ],
+  "function_results": [
+    {
+      "name": "lookup_demo_stock",
+      "call_id": "call_chatcmpl-tool-8191996ffc31fcdf_agents",
+      "output": "{\"sku\": \"AX-100\", \"stock\": 9620}"
+    }
+  ],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 3,
+    "responses_posts": 2
+  },
+  "final_answer": "확인 코드 r-fb696b91 기준 AX-100의 데모 재고는 9620개입니다.",
+  "final_answer_contains_nonce": true,
+  "item_sequence": [
+    "function_call",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "function_call",
+      "name": "lookup_demo_stock",
+      "arguments": {
+        "sku": "AX-100"
+      },
+      "call_id": "call_chatcmpl-tool-8191996ffc31fcdf_agents",
+      "status": "completed"
+    }
+  ],
+  "ok": true
+}

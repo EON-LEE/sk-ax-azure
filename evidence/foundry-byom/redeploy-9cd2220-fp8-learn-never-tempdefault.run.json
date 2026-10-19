@@ -1,0 +1,44 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-19T13:16:28+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-7acb8605",
+    "nonce": "r-7acb8605",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-19T13:16:29+00:00",
+  "finished_at": "2026-10-19T13:16:31+00:00",
+  "conversation_id": "conv_06aa6c44…",
+  "conversation_deleted": null,
+  "rounds": [],
+  "function_results": [],
+  "stopped": "error",
+  "error": {
+    "type": "InternalServerError",
+    "status_code": 500,
+    "code": null,
+    "message": "Error code: 500 - {'error': {'message': 'The model produced invalid content. Consider modifying your prompt if you are seeing this error persistently. For more information, please see https://aka.ms/model-error Please include the request ID <redacted:guid> in your message.', 'type': 'model_error', 'param': None, 'code': None, 'request_id': '1eba5b6a…'}}"
+  },
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1
+  },
+  "final_answer": null,
+  "final_answer_contains_nonce": false,
+  "item_sequence": [],
+  "tool_events": [],
+  "ok": false
+}

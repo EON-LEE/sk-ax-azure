@@ -1,0 +1,402 @@
+{
+  "schema": "foundry-byom-evidence/1",
+  "label": "phase1c-fp8-learn-never-v2",
+  "generated_at": "2026-10-19T12:45:46+00:00",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "expected": {
+    "model_reference": "<conn-fp8>/ax-k2-fp8",
+    "scenario": "mcp",
+    "agent": {
+      "name": "byom-demo-mcp-agent-fp8",
+      "version": "2"
+    }
+  },
+  "run": {
+    "schema": "foundry-byom-run/1",
+    "started_at": "2026-10-19T12:39:06+00:00",
+    "request": {
+      "scenario": "mcp",
+      "agent_name": "byom-demo-mcp-agent-fp8",
+      "agent_version": "2",
+      "prompt": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-d8b711dd",
+      "nonce": "r-d8b711dd",
+      "limits": {
+        "max_output_tokens": 384,
+        "max_tool_calls": 0,
+        "max_rounds": 4,
+        "timeout_s": 180
+      },
+      "use_conversation": true,
+      "approve_tools": [],
+      "request_header_names": [],
+      "expect_failure": false
+    },
+    "request_header_echoed": null,
+    "conversation_id": "conv_0f494d95…",
+    "conversation_deleted": null,
+    "rounds": [
+      {
+        "response_id": "resp_0f494d95…",
+        "status": "completed",
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "agent": {
+          "name": "byom-demo-mcp-agent-fp8",
+          "version": "2"
+        },
+        "conversation_id": "conv_0f494d95…",
+        "output_item_types": [
+          "mcp_list_tools",
+          "mcp_call",
+          "message"
+        ],
+        "reasoning_item_count": 0,
+        "tool_events": [
+          {
+            "type": "mcp_list_tools",
+            "server_label": "microsoft_learn",
+            "tools": [
+              "microsoft_docs_search"
+            ]
+          },
+          {
+            "type": "mcp_call",
+            "server_label": "microsoft_learn",
+            "name": "microsoft_docs_search",
+            "arguments": {
+              "query": "Foundry Agent Service Bring your own model BYOM"
+            },
+            "status": "completed",
+            "output_chars": 43220,
+            "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\nFoundry Agent Service allows you to c...(+43020 chars)",
+            "output_urls": [
+              "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/gateway.png",
+              "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+              "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-from-partners",
+              "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude",
+              "https://learn.microsoft.com/en-us/azure/foundry/how-to/fireworks/enable-fireworks-models",
+              "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/model-router",
+              "https://learn.microsoft.com/azure/foundry/agents/how-to/configure-voice-agent#choose-a-managed-or-self-deployed-model",
+              "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/content-streaming#asynchronous-filtering",
+              "https://ai.azure.com/",
+              "https://learn.microsoft.com/azure/ai-services/speech-service/how-to-bring-your-own-model"
+            ]
+          }
+        ],
+        "final_answer": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 기타 비Azure 관리형 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 사용할 수 있게 해주는 기능입니다. 이를 통해 조직은 기존 엔터프라이즈 인프라 뒤에서 모델 엔드포인트를 제어하고, 보안 정책을 유지하며, 모델을 공개 노출 없이 에이전트를 구축할 수 있습니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-d8b711dd",
+        "answer_chars": 305,
+        "answer_urls": [
+          "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway"
+        ],
+        "think_tag": false,
+        "usage": {
+          "input_tokens": 10531,
+          "output_tokens": 136,
+          "total_tokens": 10667,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        },
+        "incomplete_reason": null,
+        "error": null,
+        "chained_by": "conversation"
+      }
+    ],
+    "function_results": [],
+    "stopped": "completed",
+    "error": null,
+    "client_http": {
+      "requests": 2,
+      "responses_posts": 1
+    },
+    "final_answer": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 기타 비Azure 관리형 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 사용할 수 있게 해주는 기능입니다. 이를 통해 조직은 기존 엔터프라이즈 인프라 뒤에서 모델 엔드포인트를 제어하고, 보안 정책을 유지하며, 모델을 공개 노출 없이 에이전트를 구축할 수 있습니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-d8b711dd",
+    "final_answer_contains_nonce": true,
+    "item_sequence": [
+      "mcp_list_tools",
+      "mcp_call",
+      "message"
+    ],
+    "tool_events": [
+      {
+        "type": "mcp_list_tools",
+        "server_label": "microsoft_learn",
+        "tools": [
+          "microsoft_docs_search"
+        ]
+      },
+      {
+        "type": "mcp_call",
+        "server_label": "microsoft_learn",
+        "name": "microsoft_docs_search",
+        "arguments": {
+          "query": "Foundry Agent Service Bring your own model BYOM"
+        },
+        "status": "completed",
+        "output_chars": 43220,
+        "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\nFoundry Agent Service allows you to c...(+43020 chars)",
+        "output_urls": [
+          "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/gateway.png",
+          "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+          "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-from-partners",
+          "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude",
+          "https://learn.microsoft.com/en-us/azure/foundry/how-to/fireworks/enable-fireworks-models",
+          "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/model-router",
+          "https://learn.microsoft.com/azure/foundry/agents/how-to/configure-voice-agent#choose-a-managed-or-self-deployed-model",
+          "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/content-streaming#asynchronous-filtering",
+          "https://ai.azure.com/",
+          "https://learn.microsoft.com/azure/ai-services/speech-service/how-to-bring-your-own-model"
+        ]
+      }
+    ],
+    "ok": true
+  },
+  "server_records": {
+    "agent_version": {
+      "name": "byom-demo-mcp-agent-fp8",
+      "version": "2",
+      "definition": {
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 microsoft_docs_search 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다.",
+        "temperature": 0.3,
+        "tools": [
+          {
+            "type": "mcp",
+            "server_label": "microsoft_learn",
+            "server_url": "https://learn.microsoft.com/api/mcp",
+            "allowed_tools": [
+              "microsoft_docs_search"
+            ],
+            "require_approval": "never"
+          }
+        ]
+      }
+    },
+    "response": {
+      "response_id": "resp_0f494d95…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "agent": {
+        "name": "byom-demo-mcp-agent-fp8",
+        "version": "2"
+      },
+      "conversation_id": "conv_0f494d95…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        },
+        {
+          "type": "mcp_call",
+          "server_label": "microsoft_learn",
+          "name": "microsoft_docs_search",
+          "arguments": {
+            "query": "Foundry Agent Service Bring your own model BYOM"
+          },
+          "status": "completed",
+          "output_chars": 43220,
+          "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\nFoundry Agent Service allows you to c...(+43020 chars)",
+          "output_urls": [
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/gateway.png",
+            "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+            "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-from-partners",
+            "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude",
+            "https://learn.microsoft.com/en-us/azure/foundry/how-to/fireworks/enable-fireworks-models",
+            "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/model-router",
+            "https://learn.microsoft.com/azure/foundry/agents/how-to/configure-voice-agent#choose-a-managed-or-self-deployed-model",
+            "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/content-streaming#asynchronous-filtering",
+            "https://ai.azure.com/",
+            "https://learn.microsoft.com/azure/ai-services/speech-service/how-to-bring-your-own-model"
+          ]
+        }
+      ],
+      "final_answer": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 기타 비Azure 관리형 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 사용할 수 있게 해주는 기능입니다. 이를 통해 조직은 기존 엔터프라이즈 인프라 뒤에서 모델 엔드포인트를 제어하고, 보안 정책을 유지하며, 모델을 공개 노출 없이 에이전트를 구축할 수 있습니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-d8b711dd",
+      "answer_chars": 305,
+      "answer_urls": [
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway"
+      ],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 136,
+        "total_tokens": 10667,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null
+    },
+    "conversation_items": [
+      {
+        "type": "message",
+        "role": "user",
+        "text": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-d8b711dd"
+      },
+      {
+        "type": "mcp_list_tools",
+        "server_label": "microsoft_learn",
+        "tools": [
+          "microsoft_docs_search"
+        ]
+      },
+      {
+        "type": "mcp_call",
+        "server_label": "microsoft_learn",
+        "name": "microsoft_docs_search",
+        "arguments": {
+          "query": "Foundry Agent Service Bring your own model BYOM"
+        },
+        "status": "completed",
+        "output_chars": 43220,
+        "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\nFoundry Agent Service allows you to c...(+43020 chars)",
+        "output_urls": [
+          "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/gateway.png",
+          "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+          "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-from-partners",
+          "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude",
+          "https://learn.microsoft.com/en-us/azure/foundry/how-to/fireworks/enable-fireworks-models",
+          "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/model-router",
+          "https://learn.microsoft.com/azure/foundry/agents/how-to/configure-voice-agent#choose-a-managed-or-self-deployed-model",
+          "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/content-streaming#asynchronous-filtering",
+          "https://ai.azure.com/",
+          "https://learn.microsoft.com/azure/ai-services/speech-service/how-to-bring-your-own-model"
+        ]
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "text": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 기타 비Azure 관리형 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 사용할 수 있게 해주는 기능입니다. 이를 통해 조직은 기존 엔터프라이즈 인프라 뒤에서 모델 엔드포인트를 제어하고, 보안 정책을 유지하며, 모델을 공개 노출 없이 에이전트를 구축할 수 있습니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-d8b711dd"
+      }
+    ],
+    "secret_scan": null,
+    "errors": []
+  },
+  "observations": {
+    "agent_definition_model": "<conn-fp8>/ax-k2-fp8",
+    "response_model": "<conn-fp8>/ax-k2-fp8",
+    "final_answer": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 기타 비Azure 관리형 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 사용할 수 있게 해주는 기능입니다. 이를 통해 조직은 기존 엔터프라이즈 인프라 뒤에서 모델 엔드포인트를 제어하고, 보안 정책을 유지하며, 모델을 공개 노출 없이 에이전트를 구축할 수 있습니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-d8b711dd"
+  },
+  "checks": [
+    {
+      "id": "agent_definition_model_reference",
+      "status": "confirmed",
+      "detail": "agent definition model is <conn-fp8>/ax-k2-fp8"
+    },
+    {
+      "id": "response_agent_reference",
+      "status": "confirmed",
+      "detail": "response agent_reference is byom-demo-mcp-agent-fp8:2"
+    },
+    {
+      "id": "response_completed",
+      "status": "confirmed",
+      "detail": "status=completed"
+    },
+    {
+      "id": "tool_listed",
+      "status": "confirmed",
+      "detail": "mcp_list_tools returned 1 tool(s): microsoft_docs_search"
+    },
+    {
+      "id": "tool_called",
+      "status": "confirmed",
+      "detail": "mcp_call microsoft_docs_search completed (43220 chars of output)"
+    },
+    {
+      "id": "tool_then_answer_order",
+      "status": "confirmed",
+      "detail": "sequence: mcp_list_tools > mcp_call > message"
+    },
+    {
+      "id": "tool_result_used",
+      "status": "confirmed",
+      "detail": "final answer cites 1 URL(s) found in the tool output"
+    },
+    {
+      "id": "no_thinking_trace",
+      "status": "confirmed",
+      "detail": "no reasoning item, reasoning token or <think tag; output_tokens=136, answer_chars=305; compare them to spot hidden reasoning (server-side default needs the API owner's confirmation)"
+    },
+    {
+      "id": "usage_recorded",
+      "status": "confirmed",
+      "detail": "input_tokens=10531, output_tokens=136"
+    },
+    {
+      "id": "nonce_echoed",
+      "status": "not_applicable",
+      "detail": "nonce echo is checked in the plain scenario"
+    },
+    {
+      "id": "negative_control_failed_as_expected",
+      "status": "not_applicable",
+      "detail": "not a negative control"
+    },
+    {
+      "id": "conversation_tool_history",
+      "status": "confirmed",
+      "detail": "1 tool item(s) in the conversation: mcp_call"
+    },
+    {
+      "id": "request_secret_not_in_server_records",
+      "status": "not_applicable",
+      "detail": "no request-time secret was used or given with --scan-env"
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "apim_gateway_log",
+      "description": "APIM log shows the Foundry call with the A.X K2 model name for this run",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "backend_hub_log",
+      "description": "Web app/hub record shows the A.X K2 runtime for the same time window",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_model_settings",
+      "description": "Foundry console shows the agent's model reference",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_conversation",
+      "description": "Foundry console shows the conversation",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_tool_history",
+      "description": "Foundry console shows the tool execution history",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "tracing_visible",
+      "description": "Traces for this run are visible (Application Insights connected)",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    }
+  ],
+  "summary": {
+    "confirmed": 10,
+    "failed": 0,
+    "unverified": 6,
+    "not_applicable": 3
+  }
+}
