@@ -1,5 +1,6 @@
 import argparse
 import ast
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -16,6 +17,176 @@ PRICE_LABELS_KO = {
     "spot": "Spot",
     "low_priority": "Low priority",
 }
+LOGPROB_EVIDENCE = ROOT / "evidence" / "a100-native-2layer-logprob-series.json"
+LOGPROB_GROUPS = {
+    "native_tp8": ("Native TP8 (1노드)", "#1f77b4", "node0.smoke-native-tp8.series"),
+    "native_tp8_pp2": ("Native TP8×PP2 (2노드)", "#d62728", "node0.smoke-native-tp8-pp2.series"),
+}
+LOGPROB_LENGTHS = {
+    "ko_short": 12, "en_short": 14, "code": 15, "mixed_1500": 1171,
+    "mixed_2600": 2076, "readme_tail": 4165, "readme_full": 7165,
+}
+LOGPROB_TITLE = "공식 구현 대비 대체 커널 확률 차이 (토큰 14,618개)"
+LOGPROB_CAPTION = (
+    "A.X K2 61개 레이어 중 앞 2개 레이어(실제 가중치), 프롬프트 7개, "
+    "선택 토큰 log-prob 비교, 평균 |Δ| 약 0.011/0.012, "
+    "전체 모델 정확도·공개 벤치마크 동등성 미측정"
+)
+
+
+def validate_logprob(data):
+    if data["schema_version"] != 1:
+        raise ValueError("Unsupported log-prob evidence schema")
+    prompts = data["prompts"]
+    if [p["name"] for p in prompts] != list(LOGPROB_LENGTHS):
+        raise ValueError("Expected the seven prompts in length order")
+    fields = {"oracle", *LOGPROB_GROUPS}
+    for prompt in prompts:
+        name = prompt["name"]
+        if set(prompt) != {"name", *fields}:
+            raise ValueError(f"Unexpected series fields for {name}")
+        for field in fields:
+            values = prompt[field]
+            if not isinstance(values, list) or len(values) != LOGPROB_LENGTHS[name]:
+                raise ValueError(f"Incorrect series length: {name}.{field}")
+            if any(
+                type(v) not in (int, float) or not math.isfinite(v) or v > 0
+                for v in values
+            ):
+                raise ValueError(f"Expected finite, nonpositive log-prob values: {name}.{field}")
+    return data
+
+
+def extract_logprob(oracle_path, native_path, out_path=LOGPROB_EVIDENCE):
+    """Whitelist only the plotted numeric series, never raw report metadata."""
+    paths = {"oracle": Path(oracle_path), "native": Path(native_path)}
+    raw = {key: path.read_bytes() for key, path in paths.items()}
+    reports = {
+        key: json.loads(value.decode("utf-8-sig"))["reports"]
+        for key, value in raw.items()
+    }
+    specs = {"oracle": ("oracle", "oracle.series")}
+    specs.update({key: ("native", spec[2]) for key, spec in LOGPROB_GROUPS.items()})
+    sources = {
+        key: {
+            "file": "oracle-long-full.json" if report == "oracle" else "magenta_engine_vgjw1yh229.json",
+            "series": series,
+            "sha256": hashlib.sha256(raw[report]).hexdigest(),
+        }
+        for key, (report, series) in specs.items()
+    }
+    for key, (report, series) in specs.items():
+        names = {
+            name.removesuffix(".chosen_logprob")
+            for name in reports[report][series] if name.endswith(".chosen_logprob")
+        }
+        if names != set(LOGPROB_LENGTHS):
+            raise ValueError(f"Unexpected prompt set in {key}")
+    data = {
+        "schema_version": 1,
+        "sources": sources,
+        "prompts": [
+            {
+                "name": name,
+                **{
+                    key: reports[report][series][name + ".chosen_logprob"]
+                    for key, (report, series) in specs.items()
+                },
+            }
+            for name in LOGPROB_LENGTHS
+        ],
+    }
+    validate_logprob(data)
+    Path(out_path).write_text(
+        json.dumps(data, ensure_ascii=True, separators=(",", ":"), allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return data
+
+
+def load_logprob(path=LOGPROB_EVIDENCE):
+    return validate_logprob(json.loads(Path(path).read_text(encoding="utf-8-sig")))
+
+
+def logprob_summary(data):
+    validate_logprob(data)
+    summary = {}
+    for key in LOGPROB_GROUPS:
+        inside, outside = [], []
+        for prompt in data["prompts"]:
+            delta = [abs(a - b) for a, b in zip(prompt["oracle"], prompt[key])]
+            inside.extend(delta[:2048])
+            outside.extend(delta[2048:])
+        summary[key] = {
+            "positions": len(inside) + len(outside),
+            "within_first_2048": len(inside),
+            "beyond_first_2048": len(outside),
+            "mean_abs_delta": math.fsum(inside + outside) / (len(inside) + len(outside)),
+            "within_mean_abs_delta": math.fsum(inside) / len(inside),
+            "beyond_mean_abs_delta": math.fsum(outside) / len(outside),
+        }
+    return summary
+
+
+def build_logprob_figure(data):
+    import numpy as np
+    from matplotlib import font_manager
+
+    summary = logprob_summary(data)
+    plt, _ = _import_matplotlib()
+    # This figure must preserve its Korean title, not fall back to English/tofu.
+    fonts = {font.name for font in font_manager.fontManager.ttflist}
+    for family in ("Malgun Gothic", "Noto Sans CJK KR", "Noto Sans CJK JP", "NanumGothic"):
+        if family in fonts:
+            plt.rcParams["font.family"] = family
+            break
+    else:
+        raise RuntimeError("Install a Korean font (Malgun Gothic or Noto Sans CJK) to render this figure")
+    oracle = np.concatenate([p["oracle"] for p in data["prompts"]])
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 6))
+    means = []
+    for key, (label, color, _) in LOGPROB_GROUPS.items():
+        native = np.concatenate([p[key] for p in data["prompts"]])
+        axes[0].scatter(oracle, native, s=4, alpha=0.3, color=color, label=label)
+        delta = np.abs(oracle - native)
+        axes[1].hist(
+            np.clip(delta, 0, 0.1), bins=np.linspace(0, 0.1, 41),
+            histtype="step", lw=2, color=color, label=label,
+            linestyle="-" if key == "native_tp8" else "--",
+        )
+        means.append(f"{label}: 평균 |Δ| {summary[key]['mean_abs_delta']:.3f}")
+    low = min(float(collection.get_offsets()[:, 1].min()) for collection in axes[0].collections)
+    low = min(float(oracle.min()), low)
+    axes[0].plot([low, 0], [low, 0], "k--", lw=1, label="같은 값")
+    axes[0].set_xlabel("공식 구현(FP32) 선택 토큰 log-prob")
+    axes[0].set_ylabel("대체 커널 선택 토큰 log-prob")
+    axes[0].set_title("① 값 비교")
+    axes[0].legend(loc="upper left", markerscale=3)
+    axes[1].set_xlabel("|Δ log-prob| (0.1 초과는 마지막 구간에 합산)")
+    axes[1].set_ylabel("토큰 위치 수 (실험군별 14,618개)")
+    axes[1].set_title("② 차이 분포")
+    axes[1].legend(loc="upper right")
+    axes[1].text(
+        0.97, 0.7, "\n".join(means), transform=axes[1].transAxes,
+        ha="right", va="top", fontsize=9, bbox=dict(fc="w", ec="gray"),
+    )
+    for ax in axes:
+        ax.grid(alpha=0.3)
+    fig.suptitle(LOGPROB_TITLE, fontsize=14)
+    fig.text(
+        0.5, 0.045,
+        LOGPROB_CAPTION.replace("선택 토큰 log-prob 비교, ", "선택 토큰 log-prob 비교,\n"),
+        ha="center", fontsize=9,
+    )
+    fig.tight_layout(rect=[0, 0.14, 1, 0.94])
+    return fig
+
+
+def render_logprob(out_dir, data=None):
+    fig = build_logprob_figure(load_logprob() if data is None else data)
+    fig.savefig(Path(out_dir) / "logprob-two.png", dpi=150)
+    from matplotlib import pyplot as plt
+    plt.close(fig)
 
 
 def _read_json(path):
@@ -492,7 +663,7 @@ def write_benchmark_table(bench, out_dir):
 def render_all(out_dir=DEFAULT_OUT, only="throughput"):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    if only not in ("all", "throughput", "eval"):
+    if only not in ("all", "throughput", "eval", "logprob"):
         raise ValueError(f"Unsupported group: {only}")
     data = None
     if only in ("all", "throughput"):
@@ -507,13 +678,23 @@ def render_all(out_dir=DEFAULT_OUT, only="throughput"):
         bench = load_benchmarks(niah_fallback=VERIFICATION)
         render_benchmarks(bench, out_dir)
         write_benchmark_table(bench, out_dir)
+    if only in ("all", "logprob"):
+        render_logprob(out_dir)
     return data
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Render SKT/A.X K2 throughput report figures.")
+    parser = argparse.ArgumentParser(description="Render SKT/A.X K2 report figures from local evidence.")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Output directory (default: docs/report/figures)")
-    parser.add_argument("--only", default="throughput", choices=["throughput", "eval", "all"], help="Figure group to render")
+    parser.add_argument("--only", default="throughput", choices=["throughput", "eval", "logprob", "all"], help="Figure group to render")
+    parser.add_argument(
+        "--logprob-sources", nargs=2, type=Path, metavar=("ORACLE_JSON", "NATIVE_JSON"),
+        help="Extract whitelisted log-prob evidence from local original reports before rendering",
+    )
     args = parser.parse_args(argv)
+    if args.logprob_sources:
+        if args.only != "logprob":
+            parser.error("--logprob-sources requires --only logprob")
+        extract_logprob(*args.logprob_sources)
     render_all(Path(args.out), args.only)
 
 
