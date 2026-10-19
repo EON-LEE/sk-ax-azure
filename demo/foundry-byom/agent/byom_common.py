@@ -103,6 +103,8 @@ REDACT_ENTRY_RE = re.compile(r"(?P<literal>.+?)=(?P<alias><[a-z0-9][a-z0-9:_-]{0
 # Service IDs such as resp_<hex> or conv_<hex>. Public output keeps their first ID_KEEP characters only;
 # the full values stay in the private copy kept under BYOM_PRIVATE_DIR (outside the repository).
 SERVICE_ID_RE = re.compile(r"(?<![A-Za-z0-9])([a-z]{2,8})_(?=[A-Za-z0-9]*\d)([A-Za-z0-9]{12,})(?![A-Za-z0-9])")
+# Request correlation IDs in error bodies and headers (request_id: <hex>, x-request-id: <hex>) get the same treatment.
+REQUEST_ID_RE = re.compile(r"(request[ _-]?id['\"]?\s*[:=]\s*['\"]?)([0-9a-f]{16,})(?![0-9a-f])", re.I)
 ID_KEEP = 8
 PRIVATE_DIR_ENV = "BYOM_PRIVATE_DIR"
 
@@ -199,8 +201,9 @@ def scan_for_secrets(value, literals):
 
 
 def shorten_ids(text):
-    """resp_0a1b2c3d4e5f... -> resp_0a1b2c3d…; shorter IDs and everything else stay untouched (idempotent)."""
-    return SERVICE_ID_RE.sub(lambda match: f"{match[1]}_{match[2][:ID_KEEP]}…", text)
+    """resp_0a1b2c3d4e5f... -> resp_0a1b2c3d…, request_id: <32 hex> -> request_id: <8 hex>…; the rest stays (idempotent)."""
+    text = SERVICE_ID_RE.sub(lambda match: f"{match[1]}_{match[2][:ID_KEEP]}…", text)
+    return REQUEST_ID_RE.sub(lambda match: f"{match[1]}{match[2][:ID_KEEP]}…", text)
 
 
 def redact_text(text, literals=None, *, keep_ids=False):

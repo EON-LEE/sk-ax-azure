@@ -547,6 +547,18 @@ class ServiceIdTests(ScriptCase):
         self.assertEqual(once, "resp_0a1b2c3d… conv_0a1b2c3d…")
         self.assertEqual(common.redact_text(once), once)
 
+    def test_request_ids_keep_only_the_first_eight_characters(self):
+        text = ("{'request_id': 'fe49cff6b2f854e3d8ed52e2dfb9e48f'} x-request-id: fe49cff6b2f854e3d8ed52e2dfb9e48f "
+                "Request ID: fe49cff6b2f854e3d8ed52e2dfb9e48f")
+        expected = "{'request_id': 'fe49cff6…'} x-request-id: fe49cff6… Request ID: fe49cff6…"
+        self.assertEqual(common.redact_text(text), expected)
+        self.assertEqual(common.redact_text(expected), expected)
+        self.assertEqual(common.redact_text(text, keep_ids=True), text)
+
+    def test_short_or_unrelated_hex_values_are_not_request_ids(self):
+        text = "{'request_id': 'req-1'} request_id_length: 12345678901234567890 etag: fe49cff6b2f854e3d8ed52e2dfb9e48f"
+        self.assertEqual(common.redact_text(text), text)
+
     def test_other_names_codes_and_short_ids_are_left_alone(self):
         text = ("r-0a1b2c3d byom-marker-0a1b2c3d4e5f6071 lookup_demo_stock max_output_tokens previous_response_id "
                 "mcp_approval_request microsoft_docs_search call_1 conv_9f8e7d6c FOUNDRY_PROJECT_ENDPOINT "
@@ -1808,11 +1820,12 @@ class HygieneTests(unittest.TestCase):
                       if pattern.search(text)]
         self.assertEqual(found, [])
 
-    def test_evidence_files_hold_no_whole_service_ids(self):
+    def test_evidence_files_hold_no_whole_service_or_request_ids(self):
         evidence = ROOT / "evidence" / "foundry-byom"
         files = sorted(evidence.rglob("*.json")) if evidence.is_dir() else []
         found = [path.name for path in files
-                 if common.SERVICE_ID_RE.search(path.read_text(encoding="utf-8", errors="replace"))]
+                 if any(pattern.search(path.read_text(encoding="utf-8", errors="replace"))
+                        for pattern in (common.SERVICE_ID_RE, common.REQUEST_ID_RE))]
         self.assertEqual(found, [])
 
 

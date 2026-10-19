@@ -1,0 +1,38 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-19T11:45:07+00:00",
+  "request": {
+    "scenario": "plain",
+    "agent_name": "byom-demo-agent",
+    "agent_version": "1",
+    "prompt": "한 문장으로 인사하고, 아래 확인 코드를 그대로 포함하세요. 확인 코드: r-616fe063",
+    "nonce": "r-616fe063",
+    "limits": {
+      "max_output_tokens": 256,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "conversation_id": "conv_0ec4f3b0…",
+  "conversation_deleted": null,
+  "rounds": [],
+  "function_results": [],
+  "stopped": "error",
+  "error": {
+    "type": "InternalServerError",
+    "status_code": 503,
+    "code": "model_error",
+    "message": "Error code: 503 - {'error': {'message': \"Model could not be accessed - Received 503 status code from model. ModelGateway response: {'error': {'message': 'The model backend is not ready. Retry later.', 'type': 'server_error', 'param': None, 'code': 'backend_unavailable'}} Request ID: <redacted:guid>\", 'type': 'server_error', 'param': None, 'code': 'model_error', 'request_id': 'fe49cff6…'}}"
+  },
+  "final_answer": null,
+  "final_answer_contains_nonce": false,
+  "item_sequence": [],
+  "tool_events": [],
+  "ok": false
+}
