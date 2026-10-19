@@ -1,5 +1,8 @@
 """Subscription isolation and zero-cost idle contracts; no Azure calls."""
 import importlib.util
+import contextlib
+import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -74,6 +77,290 @@ class TargetTests(unittest.TestCase):
             run.return_value.stdout = "{}"
             instance.az("account", "show")
             self.assertEqual(run.call_args.args[0][-4:], ["--subscription", SUB, "-o", "json"])
+
+    def test_model_key_private_idempotent_and_rotation_staged_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = object.__new__(target.Target)
+            instance.directory = Path(directory)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), patch.object(instance, "az") as az:
+                instance.model_key()
+                key_path = instance.directory / "model-api-backend.key"
+                first = key_path.read_text().strip()
+                self.assertEqual(len(bytes.fromhex(first)), 32)
+                self.assertEqual(key_path.stat().st_mode & 0o777, 0o600)
+                instance.model_key()
+                self.assertEqual(key_path.read_text().strip(), first)
+                instance.model_key(rotate=True)
+                second = key_path.read_text().strip()
+                self.assertNotEqual(first, second)
+                setting_path = instance.directory / "model-api-settings.json"
+                digests = json.loads(setting_path.read_text())["AXK2_MODEL_API_KEY_SHA256"].split(",")
+                self.assertEqual(digests, [hashlib.sha256(value.encode()).hexdigest()
+                                          for value in (second, first)])
+                with self.assertRaises(ValueError):
+                    instance.model_key(rotate=True)
+                instance.model_key(retire_previous=True)
+                self.assertEqual(json.loads(setting_path.read_text())["AXK2_MODEL_API_KEY_SHA256"],
+                                 digests[0])
+                az.assert_not_called()
+            for secret in (first, second, *digests):
+                self.assertNotIn(secret, output.getvalue())
+
+    def test_model_key_refuses_insecure_existing_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = object.__new__(target.Target)
+            instance.directory = Path(directory)
+            path = instance.directory / "model-api-backend.key"
+            path.write_text("a" * 64)
+            path.chmod(0o644)
+            with self.assertRaises(PermissionError):
+                instance.model_key()
+
+    def test_revision_deploy_requires_explicit_recycle_opt_in(self):
+        instance = object.__new__(target.Target)
+        with patch.object(instance, "az") as az, patch.object(instance, "power") as power:
+            with self.assertRaises(ValueError):
+                instance.deploy_revision("a" * 40)
+            az.assert_not_called()
+            power.assert_not_called()
+
+    def test_revision_bundle_rejects_branch_or_abbreviated_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for revision in ("main", "a" * 7, "A" * 40, None):
+                with self.subTest(revision=revision), self.assertRaises(ValueError):
+                    target.bundle_revision(revision, Path(directory) / "candidate.zip")
+
+    def test_exact_revision_bundle_matches_committed_frontend(self):
+        revision = target.git_read("rev-parse", "HEAD", text=True).strip()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            expected = target.bundle_revision(revision, path / "revision.zip")
+            committed = target.git_read("show", revision + ":demo/frontend/app.py")
+            self.assertEqual(expected["app.py"],
+                             hashlib.sha256(committed.replace(b"\r\n", b"\n")).hexdigest())
+            self.assertIn("aml/jobs/demo-nvfp4-nd96.yml", expected)
+
+    def test_appsettings_failures_do_not_log_response_or_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = object.__new__(target.Target)
+            instance.directory, instance.sub, instance.env = Path(directory), SUB, {}
+            with patch.object(target.subprocess, "run") as run:
+                run.return_value.returncode = 1
+                run.return_value.stderr = "credential-or-digest-must-not-appear"
+                with self.assertRaises(RuntimeError):
+                    instance.az("webapp", "config", "appsettings", "set")
+            self.assertNotIn("credential-or-digest-must-not-appear",
+                             (instance.directory / "azure-error.log").read_text())
+
+    def test_model_and_webiq_external_settings_survive_terraform(self):
+        text = (ROOT / "demo/infra/main.tf").read_text()
+        for name in ("AXK2_MODEL_API_KEY_SHA256", "AXK2_WEBIQ_TOOL",
+                     "AXK2_WEBIQ_QUERY_FIELD", "AXK2_WEBIQ_ARGUMENTS_JSON",
+                     "AXK2_WEBIQ_BEARER_TOKEN"):
+            self.assertIn('app_settings["' + name + '"]', text)
+        for name in target.MODEL_API_DEFAULTS:
+            self.assertIn('app_settings["' + name + '"]', text)
+
+    def test_optional_model_settings_remain_local_and_survive_rotation(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            instance = object.__new__(target.Target)
+            instance.directory = Path(directory)
+            with patch.object(instance, "az") as azure:
+                instance.model_key(option_values=["AXK2_MODEL_API_MAX_ACTIVE=1"])
+                instance.model_key()
+                instance.model_key(rotate=True)
+                settings = json.loads(instance.staged_model_settings().read_text())
+                self.assertEqual(settings["AXK2_MODEL_API_MAX_ACTIVE"], "1")
+                azure.assert_not_called()
+
+    def test_invalid_optional_model_settings_rejected_before_key_creation(self):
+        invalid = [
+            ["AXK2_MODEL_API_KEY_SHA256=" + "a" * 64],
+            ["AXK2_MODEL_API_MAX_ACTIVE=0"],
+            ["AXK2_MODEL_API_MAX_ACTIVE=garbage"],
+            ["AXK2_MODEL_API_NAME_FP8=invalid\nvalue"],
+            ["AXK2_MODEL_API_MAX_ACTIVE=1", "AXK2_MODEL_API_MAX_ACTIVE=2"],
+            ["AXK2_MODEL_API_MAX_TOKENS=64"],
+            ["UNRELATED_SETTING=1"],
+        ]
+        for options in invalid:
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as directory:
+                instance = object.__new__(target.Target)
+                instance.directory = Path(directory)
+                with self.assertRaises(ValueError):
+                    instance.model_key(option_values=options)
+                self.assertFalse((instance.directory / "model-api-backend.key").exists())
+
+    def test_web_recovery_rejects_changed_gpu_binding(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        models = {"models": [
+            {"id": name, "status": {"active_since": 1, "healthy": True,
+                                   "queue": {"active": 0, "waiting": 0}},
+             "runtime": {"state": "verified"}} for name in ("fp8", "nvfp4")]}
+        changed = json.loads(json.dumps(models))
+        changed["models"][0]["status"]["active_since"] = 2
+        with patch.object(instance, "request", return_value=changed):
+            with self.assertRaisesRegex(ValueError, "binding changed"):
+                instance.wait_web_recovery(models)
+
+    def test_settings_activation_requires_explicit_recycle_opt_in(self):
+        instance = object.__new__(target.Target)
+        with patch.object(instance, "az") as az:
+            with self.assertRaises(ValueError):
+                instance.model_settings()
+            az.assert_not_called()
+
+    def test_initial_settings_activation_is_separate_and_checks_auth(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            instance = object.__new__(target.Target)
+            instance.directory = Path(directory)
+            instance.url, instance.rg, instance.name = "https://target.invalid", "rg-target", "target"
+            instance.model_key()
+            rollback = instance.directory / "rollback-test"
+            rollback.mkdir()
+            target.write_private(rollback / "models.json", {"models": []})
+            target.write_private(instance.directory / "candidate-proof.json", {
+                "state": "code_deployed_disabled", "rollback": rollback.name})
+            def request(url, body=None, anonymous=False):
+                return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
+
+            with patch.object(instance, "request", side_effect=request), \
+                    patch.object(instance, "wait_web_recovery", return_value={"healthy": True}) as recover, \
+                    patch.object(instance, "az") as azure, patch.object(instance, "power") as power:
+                instance.model_settings(True)
+                self.assertEqual(recover.call_count, 2)
+                azure.assert_called_once()
+                power.assert_not_called()
+                self.assertEqual(recover.call_args.kwargs, {
+                    "stable_observations": 3, "minimum_seconds": 240, "model_api_status": 401})
+                proof = json.loads((instance.directory / "candidate-proof.json").read_text())
+                self.assertEqual(proof["state"], "deployed_links_recovered")
+
+    def test_recycle_guard_requires_four_minutes_and_three_full_observations(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        models = {"models": [
+            {"id": name, "status": {"active_since": 1, "healthy": True,
+                                   "queue": {"active": 0, "waiting": 0}},
+             "runtime": {"state": "verified"}} for name in ("fp8", "nvfp4")]}
+        clock = [0]
+
+        def request(url, body=None, anonymous=False, timeout=None):
+            if url.endswith("/v1/models"):
+                self.assertTrue(anonymous)
+                raise target.urllib.error.HTTPError(url, 404 if clock[0] < 240 else 401, "status", {}, None)
+            if url.endswith("/api/models"):
+                return models
+            return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
+
+        with patch.object(instance, "request", side_effect=request), \
+                patch.object(target.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(target.time, "sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
+            result = instance.wait_web_recovery(models, stable_observations=3,
+                                                minimum_seconds=240, model_api_status=401)
+        self.assertGreaterEqual(clock[0], 270)
+        self.assertEqual(result["stable_observations"], 3)
+        self.assertEqual(result["unauthenticated_statuses"], [401, 401])
+
+    def test_revision_rollout_regression_precedes_key_activation(self):
+        for closed, api_status in ((True, 404), (True, 401), (False, 404), (False, 401)):
+            with self.subTest(closed=closed, api_status=api_status), tempfile.TemporaryDirectory() as directory:
+                instance = object.__new__(target.Target)
+                instance.directory = Path(directory)
+                instance.url, instance.rg, instance.name = "https://target.invalid", "rg-target", "target"
+                manifest = {"app.py": hashlib.sha256(b"old").hexdigest()}
+                with zipfile.ZipFile(instance.directory / "frontend.zip", "w") as archive:
+                    archive.writestr("app.py", b"old")
+                target.write_private(instance.directory / "frontend-expected.json", manifest)
+                target.private_text(instance.directory / "model-api-backend.key", "a" * 64)
+                target.write_private(instance.directory / "model-api-settings.json",
+                                     {"AXK2_MODEL_API_KEY_SHA256": hashlib.sha256(b"a" * 64).hexdigest()})
+                models = {"models": [
+                    {"id": name, "status": {"healthy": True, "active_since": 1},
+                     "runtime": {"state": "verified"}} for name in ("fp8", "nvfp4")]}
+                events = []
+
+                def candidate(revision, path):
+                    path.write_bytes(b"candidate")
+                    return {"app.py": "candidate"}
+
+                def request(url, body=None, anonymous=False, timeout=None):
+                    if "/v1/" in url:
+                        self.assertTrue(anonymous)
+                        events.append("disabled-check")
+                        if closed:
+                            raise target.urllib.error.HTTPError(url, api_status, "unauthenticated", {}, None)
+                        return {}
+                    if url.endswith("/api/models"):
+                        return models
+                    if url.endswith("/api/capabilities"):
+                        return {"web_iq": {"state": "ready"}}
+                    return {}
+
+                def azure(*args):
+                    if args[3] == "list":
+                        return [{"name": "unrelated", "value": "preserved"},
+                                {"name": "AXK2_MODEL_API_KEY_SHA256", "value": "fixture" if api_status == 401 else ""}]
+                    events.append("activate")
+                    return {}
+
+                with patch.object(target, "bundle_revision", side_effect=candidate), \
+                        patch.object(instance, "request", side_effect=request), \
+                        patch.object(instance, "az", side_effect=azure), \
+                        patch.object(instance, "verify_archive"), \
+                        patch.object(instance, "wait_web_recovery", return_value={"healthy": True}) as recover, \
+                        patch.object(instance, "publish", side_effect=lambda *args: events.append("publish")), \
+                        patch.object(instance, "power") as power, contextlib.redirect_stdout(io.StringIO()):
+                    if closed:
+                        instance.deploy_revision("a" * 40, True)
+                        self.assertEqual(events, [*["disabled-check"] * 4, "publish", *["disabled-check"] * 4])
+                        result = json.loads((instance.directory / "candidate-proof.json").read_text())
+                        self.assertEqual(result["state"], "code_deployed_disabled" if api_status == 404
+                                         else "deployed_links_recovered")
+                        self.assertEqual(recover.call_args.kwargs, {
+                            "stable_observations": 3, "minimum_seconds": 240,
+                            "model_api_status": api_status, "preserve_model_api_state": True})
+                        self.assertEqual(result["model_api_status"], api_status)
+                        self.assertIn("not_run", result["model_api_smoke"])
+                    else:
+                        with self.assertRaisesRegex(ValueError, "unexpectedly accepted"):
+                            instance.deploy_revision("a" * 40, True)
+                        self.assertNotIn("activate", events)
+                    power.assert_not_called()
+
+    def test_model_api_state_rejects_mixed_or_unknown_before_any_write(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        for statuses in ((401, 404), (404, 401), (503, 503), (403, 403)):
+            failures = [target.urllib.error.HTTPError(instance.url, status, "status", {}, None)
+                        for status in statuses]
+            with self.subTest(statuses=statuses), patch.object(instance, "request", side_effect=failures), \
+                    patch.object(instance, "publish") as publish, patch.object(instance, "az") as az:
+                with self.assertRaises(ValueError):
+                    instance.model_api_state()
+                publish.assert_not_called()
+                az.assert_not_called()
+
+    def test_redeployment_rejects_api_state_change_in_recovery(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        models = {"models": [
+            {"id": name, "status": {"active_since": 1, "healthy": True,
+                                   "queue": {"active": 0, "waiting": 0}},
+             "runtime": {"state": "verified"}} for name in ("fp8", "nvfp4")]}
+        for expected in (401, 404):
+            def request(url, **kwargs):
+                if url.endswith("/v1/models"):
+                    raise target.urllib.error.HTTPError(url, 404 if expected == 401 else 401, "changed", {}, None)
+                if url.endswith("/api/models"):
+                    return models
+                return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
+
+            with self.subTest(expected=expected), patch.object(instance, "request", side_effect=request):
+                with self.assertRaisesRegex(ValueError, "activation state changed"):
+                    instance.wait_web_recovery(models, model_api_status=expected, preserve_model_api_state=True)
 
     def test_run_requires_bounded_lease(self):
         instance = object.__new__(target.Target)

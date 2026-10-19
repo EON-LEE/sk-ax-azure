@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "scope": "Two reverse-link incidents and observed recovery; timestamps use Korea Standard Time.",
+  "cause": "\ubbf8\ud655\uc778",
+  "cause_description": "Unconfirmed.",
+  "three_hour_spacing": {
+    "fp8_link_close_gap_seconds": 10804.9,
+    "assessment": "\uc6b0\uc5f0\uc77c \uc218 \uc788\ub294 \uad00\ucc30",
+    "assessment_description": "A possibly coincidental observation, not evidence establishing a periodic cause."
+  },
+  "incidents": [
+    {
+      "profiles_affected": [
+        "fp8",
+        "nvfp4"
+      ],
+      "fp8": {
+        "link_closed_kst": "2026-10-19T20:37:24.6+09:00",
+        "recovery_method": "Existing supervisor automatic job replacement.",
+        "release_kst": "2026-10-19T20:58:03.3+09:00",
+        "replacement_submitted_kst": "2026-10-19T20:58:09.7+09:00",
+        "replacement_active_kst": "2026-10-19T20:58:53.4+09:00",
+        "replacement_job_prefix": "placid_h",
+        "ready_observed_kst": "2026-10-19T21:20:18+09:00",
+        "link_close_to_ready_observation_seconds": 2573.4,
+        "release_to_ready_observation_seconds": 1334.7,
+        "job_replaced": true
+      },
+      "nvfp4": {
+        "link_closed_kst": "2026-10-19T20:37:27.7+09:00",
+        "recovery_method": "One separately coordinator-approved manual NV-only restart.",
+        "restart_requested_kst": "2026-10-19T21:21:34.4+09:00",
+        "release_kst": "2026-10-19T21:21:37.8+09:00",
+        "replacement_submitted_kst": "2026-10-19T21:21:43.7+09:00",
+        "first_link_observed_kst": "2026-10-19T21:23:39.2+09:00",
+        "stable_ready_observed_kst": "2026-10-19T21:43:34.270233+09:00",
+        "link_close_to_stable_confirmation_seconds": 3966.57,
+        "job_replaced": true
+      },
+      "unconfirmed": "Underlying cause, transient preemption and node-side connector errors."
+    },
+    {
+      "profiles_with_observed_link_loss": [
+        "fp8"
+      ],
+      "released_job_prefix": "placid_h",
+      "link_closed_kst": "2026-10-19T23:37:29.5+09:00",
+      "last_ready_sample_kst": "2026-10-19T23:37:24.322798+09:00",
+      "one_associated_usable_node_observed_kst": "2026-10-19T23:43:52+09:00",
+      "queued_transition_observed_kst": "2026-10-19T23:44:38.6+09:00",
+      "zero_associated_usable_nodes_observed_kst": "2026-10-19T23:44:39.8+09:00",
+      "stale_rule": {
+        "seconds": 1200,
+        "required_nodes": 2,
+        "threshold_kst": "2026-10-19T23:57:29.5+09:00",
+        "condition": "No link beyond the stale limit AND associated usable nodes below two."
+      },
+      "automatic_recovery": {
+        "release_kst": "2026-10-19T23:58:00.6+09:00",
+        "cancel_request_bounded_kst": [
+          "2026-10-19T23:58:00.6+09:00",
+          "2026-10-19T23:58:02.3+09:00"
+        ],
+        "canceled_status_confirmed_kst": "2026-10-19T23:59:42.973650+09:00",
+        "exact_cancel_completion_time": "Unobserved; selected ARM fields were null.",
+        "submission_started_kst": "2026-10-19T23:58:02.3+09:00",
+        "replacement_created_kst": "2026-10-19T23:58:08.756169+09:00",
+        "submission_recorded_kst": "2026-10-19T23:58:09+09:00",
+        "replacement_job_prefix": "epic_kum",
+        "job_replaced": true,
+        "milestones_first_observed_kst": {
+          "two_nodes_allocated": "2026-10-20T00:12:31.456479+09:00",
+          "job_running": "2026-10-20T00:13:08.645963+09:00",
+          "first_link": "2026-10-20T00:18:31.642868+09:00"
+        },
+        "first_ready_healthy_verified_phase_ready_counters_kst": "2026-10-20T00:44:19.242218+09:00",
+        "three_ready_confirmations_kst": [
+          "2026-10-20T00:44:19.242218+09:00",
+          "2026-10-20T00:44:31.462297+09:00",
+          "2026-10-20T00:44:43.010320+09:00"
+        ],
+        "queued_one_hour_reached": false
+      },
+      "observed_durations_seconds": {
+        "link_close_to_first_ready": 4009.742,
+        "link_close_to_three_sample_confirmation": 4033.51,
+        "release_to_first_ready": 2778.642,
+        "replacement_creation_to_first_ready": 2770.486,
+        "two_nodes_to_first_ready": 1907.786,
+        "first_link_to_first_ready": 1547.599
+      },
+      "nvfp4_observations": {
+        "no_observed_link_loss": true,
+        "activation_unchanged": true,
+        "prompt_output_counters_unchanged": [
+          1113,
+          110
+        ],
+        "no_observed_counter_reset": true,
+        "maximum_sample_gap_around_loss_seconds": 112.200492,
+        "independent_ready_observation_in_gap_kst": "2026-10-19T23:38:07.013243+09:00",
+        "limitation": "Brief reconnections during observation gaps cannot be excluded."
+      },
+      "platform_evidence": {
+        "activity_window_kst": [
+          "2026-10-19T23:30:00+09:00",
+          "2026-10-19T23:40:00+09:00"
+        ],
+        "activity_events": 52,
+        "non_read_operations": 0,
+        "resource_or_service_health_events": 0,
+        "container_lifecycle_markers_in_window": 0,
+        "container_log_bytes_read": 98721,
+        "resource_health_query": "Unobserved: query unavailable.",
+        "node_preemption_or_recreation": "Unconfirmed.",
+        "worker_only_process_restart": "Unconfirmed."
+      },
+      "monitoring_limits": {
+        "interval_seconds": 12,
+        "missing_metrics": "Unobserved, not zero.",
+        "read_timeouts_kst": [
+          "2026-10-20T00:37:30.068651+09:00",
+          "2026-10-20T00:37:42.070207+09:00"
+        ],
+        "shorter_transients": "Cannot be excluded."
+      },
+      "post_recovery_single_readonly_confirmation": {
+        "confirmed_kst": "2026-10-20T00:45:52.096942+09:00",
+        "three_good_sample_kst": [
+          "2026-10-20T00:44:19.242218+09:00",
+          "2026-10-20T00:44:31.462297+09:00",
+          "2026-10-20T00:44:43.010320+09:00"
+        ],
+        "profiles": [
+          {
+            "profile": "fp8",
+            "link": true,
+            "ready": true,
+            "healthy": true,
+            "verified": true,
+            "phase": "ready",
+            "provenance_ok": true,
+            "queue_active": 0,
+            "queue_waiting": 0,
+            "activation_unchanged_since_recovery": true,
+            "counter_prompt": 0.0,
+            "counter_output": 0.0,
+            "job_prefix": "epic_kum"
+          },
+          {
+            "profile": "nvfp4",
+            "link": true,
+            "ready": true,
+            "healthy": true,
+            "verified": true,
+            "phase": "ready",
+            "provenance_ok": true,
+            "queue_active": 0,
+            "queue_waiting": 0,
+            "activation_unchanged_since_recovery": true,
+            "counter_prompt": 1113.0,
+            "counter_output": 110.0,
+            "job_prefix": "boring_j"
+          }
+        ],
+        "core_generation": 0,
+        "core_resource_actions": 0
+      },
+      "core_model_calls": 0,
+      "core_manual_resource_or_job_mutations": 0,
+      "recovery_actions": "Existing supervisor only; no manual restart, deployment, settings or permission changes."
+    }
+  ]
+}

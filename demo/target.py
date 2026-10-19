@@ -7,12 +7,14 @@ import argparse
 import base64
 import fcntl
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import secrets
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,6 +26,43 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 INFRA = ROOT / "demo" / "infra"
 TERMINAL = {"Canceled", "Completed", "Failed"}
+MODEL_API_DEFAULTS = {
+    "AXK2_MODEL_API_NAME_FP8": "ax-k2-fp8",
+    "AXK2_MODEL_API_NAME_NVFP4": "ax-k2-nvfp4",
+    "AXK2_MODEL_API_ALIASES_FP8": "skt/A.X-K2",
+    "AXK2_MODEL_API_ALIASES_NVFP4": "skt/A.X-K2-NVFP4",
+    "AXK2_MODEL_API_MAX_ACTIVE": "4",
+    "AXK2_MODEL_API_MAX_QUEUE": "8",
+    "AXK2_MODEL_API_RATE_PER_MINUTE": "60",
+    "AXK2_MODEL_API_QUEUE_TIMEOUT": "30",
+    "AXK2_MODEL_API_TIMEOUT": "300",
+    "AXK2_MODEL_API_MAX_TOKENS": "8192",
+    "AXK2_MODEL_API_DEFAULT_MAX_TOKENS": "4096",
+    "AXK2_MODEL_API_MAX_BODY_BYTES": "2097152",
+    "AXK2_MODEL_API_MAX_MESSAGES": "400",
+    "AXK2_MODEL_API_MAX_TOOLS": "64",
+    "AXK2_MODEL_API_MAX_SCHEMA_BYTES": "131072",
+}
+
+
+def validate_model_options(options):
+    for name, value in options.items():
+        if name not in MODEL_API_DEFAULTS or not isinstance(value, str):
+            raise ValueError("Unknown model API option")
+        if MODEL_API_DEFAULTS[name].isdigit():
+            if not re.fullmatch(r"[0-9]{1,10}", value) or int(value) <= 0:
+                raise ValueError("Model API numeric options must be positive integers")
+        elif "ALIASES" in name:
+            if not value or len(value) > 1024 or any(not re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", alias)
+                    for alias in re.split(r"[,\s]+", value.strip())):
+                raise ValueError("Invalid model API aliases")
+        elif not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", value):
+            raise ValueError("Invalid model API name")
+    merged = dict(MODEL_API_DEFAULTS, **options)
+    if int(merged["AXK2_MODEL_API_DEFAULT_MAX_TOKENS"]) > int(merged["AXK2_MODEL_API_MAX_TOKENS"]):
+        raise ValueError("Default model output cap must not exceed the maximum")
+    return options
 
 
 def write_private(path, value):
@@ -91,6 +130,47 @@ def bundle(root, destination):
     return expected
 
 
+def git_read(*args, text=False):
+    git = "git"
+    pointer = ROOT / ".git"
+    if os.name != "nt" and pointer.is_file() and re.match(
+            r"gitdir:\s*[A-Za-z]:[/\\]", pointer.read_text().strip()):
+        git = shutil.which("git.exe")
+        if not git:
+            raise RuntimeError("This Windows-managed worktree requires git.exe from WSL")
+    return subprocess.run([git, *args], cwd=ROOT, capture_output=True, text=text, check=True).stdout
+
+
+def bundle_revision(revision, destination):
+    if not re.fullmatch(r"[0-9a-f]{40}", revision or ""):
+        raise ValueError("An exact full lowercase commit SHA is required")
+    resolved = git_read("rev-parse", "--verify", revision + "^{commit}", text=True).strip()
+    if resolved != revision:
+        raise ValueError("Requested source is not the exact commit")
+    source = git_read("archive", "--format=zip", revision)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        with zipfile.ZipFile(io.BytesIO(source)) as archive:
+            for item in archive.infolist():
+                path = Path(item.filename)
+                if (path.is_absolute() or ".." in path.parts or "\\" in item.filename
+                        or (item.external_attr >> 16) & 0o170000 == 0o120000):
+                    raise ValueError("Unsafe path or symlink in revision archive")
+            archive.extractall(root)
+        return bundle(root, destination)
+
+
+def private_text(path, value):
+    temporary = path.with_suffix(".tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(value)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class Target:
     def __init__(self, directory):
         self.directory = directory
@@ -114,7 +194,9 @@ class Target:
                              env=self.env, capture_output=True, text=True)
         if run.returncode:
             # Error output can contain request bodies/settings. Keep full diagnostics private.
-            (self.directory / "azure-error.log").write_text(run.stderr)
+            diagnostic = ("App settings operation failed; credential-bearing response suppressed."
+                          if args[:3] == ("webapp", "config", "appsettings") else run.stderr)
+            (self.directory / "azure-error.log").write_text(diagnostic)
             raise RuntimeError(f"Azure CLI {args[0]} {args[1]} failed; see private azure-error.log")
         return json.loads(run.stdout) if run.stdout.strip() else {}
 
@@ -127,23 +209,23 @@ class Target:
             raise RuntimeError("Terraform failed; inspect private terraform-" + args[0] + ".log")
         return run.stdout
 
-    def request(self, url, body=None, cloud=False, raw=False):
+    def request(self, url, body=None, cloud=False, raw=False, anonymous=False, timeout=90):
         if cloud:
             if self.token is None:
                 self.token = self.az("account", "get-access-token",
                                      "--resource", "https://management.azure.com/")["accessToken"]
             credential = self.token
-        else:
+        elif not anonymous:
             if self.admin is None:
                 self.admin = json.loads((self.directory / "secrets.json").read_text())["admin"]
             credential = self.admin
-        headers = {"Authorization": "Bearer " + credential}
+        headers = {} if anonymous else {"Authorization": "Bearer " + credential}
         if body is not None:
             headers["Content-Type"] = "application/zip" if raw else "application/json"
         request = urllib.request.Request(url, data=body if raw else
                                          json.dumps(body).encode() if body is not None else None,
                                          headers=headers)
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read()
             return json.loads(data) if data else {}
 
@@ -218,6 +300,10 @@ class Target:
         archive = self.directory / "frontend.zip"
         expected = bundle(ROOT, archive)
         write_private(self.directory / "frontend-expected.json", expected)
+        self.publish(archive, expected)
+        print(self.url)
+
+    def publish(self, archive, expected):
         deployment_url = f"https://{self.name}.scm.azurewebsites.net/api/deployments/latest"
         try:
             previous_id = self.request(deployment_url, cloud=True).get("id")
@@ -241,7 +327,245 @@ class Target:
         else:
             raise TimeoutError("Deployment not verified; inspect the in-flight deployment before retrying")
         self.verify_archive(expected)
-        print(self.url)
+
+    def model_key(self, rotate=False, retire_previous=False, option_values=()):
+        if rotate and retire_previous:
+            raise ValueError("Rotate and retire-previous are separate operations")
+        path = self.directory / "model-api-backend.key"
+        staged = self.directory / "model-api-settings.json"
+        if path.is_symlink() or staged.is_symlink():
+            raise ValueError("Model credential files must not be symlinks")
+        previous = json.loads(staged.read_text()) if staged.exists() else {}
+        options = {name: value for name, value in previous.items() if name != "AXK2_MODEL_API_KEY_SHA256"}
+        supplied = {}
+        for item in option_values:
+            name, separator, value = item.partition("=")
+            if not separator or name in supplied:
+                raise ValueError("Model API options require unique NAME=VALUE entries")
+            supplied[name] = value
+        options.update(supplied)
+        validate_model_options(options)
+        if path.exists():
+            if path.stat().st_mode & 0o077:
+                raise PermissionError("Existing model API key must have mode 0600")
+            key = path.read_text().strip()
+            if not re.fullmatch(r"[0-9a-f]{64}", key):
+                raise ValueError("Existing backend key is not a generated 256-bit key")
+            old_hash = hashlib.sha256(key.encode()).hexdigest()
+        else:
+            if previous or rotate or retire_previous:
+                raise ValueError("Existing backend key is required for rotation")
+            key, old_hash = secrets.token_hex(32), None
+        if rotate:
+            if len(previous.get("AXK2_MODEL_API_KEY_SHA256", "").split(",")) > 1:
+                raise ValueError("Retire the previous rotation before rotating again")
+            key = secrets.token_hex(32)
+        current_hash = hashlib.sha256(key.encode()).hexdigest()
+        hashes = [current_hash]
+        if rotate:
+            hashes.append(old_hash)
+        elif not retire_previous:
+            hashes.extend(value for value in previous.get("AXK2_MODEL_API_KEY_SHA256", "").split(",")
+                          if value and value != current_hash)
+        if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes):
+            raise ValueError("Invalid staged model API digest")
+        # Only the protected key file contains plaintext; nothing is applied here.
+        private_text(path, key + "\n")
+        write_private(staged, dict(options, AXK2_MODEL_API_KEY_SHA256=",".join(hashes)))
+        print("Model API key and settings staged privately; no cloud settings changed.")
+
+    def staged_model_settings(self):
+        settings_path = self.directory / "model-api-settings.json"
+        if not settings_path.exists():
+            raise ValueError("Stage the backend key before the approved deployment")
+        settings = json.loads(settings_path.read_text())
+        if not re.fullmatch(r"[0-9a-f]{64}(?:,[0-9a-f]{64})?",
+                            settings.get("AXK2_MODEL_API_KEY_SHA256", "")):
+            raise ValueError("Invalid staged model API settings")
+        validate_model_options({name: value for name, value in settings.items()
+                                if name != "AXK2_MODEL_API_KEY_SHA256"})
+        key_path = self.directory / "model-api-backend.key"
+        if key_path.is_symlink() or key_path.stat().st_mode & 0o077:
+            raise PermissionError("Model backend key must be a private regular file")
+        key = key_path.read_text().strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", key) or hashlib.sha256(key.encode()).hexdigest() != (
+                settings["AXK2_MODEL_API_KEY_SHA256"].split(",")[0]):
+            raise ValueError("Staged API digest does not match the current backend key")
+        return settings_path
+
+    def model_settings(self, allow_live_web_recycle=False):
+        if not allow_live_web_recycle:
+            raise ValueError("Settings activation requires explicit --allow-live-web-recycle")
+        settings_path = self.staged_model_settings()
+        proof_path = self.directory / "candidate-proof.json"
+        if not proof_path.exists():
+            raise ValueError("A verified model API code deployment is required before key rotation activation")
+        proof = json.loads(proof_path.read_text())
+        if proof.get("state") not in {"code_deployed_disabled", "deployed_links_recovered"}:
+            raise ValueError("A verified model API code deployment is required before key rotation activation")
+        rollback = self.directory / proof["rollback"]
+        baseline = json.loads((rollback / "models.json").read_text())
+        self.wait_web_recovery(baseline)
+        self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
+                "--settings", "@" + str(settings_path))
+        recovered = self.wait_web_recovery(baseline, stable_observations=3,
+                                           minimum_seconds=240, model_api_status=401)
+        self.request(self.url + "/healthz")
+        self.request(self.url + "/api/status")
+        if self.request(self.url + "/api/capabilities")["web_iq"]["state"] != "ready":
+            raise ValueError("Web IQ discovery regressed during settings activation")
+        proof.update(state="deployed_links_recovered", settings_recycle=recovered)
+        write_private(proof_path, proof)
+        write_private(self.directory / "model-settings-proof.json", {
+            "state": "activated_links_recovered", "models": recovered,
+            "smoke": "not_run; separately verify the rotated consumer connection"})
+        print("Staged model API settings activated; original reverse links recovered.")
+
+    def model_api_state(self):
+        statuses = []
+        for prefix in ("", "/models/nvfp4"):
+            try:
+                self.request(self.url + prefix + "/v1/models", anonymous=True, timeout=20)
+            except urllib.error.HTTPError as exc:
+                if exc.code not in {401, 404}:
+                    raise ValueError("Model API activation state cannot be determined: HTTP " + str(exc.code)) from None
+                statuses.append(exc.code)
+            else:
+                raise ValueError("Model API unexpectedly accepted an unauthenticated state probe")
+        if statuses[0] != statuses[1]:
+            raise ValueError("Model API activation state differs between profiles")
+        return statuses[0]
+
+    def deploy_revision(self, revision, allow_live_web_recycle=False):
+        if not allow_live_web_recycle:
+            raise ValueError("Live web deployment requires explicit --allow-live-web-recycle")
+        self.staged_model_settings()
+        api_status = self.model_api_state()
+        archive = self.directory / "candidate-frontend.zip"
+        expected = bundle_revision(revision, archive)
+        manifest = self.directory / "frontend-expected.json"
+        previous_archive = self.directory / "frontend.zip"
+        if not manifest.exists() or not previous_archive.exists():
+            raise ValueError("Verified current deployment package is required for rollback")
+        previous = json.loads(manifest.read_text())
+        with zipfile.ZipFile(previous_archive) as package:
+            if set(package.namelist()) != set(previous) or any(
+                    hashlib.sha256(package.read(name)).hexdigest() != digest
+                    for name, digest in previous.items()):
+                raise ValueError("Saved rollback package does not match its source manifest")
+        self.verify_archive(previous)
+        baseline = self.request(self.url + "/api/models")
+        if not all(model["status"]["healthy"] and model["runtime"]["state"] == "verified"
+                   for model in baseline["models"]):
+            raise ValueError("Both model links must be healthy before the web-only deployment")
+        self.wait_web_recovery(baseline)
+        rollback = self.directory / ("rollback-" + str(time.time_ns()))
+        rollback.mkdir(mode=0o700)
+        shutil.copyfile(previous_archive, rollback / "frontend.zip")
+        write_private(rollback / "frontend-expected.json", previous)
+        current = self.az("webapp", "config", "appsettings", "list", "-g", self.rg, "-n", self.name)
+        if self.model_api_state() != api_status:
+            raise ValueError("Model API activation state changed before deployment")
+        write_private(rollback / "appsettings.json", {item["name"]: item["value"] for item in current})
+        write_private(rollback / "models.json", baseline)
+        write_private(self.directory / "candidate-proof.json", {
+            "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "expected_files": len(expected), "state": "attempted", "rollback": rollback.name,
+            "model_api_status": api_status})
+        # Credential activation is a separate, explicitly approved command.
+        self.publish(archive, expected)
+        first_recovery = self.wait_web_recovery(baseline, stable_observations=3,
+                                                minimum_seconds=240, model_api_status=api_status,
+                                                preserve_model_api_state=True)
+        self.request(self.url + "/healthz")
+        self.request(self.url + "/api/status")
+        capabilities = self.request(self.url + "/api/capabilities")
+        if capabilities["web_iq"]["state"] != "ready":
+            raise ValueError("Web IQ discovery regressed during code deployment")
+        for prefix in ("", "/models/nvfp4"):
+            for route, body in (("/v1/models", None), ("/v1/chat/completions", {})):
+                try:
+                    self.request(self.url + prefix + route, body, anonymous=True, timeout=20)
+                except urllib.error.HTTPError as exc:
+                    if exc.code != api_status:
+                        raise ValueError("Model API activation state changed after deployment") from None
+                else:
+                    raise ValueError("Model API unexpectedly accepted an unauthenticated request")
+        write_private(self.directory / "code-deployment-regression.json", {
+            "revision": revision, "health": True, "status": True, "web_iq_ready": True,
+            "model_api_disabled": api_status == 404, "model_api_status": api_status, "models": first_recovery})
+        shutil.copyfile(archive, previous_archive)
+        write_private(manifest, expected)
+        write_private(self.directory / "candidate-proof.json", {
+            "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "expected_files": len(expected),
+            "state": "code_deployed_disabled" if api_status == 404 else "deployed_links_recovered",
+            "model_api_status": api_status,
+            "rollback": rollback.name, "gpu_binding_unchanged": True,
+            "code_recycle": first_recovery,
+            "model_api_smoke": "not_run; execute the candidate's reviewed smoke tool separately"})
+        print("Exact revision deployed; existing API activation state preserved. Smoke verification remains.")
+
+    def wait_web_recovery(self, baseline, stable_observations=1, minimum_seconds=0, model_api_status=None,
+                          preserve_model_api_state=False):
+        expected_ids = {"fp8", "nvfp4"}
+        if {model["id"] for model in baseline["models"]} != expected_ids:
+            raise ValueError("Both baseline profiles are required")
+        original = {model["id"]: model["status"]["active_since"] for model in baseline["models"]}
+        started = time.monotonic()
+        deadline = started + (600 if minimum_seconds else 300)
+        consecutive = 0
+
+        def probe(path, **kwargs):
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Web recovery observation deadline reached")
+            return self.request(self.url + path, timeout=min(20, max(1, deadline - time.monotonic())), **kwargs)
+
+        while time.monotonic() < deadline:
+            try:
+                models = probe("/api/models")
+                if ({model["id"] for model in models["models"]} == expected_ids
+                        and all(model["status"]["healthy"] and model["runtime"]["state"] == "verified"
+                                and model["status"]["queue"]["active"] == 0
+                                and model["status"]["queue"]["waiting"] == 0
+                                for model in models["models"])):
+                    if {m["id"]: m["status"]["active_since"] for m in models["models"]} != original:
+                        raise ValueError("GPU profile binding changed during web-only deployment")
+                    statuses = []
+                    ready = True
+                    if model_api_status is not None:
+                        probe("/healthz")
+                        probe("/api/status")
+                        ready = probe("/api/capabilities")["web_iq"]["state"] == "ready"
+                        for prefix in ("", "/models/nvfp4"):
+                            try:
+                                probe(prefix + "/v1/models", anonymous=True)
+                            except urllib.error.HTTPError as exc:
+                                statuses.append(exc.code)
+                            else:
+                                raise ValueError("Model API accepted an unauthenticated stability probe")
+                        if preserve_model_api_state and any(
+                                status in {401, 404} and status != model_api_status for status in statuses):
+                            raise ValueError("Model API activation state changed during deployment")
+                        ready = ready and statuses == [model_api_status, model_api_status]
+                    consecutive = consecutive + 1 if ready and time.monotonic() - started >= minimum_seconds else 0
+                    if consecutive >= stable_observations:
+                        return {"observed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "stable_observations": consecutive, "minimum_settle_seconds": minimum_seconds,
+                                "unauthenticated_statuses": statuses,
+                                "profiles": [{"id": model["id"], "healthy": True,
+                                              "runtime_verified": True, "same_active_since": True,
+                                              "active_requests": 0, "waiting_requests": 0}
+                                             for model in models["models"]]}
+                else:
+                    consecutive = 0
+            except (urllib.error.URLError, TimeoutError) as exc:
+                consecutive = 0
+                write_private(self.directory / "web-recovery-wait.json", {
+                    "state": "waiting_for_reverse_links", "transport_error": type(exc).__name__})
+            time.sleep(min(15 if stable_observations > 1 else 10, max(0, deadline - time.monotonic())))
+        else:
+            raise TimeoutError("Web deployment completed but both reverse links have not recovered")
 
     def verify_archive(self, expected):
         code = """
@@ -380,11 +704,17 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("action", choices=("init", "plan", "provision", "deploy", "status", "off", "run", "on", "webiq"))
+    parser.add_argument("action", choices=("init", "plan", "provision", "deploy", "status", "off", "run", "on",
+                                         "webiq", "model-key", "model-settings", "deploy-revision"))
     parser.add_argument("--subscription")
     parser.add_argument("--name")
     parser.add_argument("--seconds", type=int)
     parser.add_argument("--keep-on", action="store_true")
+    parser.add_argument("--rotate", action="store_true")
+    parser.add_argument("--retire-previous", action="store_true")
+    parser.add_argument("--model-api-setting", action="append", default=[], metavar="NAME=VALUE")
+    parser.add_argument("--commit")
+    parser.add_argument("--allow-live-web-recycle", action="store_true")
     args = parser.parse_args()
     directory = args.directory.expanduser().resolve()
     if directory == ROOT or ROOT in directory.parents:
@@ -421,6 +751,12 @@ def main():
             target.on(args.keep_on)
         elif args.action == "plan":
             target.provision(apply_plan=False)
+        elif args.action == "model-key":
+            target.model_key(args.rotate, args.retire_previous, args.model_api_setting)
+        elif args.action == "model-settings":
+            target.model_settings(args.allow_live_web_recycle)
+        elif args.action == "deploy-revision":
+            target.deploy_revision(args.commit, args.allow_live_web_recycle)
         else:
             getattr(target, args.action)()
 

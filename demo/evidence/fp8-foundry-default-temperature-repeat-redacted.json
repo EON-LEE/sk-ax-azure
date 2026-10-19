@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "scope": "Read-only vLLM counter correlation for externally issued Foundry calls.",
+  "core_model_calls": 0,
+  "resource_actions": 0,
+  "sampling_interval_seconds": 12,
+  "limits": "Shorter transient queue/link activity cannot be excluded; token counters may appear after the HTTP response.",
+  "reference_direct_replay": {
+    "single_request_prompt": 472,
+    "output_min": 40,
+    "output_max": 91
+  },
+  "reference_historical_foundry_failure": {
+    "kst": "22:16:27-22:16:31",
+    "fp8_prompt_delta": 482,
+    "fp8_output_delta": 37
+  },
+  "calls": [
+    {
+      "number": 1,
+      "variant": "ablation_default_temperature",
+      "execution_started_kst": "2026-10-19T23:24:27+09:00",
+      "post_started_kst": "2026-10-19T23:24:29+09:00",
+      "ended_kst": "2026-10-19T23:24:40+09:00",
+      "foundry_result": "completed",
+      "mcp_call": true,
+      "foundry_usage": {
+        "prompt": 10531,
+        "output": 129
+      },
+      "observation_from_kst": "2026-10-19T23:24:25.262862+09:00",
+      "observation_to_kst": "2026-10-19T23:25:00.265512+09:00",
+      "samples": 4,
+      "profiles": [
+        {
+          "profile": "fp8",
+          "prompt_delta": 11017.0,
+          "output_delta": 129.0,
+          "all_samples_link_ready_healthy_verified": true,
+          "all_samples_provenance_ok": true,
+          "all_samples_phase_ready": true,
+          "activation_unchanged": true,
+          "queue_active_max": 0,
+          "queue_waiting_max": 0
+        },
+        {
+          "profile": "nvfp4",
+          "prompt_delta": 0.0,
+          "output_delta": 0.0,
+          "all_samples_link_ready_healthy_verified": true,
+          "all_samples_provenance_ok": true,
+          "all_samples_phase_ready": true,
+          "activation_unchanged": true,
+          "queue_active_max": 0,
+          "queue_waiting_max": 0
+        }
+      ],
+      "comparison": {
+        "fp8_prompt_delta_minus_direct_replay_472": 10545.0,
+        "fp8_output_delta_in_direct_replay_40_to_91": false,
+        "fp8_prompt_delta_minus_historical_failure_482": 10535.0,
+        "fp8_output_delta_minus_historical_failure_37": 92.0,
+        "fp8_prompt_delta_minus_foundry_usage": 486.0,
+        "fp8_output_delta_minus_foundry_usage": 0.0
+      },
+      "comparison_scope": "Entire Foundry call window; individual model rounds are not isolated by twelve-second sampling."
+    },
+    {
+      "number": 2,
+      "variant": "ablation_default_temperature",
+      "execution_started_kst": "2026-10-19T23:25:31+09:00",
+      "post_started_kst": "2026-10-19T23:25:32+09:00",
+      "ended_kst": "2026-10-19T23:25:41+09:00",
+      "foundry_result": "completed",
+      "mcp_call": true,
+      "foundry_usage": {
+        "prompt": 10531,
+        "output": 131
+      },
+      "observation_from_kst": "2026-10-19T23:25:24.470676+09:00",
+      "observation_to_kst": "2026-10-19T23:26:00.281861+09:00",
+      "samples": 4,
+      "profiles": [
+        {
+          "profile": "fp8",
+          "prompt_delta": 11017.0,
+          "output_delta": 131.0,
+          "all_samples_link_ready_healthy_verified": true,
+          "all_samples_provenance_ok": true,
+          "all_samples_phase_ready": true,
+          "activation_unchanged": true,
+          "queue_active_max": 0,
+          "queue_waiting_max": 0
+        },
+        {
+          "profile": "nvfp4",
+          "prompt_delta": 0.0,
+          "output_delta": 0.0,
+          "all_samples_link_ready_healthy_verified": true,
+          "all_samples_provenance_ok": true,
+          "all_samples_phase_ready": true,
+          "activation_unchanged": true,
+          "queue_active_max": 0,
+          "queue_waiting_max": 0
+        }
+      ],
+      "comparison": {
+        "fp8_prompt_delta_minus_direct_replay_472": 10545.0,
+        "fp8_output_delta_in_direct_replay_40_to_91": false,
+        "fp8_prompt_delta_minus_historical_failure_482": 10535.0,
+        "fp8_output_delta_minus_historical_failure_37": 94.0,
+        "fp8_prompt_delta_minus_foundry_usage": 486.0,
+        "fp8_output_delta_minus_foundry_usage": 0.0
+      },
+      "comparison_scope": "Entire Foundry call window; individual model rounds are not isolated by twelve-second sampling."
+    },
+    {
+      "number": 3,
+      "variant": "ablation_default_temperature",
+      "execution_started_kst": "2026-10-19T23:26:32+09:00",
+      "post_started_kst": "2026-10-19T23:26:33+09:00",
+      "ended_kst": "2026-10-19T23:26:43+09:00",
+      "foundry_result": "completed",
+      "mcp_call": true,
+      "foundry_usage": {
+        "prompt": 15554,
+        "output": 123
+      },
+      "mcp_output_characters_reported_by_F": 58340,
+      "observation_from_kst": "2026-10-19T23:26:24.530474+09:00",
+      "observation_to_kst": "2026-10-19T23:27:00.265155+09:00",
+      "samples": 4,
+      "profiles": [
+        {
+          "profile": "fp8",
+          "prompt_delta": 16040.0,
+          "output_delta": 123.0,
+          "all_samples_link_ready_healthy_verified": true,
+          "all_samples_provenance_ok": true,
+          "all_samples_phase_ready": true,
+          "activation_unchanged": true,
+          "queue_active_max": 0,
+          "queue_waiting_max": 0
+        },
+        {
+          "profile": "nvfp4",
+          "prompt_delta": 0.0,
+          "output_delta": 0.0,
+          "all_samples_link_ready_healthy_verified": true,
+          "all_samples_provenance_ok": true,
+          "all_samples_phase_ready": true,
+          "activation_unchanged": true,
+          "queue_active_max": 0,
+          "queue_waiting_max": 0
+        }
+      ],
+      "comparison": {
+        "fp8_prompt_delta_minus_direct_replay_472": 15568.0,
+        "fp8_output_delta_in_direct_replay_40_to_91": false,
+        "fp8_prompt_delta_minus_historical_failure_482": 15558.0,
+        "fp8_output_delta_minus_historical_failure_37": 86.0,
+        "fp8_prompt_delta_minus_foundry_usage": 486.0,
+        "fp8_output_delta_minus_foundry_usage": 0.0
+      },
+      "comparison_scope": "Entire Foundry call window; individual model rounds are not isolated by twelve-second sampling."
+    }
+  ]
+}
