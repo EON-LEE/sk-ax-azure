@@ -1,0 +1,73 @@
+<policies>
+  <inbound>
+    <base />
+    <!-- Correlation id: keep a sane caller value, otherwise use the gateway request id. -->
+    <set-variable name="reqId" value="@{
+      var h = context.Request.Headers.GetValueOrDefault("x-request-id", "");
+      var bad = h.Length == 0 || h.Length > 128 || !System.Text.RegularExpressions.Regex.IsMatch(h, "^[A-Za-z0-9._:-]+$");
+      return bad ? context.RequestId.ToString() : h;
+    }" />
+    <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Subscription.Id)" />
+    <!-- The client credentials stop here; the backend only ever sees the gateway's own key. -->
+    <set-header name="api-key" exists-action="delete" />
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    <set-query-parameter name="api-key" exists-action="delete" />
+    <set-query-parameter name="subscription-key" exists-action="delete" />
+    <set-header name="Authorization" exists-action="override">
+      <value>Bearer {{axk2-backend-key}}</value>
+    </set-header>
+    <set-header name="x-request-id" exists-action="override">
+      <value>@((string)context.Variables["reqId"])</value>
+    </set-header>
+    <!-- Request shape only (field names, roles, tool names): no message text is logged. -->
+    <choose>
+      <when condition="@(context.Request.Method == "POST")">
+        <trace source="axk2-request-shape" severity="information">
+          <message>@{
+            try {
+              var b = context.Request.Body.As<JObject>(preserveContent: true);
+              var o = new JObject();
+              o["request_id"] = (string)context.Variables["reqId"];
+              o["path"] = context.Request.Url.Path;
+              var ua = context.Request.Headers.GetValueOrDefault("User-Agent", "");
+              o["user_agent"] = ua.Length > 80 ? ua.Substring(0, 80) : ua;
+              o["keys"] = string.Join(",", b.Properties().Select(p => p.Name));
+              o["model"] = (string)b["model"];
+              o["stream"] = b["stream"] == null ? "absent" : b["stream"].ToString();
+              o["has_max_tokens"] = b["max_tokens"] != null;
+              o["has_max_completion_tokens"] = b["max_completion_tokens"] != null;
+              var msgs = b["messages"] as JArray;
+              o["message_count"] = msgs == null ? 0 : msgs.Count;
+              o["roles"] = msgs == null ? "" : string.Join(",", msgs.Select(m => (string)m["role"]));
+              var tools = b["tools"] as JArray;
+              o["tool_names"] = tools == null ? "" : string.Join(",", tools.Select(t => t["function"] != null ? (string)t["function"]["name"] : (string)t["type"]));
+              var tc = b["tool_choice"] == null ? "absent" : b["tool_choice"].ToString(Newtonsoft.Json.Formatting.None);
+              o["tool_choice"] = tc.Length > 100 ? tc.Substring(0, 100) : tc;
+              return o.ToString(Newtonsoft.Json.Formatting.None);
+            } catch (Exception) {
+              return "request-shape-unavailable";
+            }
+          }</message>
+        </trace>
+      </when>
+    </choose>
+  </inbound>
+  <backend>
+    <limit-concurrency key="@(context.Subscription.Id)" max-count="2">
+      <!-- buffer-response=false keeps server-sent events flowing. -->
+      <forward-request timeout="230" buffer-response="false" />
+    </limit-concurrency>
+  </backend>
+  <outbound>
+    <base />
+    <set-header name="x-apim-request-id" exists-action="override">
+      <value>@(context.RequestId.ToString())</value>
+    </set-header>
+    <set-header name="x-request-id" exists-action="skip">
+      <value>@((string)context.Variables["reqId"])</value>
+    </set-header>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

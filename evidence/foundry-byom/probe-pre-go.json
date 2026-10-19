@@ -1,0 +1,82 @@
+{
+  "observedAt": "2026-10-19T10:13:31Z",
+  "gateway": "https://<apim-gateway>",
+  "checks": [
+    {
+      "api": "nvfp4",
+      "check": "no-key",
+      "method": "POST",
+      "endpoint": "/nvfp4/v1/chat/completions",
+      "status": 401,
+      "body_keys": [
+        "message",
+        "statusCode"
+      ],
+      "apim_request_id": null,
+      "x_request_id": null
+    },
+    {
+      "api": "nvfp4",
+      "check": "wrong-key",
+      "method": "POST",
+      "endpoint": "/nvfp4/v1/chat/completions",
+      "status": 401,
+      "body_keys": [
+        "message",
+        "statusCode"
+      ],
+      "apim_request_id": null,
+      "x_request_id": null
+    },
+    {
+      "api": "nvfp4",
+      "check": "valid-key-models",
+      "method": "GET",
+      "endpoint": "/nvfp4/v1/models",
+      "status": 404,
+      "body_keys": [
+        "detail"
+      ],
+      "apim_request_id": "d47c3c48-21c2-47b3-85bf-65b305e414c8",
+      "x_request_id": "d47c3c48-21c2-47b3-85bf-65b305e414c8"
+    },
+    {
+      "api": "fp8",
+      "check": "no-key",
+      "method": "POST",
+      "endpoint": "/fp8/v1/chat/completions",
+      "status": 401,
+      "body_keys": [
+        "message",
+        "statusCode"
+      ],
+      "apim_request_id": null,
+      "x_request_id": null
+    },
+    {
+      "api": "fp8",
+      "check": "wrong-key",
+      "method": "POST",
+      "endpoint": "/fp8/v1/chat/completions",
+      "status": 401,
+      "body_keys": [
+        "message",
+        "statusCode"
+      ],
+      "apim_request_id": null,
+      "x_request_id": null
+    },
+    {
+      "api": "fp8",
+      "check": "valid-key-models",
+      "method": "GET",
+      "endpoint": "/fp8/v1/models",
+      "status": 404,
+      "body_keys": [
+        "detail"
+      ],
+      "apim_request_id": "dfde4bf8-ef6c-4d7b-8137-de811b023044",
+      "x_request_id": "dfde4bf8-ef6c-4d7b-8137-de811b023044"
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "observedAt": "2026-10-19T10:28:08Z",
+  "arm": [
+    {
+      "name": "axk2-fp8",
+      "authType": "ApiKey",
+      "group": "AzureAI",
+      "category": "ApiManagement",
+      "expiryTime": null,
+      "target": "https://<apim-gateway>/fp8/v1",
+      "useWorkspaceManagedIdentity": false,
+      "isSharedToAll": false,
+      "sharedUserList": [],
+      "peRequirement": "NotRequired",
+      "peStatus": "NotApplicable",
+      "error": null,
+      "isDefault": true,
+      "metadata": {
+        "deploymentInPath": "false",
+        "models": [
+          {
+            "name": "ax-k2-fp8",
+            "properties": {
+              "model": {
+                "name": "ax-k2-fp8",
+                "version": "",
+                "format": "OpenAI"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "axk2-nvfp4",
+      "authType": "ApiKey",
+      "group": "AzureAI",
+      "category": "ApiManagement",
+      "expiryTime": null,
+      "target": "https://<apim-gateway>/nvfp4/v1",
+      "useWorkspaceManagedIdentity": false,
+      "isSharedToAll": false,
+      "sharedUserList": [],
+      "peRequirement": "NotRequired",
+      "peStatus": "NotApplicable",
+      "error": null,
+      "isDefault": false,
+      "metadata": {
+        "deploymentInPath": "false",
+        "models": [
+          {
+            "name": "ax-k2-nvfp4",
+            "properties": {
+              "model": {
+                "name": "ax-k2-nvfp4",
+                "version": "",
+                "format": "OpenAI"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "dataPlane": {
+    "httpStatus": 200,
+    "connections": [
+      {
+        "name": "axk2-fp8",
+        "type": "ApiManagement",
+        "target": "https://<apim-gateway>/fp8/v1",
+        "isDefault": true,
+        "metadata": {
+          "deploymentInPath": "false",
+          "models": [
+            {
+              "name": "ax-k2-fp8",
+              "properties": {
+                "model": {
+                  "name": "ax-k2-fp8",
+                  "version": "",
+                  "format": "OpenAI"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "axk2-nvfp4",
+        "type": "ApiManagement",
+        "target": "https://<apim-gateway>/nvfp4/v1",
+        "isDefault": false,
+        "metadata": {
+          "deploymentInPath": "false",
+          "models": [
+            {
+              "name": "ax-k2-nvfp4",
+              "properties": {
+                "model": {
+                  "name": "ax-k2-nvfp4",
+                  "version": "",
+                  "format": "OpenAI"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "deploymentsHttpStatus": 200,
+    "deploymentCount": 0
+  }
+}
