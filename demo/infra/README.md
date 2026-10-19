@@ -164,6 +164,22 @@ rotation/retirement with `model-settings --allow-live-web-recycle`, only in an
 explicitly approved window. This settings-only operation requires the saved
 successful model API deployment proof and rechecks both original reverse links.
 
+The optional settings use G's model API contract and are also preserved by
+Terraform. Defaults need no staging. To stage an override without touching Azure,
+repeat `--model-api-setting NAME=VALUE` on `model-key`; existing staged overrides
+survive idempotent runs and key rotations. Only the following names are accepted;
+invalid options fail explicitly rather than relying on runtime fallback values.
+
+| Suffix after `AXK2_MODEL_API_` | Default |
+| --- | --- |
+| `NAME_FP8`, `NAME_NVFP4` | `ax-k2-fp8`, `ax-k2-nvfp4` |
+| `ALIASES_FP8`, `ALIASES_NVFP4` | `skt/A.X-K2`, `skt/A.X-K2-NVFP4` |
+| `MAX_ACTIVE`, `MAX_QUEUE`, `RATE_PER_MINUTE` | `4`, `8`, `60` |
+| `QUEUE_TIMEOUT`, `TIMEOUT` (seconds) | `30`, `300` |
+| `MAX_TOKENS`, `DEFAULT_MAX_TOKENS` | `8192`, `4096` |
+| `MAX_BODY_BYTES`, `MAX_MESSAGES` | `2097152`, `400` |
+| `MAX_TOOLS`, `MAX_SCHEMA_BYTES` | `64`, `131072` |
+
 `deploy-revision` packages the exact git commit, not the current working tree,
 and refuses short SHAs, tags, branches, unsafe archive paths and symlinks. Fetch
 and review the candidate before using its SHA. It verifies the saved rollback ZIP
@@ -183,12 +199,25 @@ queues. Only then activate the credential, wait for both links and empty queues
 again, and run smoke. These health checks are not inference tests.
 
 After deployment, run the **reviewed candidate's**
-`demo/tools/model_api_smoke.py` using its documented protected key-file argument,
-not a key value in argv. Require sequential, thinking-OFF checks of model listing,
-non-stream/stream responses, actual tool call and tool-result replay, missing/wrong
-key rejection, and a secret-free JSON record of actual model admissions. Its
-exact CLI and approved call limit must be confirmed with the API implementation
-owner; do not invent parameters or run a second smoke attempt automatically.
+`demo/tools/model_api_smoke.py` using its protected key-file argument, not a key
+value in argv. Export that reviewed file from the same exact deployed commit to
+the private target directory; do not execute a different branch's current copy.
+With `$URL` set to the target's public URL, the approved bounded NVFP4 sequence is:
+
+```bash
+python3 "$D/model_api_smoke.py" \
+  --base-url "$URL/models/nvfp4/v1" --model ax-k2-nvfp4 \
+  --key-file "$D/model-api-backend.key" \
+  --only models,chat,stream,tool,tool_result,auth \
+  --max-tokens 64 --timeout 120 --out "$D/model-api-smoke.json"
+```
+
+This is at most four model admissions (chat, stream, tool call, tool-result
+replay), concurrency one, thinking OFF, with a 64-token cap per admission.
+Model listing and missing/wrong-key rejection consume no model admission.
+The tool emits secret-free per-check outcomes, status codes, token usage,
+TTFT/TPOT and elapsed time; inspect actual results rather than assuming success.
+Do not run a second smoke attempt automatically.
 `candidate-proof.json` explicitly records smoke as not run until this separate
 verification completes.
 

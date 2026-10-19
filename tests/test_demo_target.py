@@ -159,6 +159,38 @@ class TargetTests(unittest.TestCase):
                      "AXK2_WEBIQ_QUERY_FIELD", "AXK2_WEBIQ_ARGUMENTS_JSON",
                      "AXK2_WEBIQ_BEARER_TOKEN"):
             self.assertIn('app_settings["' + name + '"]', text)
+        for name in target.MODEL_API_DEFAULTS:
+            self.assertIn('app_settings["' + name + '"]', text)
+
+    def test_optional_model_settings_remain_local_and_survive_rotation(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            instance = object.__new__(target.Target)
+            instance.directory = Path(directory)
+            with patch.object(instance, "az") as azure:
+                instance.model_key(option_values=["AXK2_MODEL_API_MAX_ACTIVE=1"])
+                instance.model_key()
+                instance.model_key(rotate=True)
+                settings = json.loads(instance.staged_model_settings().read_text())
+                self.assertEqual(settings["AXK2_MODEL_API_MAX_ACTIVE"], "1")
+                azure.assert_not_called()
+
+    def test_invalid_optional_model_settings_rejected_before_key_creation(self):
+        invalid = [
+            ["AXK2_MODEL_API_KEY_SHA256=" + "a" * 64],
+            ["AXK2_MODEL_API_MAX_ACTIVE=0"],
+            ["AXK2_MODEL_API_MAX_ACTIVE=garbage"],
+            ["AXK2_MODEL_API_NAME_FP8=invalid\nvalue"],
+            ["AXK2_MODEL_API_MAX_ACTIVE=1", "AXK2_MODEL_API_MAX_ACTIVE=2"],
+            ["AXK2_MODEL_API_MAX_TOKENS=64"],
+            ["UNRELATED_SETTING=1"],
+        ]
+        for options in invalid:
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as directory:
+                instance = object.__new__(target.Target)
+                instance.directory = Path(directory)
+                with self.assertRaises(ValueError):
+                    instance.model_key(option_values=options)
+                self.assertFalse((instance.directory / "model-api-backend.key").exists())
 
     def test_web_recovery_rejects_changed_gpu_binding(self):
         instance = object.__new__(target.Target)

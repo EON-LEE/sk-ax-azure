@@ -26,6 +26,43 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 INFRA = ROOT / "demo" / "infra"
 TERMINAL = {"Canceled", "Completed", "Failed"}
+MODEL_API_DEFAULTS = {
+    "AXK2_MODEL_API_NAME_FP8": "ax-k2-fp8",
+    "AXK2_MODEL_API_NAME_NVFP4": "ax-k2-nvfp4",
+    "AXK2_MODEL_API_ALIASES_FP8": "skt/A.X-K2",
+    "AXK2_MODEL_API_ALIASES_NVFP4": "skt/A.X-K2-NVFP4",
+    "AXK2_MODEL_API_MAX_ACTIVE": "4",
+    "AXK2_MODEL_API_MAX_QUEUE": "8",
+    "AXK2_MODEL_API_RATE_PER_MINUTE": "60",
+    "AXK2_MODEL_API_QUEUE_TIMEOUT": "30",
+    "AXK2_MODEL_API_TIMEOUT": "300",
+    "AXK2_MODEL_API_MAX_TOKENS": "8192",
+    "AXK2_MODEL_API_DEFAULT_MAX_TOKENS": "4096",
+    "AXK2_MODEL_API_MAX_BODY_BYTES": "2097152",
+    "AXK2_MODEL_API_MAX_MESSAGES": "400",
+    "AXK2_MODEL_API_MAX_TOOLS": "64",
+    "AXK2_MODEL_API_MAX_SCHEMA_BYTES": "131072",
+}
+
+
+def validate_model_options(options):
+    for name, value in options.items():
+        if name not in MODEL_API_DEFAULTS or not isinstance(value, str):
+            raise ValueError("Unknown model API option")
+        if MODEL_API_DEFAULTS[name].isdigit():
+            if not re.fullmatch(r"[0-9]{1,10}", value) or int(value) <= 0:
+                raise ValueError("Model API numeric options must be positive integers")
+        elif "ALIASES" in name:
+            if not value or len(value) > 1024 or any(not re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", alias)
+                    for alias in re.split(r"[,\s]+", value.strip())):
+                raise ValueError("Invalid model API aliases")
+        elif not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", value):
+            raise ValueError("Invalid model API name")
+    merged = dict(MODEL_API_DEFAULTS, **options)
+    if int(merged["AXK2_MODEL_API_DEFAULT_MAX_TOKENS"]) > int(merged["AXK2_MODEL_API_MAX_TOKENS"]):
+        raise ValueError("Default model output cap must not exceed the maximum")
+    return options
 
 
 def write_private(path, value):
@@ -291,7 +328,7 @@ class Target:
             raise TimeoutError("Deployment not verified; inspect the in-flight deployment before retrying")
         self.verify_archive(expected)
 
-    def model_key(self, rotate=False, retire_previous=False):
+    def model_key(self, rotate=False, retire_previous=False, option_values=()):
         if rotate and retire_previous:
             raise ValueError("Rotate and retire-previous are separate operations")
         path = self.directory / "model-api-backend.key"
@@ -299,6 +336,15 @@ class Target:
         if path.is_symlink() or staged.is_symlink():
             raise ValueError("Model credential files must not be symlinks")
         previous = json.loads(staged.read_text()) if staged.exists() else {}
+        options = {name: value for name, value in previous.items() if name != "AXK2_MODEL_API_KEY_SHA256"}
+        supplied = {}
+        for item in option_values:
+            name, separator, value = item.partition("=")
+            if not separator or name in supplied:
+                raise ValueError("Model API options require unique NAME=VALUE entries")
+            supplied[name] = value
+        options.update(supplied)
+        validate_model_options(options)
         if path.exists():
             if path.stat().st_mode & 0o077:
                 raise PermissionError("Existing model API key must have mode 0600")
@@ -325,7 +371,7 @@ class Target:
             raise ValueError("Invalid staged model API digest")
         # Only the protected key file contains plaintext; nothing is applied here.
         private_text(path, key + "\n")
-        write_private(staged, {"AXK2_MODEL_API_KEY_SHA256": ",".join(hashes)})
+        write_private(staged, dict(options, AXK2_MODEL_API_KEY_SHA256=",".join(hashes)))
         print("Model API key and settings staged privately; no cloud settings changed.")
 
     def staged_model_settings(self):
@@ -333,9 +379,11 @@ class Target:
         if not settings_path.exists():
             raise ValueError("Stage the backend key before the approved deployment")
         settings = json.loads(settings_path.read_text())
-        if set(settings) != {"AXK2_MODEL_API_KEY_SHA256"} or not re.fullmatch(
-                r"[0-9a-f]{64}(?:,[0-9a-f]{64})?", settings["AXK2_MODEL_API_KEY_SHA256"]):
+        if not re.fullmatch(r"[0-9a-f]{64}(?:,[0-9a-f]{64})?",
+                            settings.get("AXK2_MODEL_API_KEY_SHA256", "")):
             raise ValueError("Invalid staged model API settings")
+        validate_model_options({name: value for name, value in settings.items()
+                                if name != "AXK2_MODEL_API_KEY_SHA256"})
         key_path = self.directory / "model-api-backend.key"
         if key_path.is_symlink() or key_path.stat().st_mode & 0o077:
             raise PermissionError("Model backend key must be a private regular file")
@@ -603,6 +651,7 @@ def main():
     parser.add_argument("--keep-on", action="store_true")
     parser.add_argument("--rotate", action="store_true")
     parser.add_argument("--retire-previous", action="store_true")
+    parser.add_argument("--model-api-setting", action="append", default=[], metavar="NAME=VALUE")
     parser.add_argument("--commit")
     parser.add_argument("--allow-live-web-recycle", action="store_true")
     args = parser.parse_args()
@@ -642,7 +691,7 @@ def main():
         elif args.action == "plan":
             target.provision(apply_plan=False)
         elif args.action == "model-key":
-            target.model_key(args.rotate, args.retire_previous)
+            target.model_key(args.rotate, args.retire_previous, args.model_api_setting)
         elif args.action == "model-settings":
             target.model_settings(args.allow_live_web_recycle)
         elif args.action == "deploy-revision":

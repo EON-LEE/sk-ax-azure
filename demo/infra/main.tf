@@ -148,6 +148,21 @@ resource "azurerm_linux_web_app" "demo" {
       app_settings["AXK2_WEBIQ_ARGUMENTS_JSON"],
       app_settings["AXK2_WEBIQ_BEARER_TOKEN"],
       app_settings["AXK2_MODEL_API_KEY_SHA256"],
+      app_settings["AXK2_MODEL_API_NAME_FP8"],
+      app_settings["AXK2_MODEL_API_NAME_NVFP4"],
+      app_settings["AXK2_MODEL_API_ALIASES_FP8"],
+      app_settings["AXK2_MODEL_API_ALIASES_NVFP4"],
+      app_settings["AXK2_MODEL_API_MAX_ACTIVE"],
+      app_settings["AXK2_MODEL_API_MAX_QUEUE"],
+      app_settings["AXK2_MODEL_API_RATE_PER_MINUTE"],
+      app_settings["AXK2_MODEL_API_QUEUE_TIMEOUT"],
+      app_settings["AXK2_MODEL_API_TIMEOUT"],
+      app_settings["AXK2_MODEL_API_MAX_TOKENS"],
+      app_settings["AXK2_MODEL_API_DEFAULT_MAX_TOKENS"],
+      app_settings["AXK2_MODEL_API_MAX_BODY_BYTES"],
+      app_settings["AXK2_MODEL_API_MAX_MESSAGES"],
+      app_settings["AXK2_MODEL_API_MAX_TOOLS"],
+      app_settings["AXK2_MODEL_API_MAX_SCHEMA_BYTES"],
     ]
   }
 }
