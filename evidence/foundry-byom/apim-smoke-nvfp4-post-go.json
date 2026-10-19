@@ -1,0 +1,153 @@
+{
+  "observedAt": "2026-10-19T11:45:28Z",
+  "phase": "correlate",
+  "smokeToolSha256": "38f9f10f56daf9804f4db42b56de34bfcd6267df78e3d4317cde15806c433e1d",
+  "gateway": "https://<apim-gateway>",
+  "model": "ax-k2-nvfp4",
+  "exitCode": 0,
+  "seconds": 4.517,
+  "result": {
+    "tool": "model_api_smoke",
+    "version": 1,
+    "run_id": "fcfd5227",
+    "started_at": "2026-10-19T11:17:29Z",
+    "target": "https://<apim-gateway>/nvfp4/v1",
+    "auth_header": "api-key",
+    "model": "ax-k2-nvfp4",
+    "max_tokens": 64,
+    "admissions": 4,
+    "ok": true,
+    "total_s": 4.517,
+    "checks": {
+      "models": {
+        "ok": true,
+        "status": 200,
+        "x_request_id": "smoke-fcfd5227-models",
+        "sent_request_id": "smoke-fcfd5227-models",
+        "request_id_echoed": true,
+        "elapsed_s": 0.133,
+        "served_profile": "nvfp4",
+        "problems": [],
+        "model_ids": [
+          "ax-k2-nvfp4"
+        ]
+      },
+      "chat": {
+        "ok": true,
+        "status": 200,
+        "x_request_id": "smoke-fcfd5227-chat",
+        "sent_request_id": "smoke-fcfd5227-chat",
+        "request_id_echoed": true,
+        "elapsed_s": 0.464,
+        "served_profile": "nvfp4",
+        "problems": [],
+        "response_model": "axk2",
+        "usage": {
+          "prompt_tokens": 32,
+          "completion_tokens": 3,
+          "total_tokens": 35
+        },
+        "finish_reason": "stop",
+        "answer_preview": "Paris."
+      },
+      "stream": {
+        "ok": true,
+        "status": 200,
+        "x_request_id": "smoke-fcfd5227-stream",
+        "sent_request_id": "smoke-fcfd5227-stream",
+        "request_id_echoed": true,
+        "elapsed_s": 1.723,
+        "served_profile": "nvfp4",
+        "problems": [],
+        "content_type": "text/event-stream; charset=utf-8",
+        "connect_s": 0.049,
+        "headers_s": 0.407,
+        "first_chunk_s": 0.407,
+        "ttft_s": 0.409,
+        "first_to_last_chunk_s": 1.316,
+        "max_chunk_gap_s": 0.052,
+        "tpot_ms": 20.9,
+        "total_s": 1.723,
+        "chunks": 66,
+        "content_chunks": 64,
+        "comment_lines": 0,
+        "event_lines": 0,
+        "other_lines": 0,
+        "done": true,
+        "finish_reason": "length",
+        "buffering": "unlikely",
+        "answer_preview": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 2",
+        "usage": {
+          "prompt_tokens": 27,
+          "completion_tokens": 64,
+          "total_tokens": 91
+        },
+        "response_model": "axk2"
+      },
+      "tool": {
+        "ok": true,
+        "status": 200,
+        "x_request_id": "smoke-fcfd5227-tool",
+        "sent_request_id": "smoke-fcfd5227-tool",
+        "request_id_echoed": true,
+        "elapsed_s": 0.949,
+        "served_profile": "nvfp4",
+        "problems": [],
+        "response_model": "axk2",
+        "usage": {
+          "prompt_tokens": 228,
+          "completion_tokens": 22,
+          "total_tokens": 250
+        },
+        "finish_reason": "tool_calls",
+        "tool_calls": [
+          {
+            "id": "chatcmpl-tool-afee523b61bc4b7e",
+            "name": "get_weather",
+            "arguments": "{\"city\": \"Seoul\"}"
+          }
+        ]
+      },
+      "tool_result": {
+        "ok": true,
+        "status": 200,
+        "x_request_id": "smoke-fcfd5227-tool_result",
+        "sent_request_id": "smoke-fcfd5227-tool_result",
+        "request_id_echoed": true,
+        "elapsed_s": 0.872,
+        "served_profile": "nvfp4",
+        "problems": [],
+        "history": "model_call",
+        "response_model": "axk2",
+        "usage": {
+          "prompt_tokens": 285,
+          "completion_tokens": 19,
+          "total_tokens": 304
+        },
+        "finish_reason": "stop",
+        "answer_preview": "The current weather in Seoul is **clear** with a temperature of **21\u00b0C**.",
+        "mentions_result": true
+      },
+      "auth": {
+        "ok": true,
+        "problems": [],
+        "no_key": {
+          "status": 401,
+          "x_request_id": null,
+          "sent_request_id": "smoke-fcfd5227-auth-no_key",
+          "request_id_echoed": false,
+          "elapsed_s": 0.151
+        },
+        "wrong_key": {
+          "status": 401,
+          "x_request_id": null,
+          "sent_request_id": "smoke-fcfd5227-auth-wrong_key",
+          "request_id_echoed": false,
+          "elapsed_s": 0.177
+        },
+        "status": 401,
+        "x_request_id": null
+      }
+    }
+  }
+}

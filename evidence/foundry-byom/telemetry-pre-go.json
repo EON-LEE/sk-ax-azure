@@ -1,0 +1,124 @@
+{
+  "observedAt": "2026-10-19T10:22:40Z",
+  "windowMinutes": 60,
+  "requests": [
+    {
+      "TimeGenerated": "2026-10-19T10:13:28.2434494Z",
+      "Name": "POST /nvfp4/v1/chat/completions",
+      "ResultCode": "401",
+      "DurationMs": 1389.8924,
+      "Api": "axk2-nvfp4",
+      "Operation": "chat-completions",
+      "Subscription": "",
+      "RequestId": "cfa6aca6…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:13:29.8212363Z",
+      "Name": "POST /nvfp4/v1/chat/completions",
+      "ResultCode": "401",
+      "DurationMs": 1359.7765,
+      "Api": "axk2-nvfp4",
+      "Operation": "chat-completions",
+      "Subscription": "",
+      "RequestId": "f5af8264…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:13:31.343293Z",
+      "Name": "GET /nvfp4/v1/models",
+      "ResultCode": "404",
+      "DurationMs": 511.1418,
+      "Api": "axk2-nvfp4",
+      "Operation": "list-models",
+      "Subscription": "foundry-byom",
+      "RequestId": "d47c3c48…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:13:32.0010422Z",
+      "Name": "POST /fp8/v1/chat/completions",
+      "ResultCode": "401",
+      "DurationMs": 6.3487,
+      "Api": "axk2-fp8",
+      "Operation": "chat-completions",
+      "Subscription": "",
+      "RequestId": "fff2ca5c…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:13:32.1535884Z",
+      "Name": "POST /fp8/v1/chat/completions",
+      "ResultCode": "401",
+      "DurationMs": 0.9543,
+      "Api": "axk2-fp8",
+      "Operation": "chat-completions",
+      "Subscription": "",
+      "RequestId": "227126d2…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:13:32.3145219Z",
+      "Name": "GET /fp8/v1/models",
+      "ResultCode": "404",
+      "DurationMs": 365.1648,
+      "Api": "axk2-fp8",
+      "Operation": "list-models",
+      "Subscription": "foundry-byom",
+      "RequestId": "dfde4bf8…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:18:13.8077067Z",
+      "Name": "POST /nvfp4/v1/chat/completions",
+      "ResultCode": "404",
+      "DurationMs": 144.0968,
+      "Api": "axk2-nvfp4",
+      "Operation": "chat-completions",
+      "Subscription": "foundry-byom",
+      "RequestId": "7f6a7859…"
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:18:14.1181672Z",
+      "Name": "POST /fp8/v1/chat/completions",
+      "ResultCode": "404",
+      "DurationMs": 75.492,
+      "Api": "axk2-fp8",
+      "Operation": "chat-completions",
+      "Subscription": "foundry-byom",
+      "RequestId": "6758015f…"
+    }
+  ],
+  "traces": [
+    {
+      "TimeGenerated": "2026-10-19T10:18:13.8773632Z",
+      "Message": {
+        "request_id": "byom-trace-test-1-nvfp4",
+        "path": "/models/nvfp4/v1/chat/completions",
+        "user_agent": "Python-urllib/3.14",
+        "keys": "model,stream,max_completion_tokens,store,messages,tools,tool_choice",
+        "model": "trace-test-no-such-model",
+        "stream": "True",
+        "has_max_tokens": false,
+        "has_max_completion_tokens": true,
+        "message_count": 4,
+        "roles": "system,user,assistant,tool",
+        "tool_names": "get_time",
+        "tool_choice": "\"auto\""
+      }
+    },
+    {
+      "TimeGenerated": "2026-10-19T10:18:14.1464531Z",
+      "Message": {
+        "request_id": "byom-trace-test-1-fp8",
+        "path": "/v1/chat/completions",
+        "user_agent": "Python-urllib/3.14",
+        "keys": "model,stream,max_completion_tokens,store,messages,tools,tool_choice",
+        "model": "trace-test-no-such-model",
+        "stream": "True",
+        "has_max_tokens": false,
+        "has_max_completion_tokens": true,
+        "message_count": 4,
+        "roles": "system,user,assistant,tool",
+        "tool_names": "get_time",
+        "tool_choice": "\"auto\""
+      }
+    }
+  ],
+  "forbiddenText": "SENTINEL",
+  "forbiddenTextHits": 0
+}
