@@ -15,3 +15,10 @@ __pycache__/
 /outputs/
 /aml/jobs/.rendered/
 .playwright-mcp/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
