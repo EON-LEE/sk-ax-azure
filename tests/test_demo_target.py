@@ -243,6 +243,18 @@ class TargetTests(unittest.TestCase):
                 proof = json.loads((instance.directory / "candidate-proof.json").read_text())
                 self.assertEqual(proof["state"], "deployed_links_recovered")
 
+    def test_auth_activation_waits_for_disabled_worker_to_recycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instance = object.__new__(target.Target)
+            instance.directory, instance.url = Path(directory), "https://target.invalid"
+            failures = [target.urllib.error.HTTPError(instance.url, status, "status", {}, None)
+                        for status in (404, 404, 401, 401)]
+            with patch.object(instance, "request", side_effect=failures) as request, \
+                    patch.object(target.time, "sleep") as sleep:
+                instance.wait_model_auth()
+                self.assertEqual(request.call_count, 4)
+                sleep.assert_called_once_with(10)
+
     def test_revision_rollout_regression_precedes_key_activation(self):
         for closed in (True, False):
             with self.subTest(closed=closed), tempfile.TemporaryDirectory() as directory:

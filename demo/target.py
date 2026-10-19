@@ -408,25 +408,40 @@ class Target:
         self.wait_web_recovery(baseline)
         self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
                 "--settings", "@" + str(settings_path))
+        self.wait_model_auth()
         recovered = self.wait_web_recovery(baseline)
         self.request(self.url + "/healthz")
         self.request(self.url + "/api/status")
         if self.request(self.url + "/api/capabilities")["web_iq"]["state"] != "ready":
             raise ValueError("Web IQ discovery regressed during settings activation")
-        for prefix in ("", "/models/nvfp4"):
-            try:
-                self.request(self.url + prefix + "/v1/models", anonymous=True)
-            except urllib.error.HTTPError as exc:
-                if exc.code != 401:
-                    raise ValueError("Enabled model API must reject unauthenticated access with HTTP 401") from None
-            else:
-                raise ValueError("Enabled model API unexpectedly accepted an unauthenticated request")
         proof.update(state="deployed_links_recovered", settings_recycle=recovered)
         write_private(proof_path, proof)
         write_private(self.directory / "model-settings-proof.json", {
             "state": "activated_links_recovered", "models": recovered,
             "smoke": "not_run; separately verify the rotated consumer connection"})
         print("Staged model API settings activated; original reverse links recovered.")
+
+    def wait_model_auth(self):
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            statuses = []
+            for prefix in ("", "/models/nvfp4"):
+                try:
+                    self.request(self.url + prefix + "/v1/models", anonymous=True)
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in {401, 404, 502, 503}:
+                        raise ValueError("Unexpected model API activation HTTP status: " + str(exc.code)) from None
+                    statuses.append(exc.code)
+                except (urllib.error.URLError, TimeoutError):
+                    statuses.append("transport_pending")
+                else:
+                    raise ValueError("Enabled model API unexpectedly accepted an unauthenticated request")
+            if statuses == [401, 401]:
+                return
+            write_private(self.directory / "model-auth-wait.json", {
+                "state": "waiting_for_settings_recycle", "http_statuses": statuses})
+            time.sleep(10)
+        raise TimeoutError("Saved model API settings did not become effective on both routes")
 
     def deploy_revision(self, revision, allow_live_web_recycle=False):
         if not allow_live_web_recycle:
