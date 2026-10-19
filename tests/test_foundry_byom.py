@@ -820,6 +820,8 @@ class ObserveTests(ClientCase):
         self.assertEqual((shape["roles"], shape["tools"], shape["userAgent"]), (["system", "user"], [], ""))
         self.assertEqual(text.count("answered by backend"), 4)
         self.assertIn("token limit max_completion_tokens", text)
+        self.assertIn("tools ? (none), tool_choice absent", text)
+        self.assertNotIn("parameters:", text)
         self.assertIn("client credentials forwarded none; authorization injected yes", text)
         self.assertEqual(len(self.client.log_query.queries), 3)
 
@@ -876,6 +878,49 @@ class ObserveTests(ClientCase):
         text = self.observe(tables, label="test")
         self.assertEqual(self.saved()["requests"][0]["shape"], {"unavailable": True})
         self.assertIn("shape: unavailable", text)
+
+    def test_body_parameters_and_tool_count_of_the_newer_trace_are_reported(self):
+        params = {"temperature": 0.6, "top_p": 0.95, "stream": True, "max_completion_tokens": 4096,
+                  "stream_options": {"include_usage": True}}
+        shape = shape_message("id-new", tool_names="lookup_demo_stock", tool_choice='"auto"', tool_count=1,
+                              has_tool_choice=True, params=params)
+        tables = {"requests": [gateway_request("2026-10-19T11:45:12Z", 5.0, "op-new", "200")],
+                  "traces": policy_traces("op-new", "id-new", shape=shape)}
+        text = self.observe(tables, label="test")
+        found = self.saved()["requests"][0]["shape"]
+        self.assertEqual(found["parameters"], params)
+        self.assertEqual(list(found["parameters"]), sorted(params))
+        self.assertEqual((found["toolCount"], found["hasToolChoice"], found["tools"]), (1, True, ["lookup_demo_stock"]))
+        self.assertIn("tools 1 (lookup_demo_stock), tool_choice \"auto\"", text)
+        self.assertIn("parameters: max_completion_tokens=4096, stream=true, stream_options={include_usage=true}, "
+                      "temperature=0.6, top_p=0.95", text)
+
+    def test_a_request_without_tools_reports_a_zero_count_and_no_tool_choice(self):
+        shape = shape_message("id-plain", tool_count=0, has_tool_choice=False, params={"temperature": 1.0})
+        tables = {"requests": [gateway_request("2026-10-19T11:45:12Z", 5.0, "op-plain", "200")],
+                  "traces": policy_traces("op-plain", "id-plain", shape=shape)}
+        text = self.observe(tables, label="test")
+        found = self.saved()["requests"][0]["shape"]
+        self.assertEqual((found["toolCount"], found["hasToolChoice"]), (0, False))
+        self.assertIn("tools 0 (none), tool_choice absent", text)
+        self.assertIn("parameters: temperature=1.0", text)
+
+    def test_parameters_the_policy_could_not_read_are_marked(self):
+        shape = shape_message("id-bad", tool_count=0, has_tool_choice=False, params="unavailable")
+        tables = {"requests": [gateway_request("2026-10-19T11:45:12Z", 5.0, "op-bad", "200")],
+                  "traces": policy_traces("op-bad", "id-bad", shape=shape)}
+        text = self.observe(tables, label="test")
+        self.assertEqual(self.saved()["requests"][0]["shape"]["parameters"], "unavailable")
+        self.assertIn("parameters: unavailable (the policy could not read them)", text)
+
+    def test_parameters_keep_numbers_and_booleans_only(self):
+        found = observe_requests.parameters({"temperature": 0.2, "stop": "END", "n": None, "logit_bias": [1],
+                                             "stream_options": {"include_usage": True, "note": "text", "deep": {"a": 1}}})
+        self.assertEqual(found, {"temperature": 0.2, "stream_options": {"include_usage": True}})
+        self.assertEqual(observe_requests.parameters({}), {})
+        self.assertEqual(observe_requests.parameters("unavailable"), "unavailable")
+        for other in (None, "text", 5, ["a"]):
+            self.assertIsNone(observe_requests.parameters(other))
 
     def test_url_shape_keeps_names_but_no_host_or_values(self):
         shape = observe_requests.url_shape("https://gw/nvfp4/v1/models?subscription-key=SECRET-VALUE&api-version=2024-10-21")
@@ -960,6 +1005,20 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(message.count("ContainsKey("), 5)
         for forbidden in ("GetValueOrDefault", "Body", "Headers[", "Query["):
             self.assertNotIn(forbidden, message)
+
+    def test_the_shape_trace_copies_only_numbers_and_booleans_of_the_body(self):
+        start = self.text.index('<trace source="axk2-request-shape"')
+        shape = self.text[start:self.text.index("</trace>", start)]
+        block = shape[shape.index("var nums = new JObject();"):shape.index('o["params"] = nums;')]
+        for name in ("val", "sval"):
+            guard = f"{name} != null && ({name}.Value is long || {name}.Value is double || {name}.Value is bool)"
+            self.assertEqual(block.count(guard), 1)
+        self.assertEqual(block.count("DeepClone()"), 2)
+        for forbidden in ("(string)", "ToString", "Substring", "Select(", "Join(", "messages", "content", "Body", "tools"):
+            self.assertNotIn(forbidden, block)
+        self.assertIn('o["tool_count"] = tools == null ? 0 : tools.Count;', shape)
+        self.assertIn('o["has_tool_choice"] = b["tool_choice"] != null;', shape)
+        self.assertIn('o["params"] = "unavailable";', shape)
 
     def test_the_backend_sees_the_gateway_key_and_the_stream_is_not_buffered(self):
         self.assertIn("{{axk2-backend-key}}", self.text)

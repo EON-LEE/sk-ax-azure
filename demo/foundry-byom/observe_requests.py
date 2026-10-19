@@ -2,8 +2,10 @@
 
 Run it after a caller (for example a Foundry agent) has used the gateway. From Application Insights alone it shows,
 for every request: the route and query names, the request shape the policy traced (body field names, model, stream,
-token-limit field, message roles; never message text), which side produced the status code, the gateway and backend
-durations, whether a client credential survived to the backend call, and the gaps between requests (retries).
+token-limit field, message roles, tool names and count, the numeric and boolean body parameters such as temperature
+and max_completion_tokens; never message text, string values or tool schemas), which side produced the status code,
+the gateway and backend durations, whether a client credential survived to the backend call, and the gaps between
+requests (retries).
 Nothing is sent to the gateway or the web app. Calls of the verifier's smoke tool are left out unless
 --include-smoke is given. Times are UTC. Logs arrive a few minutes late, so a window that ends now can be incomplete.
 With --label the redacted result is saved under evidence/foundry-byom/gateway-requests-<label>.json.
@@ -27,6 +29,7 @@ from verify_gateway import CLIENT_CREDENTIAL_FLAGS, FORWARDED_KIND, INJECTED_FLA
 SMOKE_ID_PREFIX = "smoke-"
 SMOKE_AGENT = "axk2-model-api-smoke"
 SHAPE_UNAVAILABLE = "request-shape-unavailable"
+PARAMETERS_UNAVAILABLE = "unavailable"
 MAX_WINDOW = timedelta(hours=48)
 INGEST_LAG = timedelta(minutes=5)
 SPAN_SLACK = timedelta(milliseconds=50)
@@ -95,6 +98,34 @@ def names(value):
     return [item for item in str(value or "").split(",") if item]
 
 
+def scalar(value):
+    return isinstance(value, (bool, int, float))
+
+
+def parameters(value):
+    """The numeric and boolean body parameters the policy copied, in name order (stream_options one level deeper).
+
+    Anything else is dropped again here, so evidence can never hold text. None: the trace predates the parameters.
+    """
+    if value == PARAMETERS_UNAVAILABLE:
+        return value
+    if not isinstance(value, dict):
+        return None
+    found = {}
+    for name, item in sorted(value.items()):
+        if scalar(item):
+            found[name] = item
+        elif isinstance(item, dict):
+            found[name] = {inner: nested for inner, nested in sorted(item.items()) if scalar(nested)}
+    return found
+
+
+def render(found):
+    """One line of name=value pairs; a nested object goes in braces."""
+    return ", ".join(f"{name}={{{render(item)}}}" if isinstance(item, dict) else f"{name}={json.dumps(item)}"
+                     for name, item in found.items())
+
+
 def shape_of(record):
     if record is None:
         return None
@@ -106,7 +137,10 @@ def shape_of(record):
             "model": record.get("model"), "stream": stream if stream in (None, "absent") else flag(stream),
             "fields": names(record.get("keys")), "tokenLimit": limits or ["none"],
             "messages": record.get("message_count"), "roles": names(record.get("roles")),
-            "tools": names(record.get("tool_names")), "toolChoice": record.get("tool_choice")}
+            "tools": names(record.get("tool_names")), "toolCount": record.get("tool_count"),
+            "toolChoice": record.get("tool_choice"),
+            "hasToolChoice": flag(record["has_tool_choice"]) if "has_tool_choice" in record else None,
+            "parameters": parameters(record.get("params"))}
 
 
 def classify(shape, forwarded, row):
@@ -221,11 +255,16 @@ def describe(item):
     if shape and shape.get("unavailable"):
         lines.append("    shape: unavailable (the body could not be read as JSON)")
     elif shape:
+        count = shape["toolCount"]
         lines.append(f"    shape: model {shape['model']}, stream {shape['stream']}, token limit "
                      f"{'+'.join(shape['tokenLimit'])}, messages {shape['messages']} ({','.join(shape['roles'])}), "
-                     f"tools {','.join(shape['tools']) or 'none'}, tool_choice {shape['toolChoice']}, "
-                     f"user agent {shape['userAgent'] or 'empty'}")
+                     f"tools {'?' if count is None else count} ({','.join(shape['tools']) or 'none'}), "
+                     f"tool_choice {shape['toolChoice']}, user agent {shape['userAgent'] or 'empty'}")
         lines.append(f"    body fields: {','.join(shape['fields'])}")
+        if shape["parameters"] == PARAMETERS_UNAVAILABLE:
+            lines.append("    parameters: unavailable (the policy could not read them)")
+        elif shape["parameters"] is not None:
+            lines.append(f"    parameters: {render(shape['parameters']) or 'none'}")
     sent = item["clientCredentialsForwarded"]
     if sent is not None:
         lines.append(f"    gateway: client credentials forwarded {','.join(sent) or 'none'}; "

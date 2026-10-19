@@ -34,7 +34,7 @@
         return o.ToString(Newtonsoft.Json.Formatting.None);
       }</message>
     </trace>
-    <!-- Request shape only (field names, roles, tool names): no message text is logged. -->
+    <!-- Request shape (field names, roles, tool names and count) and the numeric and boolean body parameters: no message text, string value or tool schema is logged. -->
     <choose>
       <when condition="@(context.Request.Method == "POST")">
         <trace source="axk2-request-shape" severity="information">
@@ -58,6 +58,31 @@
               o["tool_names"] = tools == null ? "" : string.Join(",", tools.Select(t => t["function"] != null ? (string)t["function"]["name"] : (string)t["type"]));
               var tc = b["tool_choice"] == null ? "absent" : b["tool_choice"].ToString(Newtonsoft.Json.Formatting.None);
               o["tool_choice"] = tc.Length > 100 ? tc.Substring(0, 100) : tc;
+              o["tool_count"] = tools == null ? 0 : tools.Count;
+              o["has_tool_choice"] = b["tool_choice"] != null;
+              try {
+                var nums = new JObject();
+                foreach (var prop in b.Properties()) {
+                  var val = prop.Value as JValue;
+                  if (val != null && (val.Value is long || val.Value is double || val.Value is bool)) {
+                    nums[prop.Name] = val.DeepClone();
+                  }
+                }
+                var sopts = b["stream_options"] as JObject;
+                if (sopts != null) {
+                  var snums = new JObject();
+                  foreach (var sprop in sopts.Properties()) {
+                    var sval = sprop.Value as JValue;
+                    if (sval != null && (sval.Value is long || sval.Value is double || sval.Value is bool)) {
+                      snums[sprop.Name] = sval.DeepClone();
+                    }
+                  }
+                  nums["stream_options"] = snums;
+                }
+                o["params"] = nums;
+              } catch (Exception) {
+                o["params"] = "unavailable";
+              }
               return o.ToString(Newtonsoft.Json.Formatting.None);
             } catch (Exception) {
               return "request-shape-unavailable";
