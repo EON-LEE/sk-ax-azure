@@ -988,42 +988,92 @@ close a link.
 Before and after the probes, both profiles had the same link, readiness,
 health, model verification and activation state, the queue stayed empty and the
 vLLM token counter did not move, so nothing reached the GPU. The times are
-those of refused requests and are not performance figures. A third probe was
-not sent because it could not have told the two versions apart.
+those of refused requests and are not performance figures. A further probe,
+P3, was not approved or sent. Reading the code, it would have told the two
+versions apart by the error code (400 `invalid_value` before the fix, 400
+`invalid_json` after it), but P1 had already shown how an unpaired surrogate
+is rejected, on both profiles.
 
 **Evidence that K2 answers.** Foundry's usage was compared with the vLLM token
 counter, read before and after a turn. Output tokens matched exactly: 16 and 16
-for an NVFP4 turn, 142 and 142 for a turn with an MCP tool. That is independent
-evidence that those turns used this model. Prompt tokens differ, by 4 in the
-first turn and by 488 in the second, and the reason is not established. One
-reading is that Foundry's usage counts only the input of the last model
-request in a turn, which would leave out the first request. That is a guess and
-has not been checked.
+for an NVFP4 turn, 142 and 142 for a turn with an MCP tool. Three more calls to
+an FP8 agent with an MCP tool matched in the same way (129, 131 and 123 output
+tokens in Foundry's usage and in the counter), while the NVFP4 counters did not
+move. The figures of each call are in a redacted record,
+`demo/evidence/fp8-foundry-default-temperature-repeat-redacted.json`. That is
+independent evidence that those turns used this model. Prompt tokens differ, by
+4 in the first turn, by 488 in the second and by 486 in each of the three
+repeats. One reading is that Foundry's usage counts only the input of the last
+model request in a turn, while vLLM counts all of them, so that the difference
+is the input of the first request. The same difference in all three repeats
+fits that reading, but it is a guess and has not been checked: the counter was
+sampled every 12 seconds, which cannot separate the first request from the
+second.
 
-**An unexplained Foundry `model_error` (preliminary).** One FP8 run of an
-agent with an MCP tool (approval `never`) ended in a Foundry 500 `model_error`
-("The model produced invalid content. Consider modifying your prompt...")
-after about 2 seconds. The agent had the same instructions as an earlier clean
-run but no `temperature`, so Foundry sent its default, 1.0. The request
-reached vLLM, which generated 37 tokens, and the API Management gateway
-recorded a 200 from the backend after 1.1 seconds. Foundry did not retry. In
-Foundry's trace the tool-execution span of this run was named
-`functions.<label>.<tool>`, where successful runs show `mcp_<label>.<tool>`.
-That may mean that the tool name in the model's output did not match the
-declared one, but it is only a hint. The same instructions with `temperature`
-0.3 had worked before.
+**An unexplained Foundry `model_error`.** One run of an FP8 agent with an MCP
+tool (approval `never`) ended in a Foundry 500 `model_error` ("The model
+produced invalid content. Consider modifying your prompt...") after about 2
+seconds. The agent had the same instructions as an agent that had worked at
+`temperature` 0.3, but it set no `temperature`, so Foundry sent its default,
+1.0. The request reached vLLM, which generated 37 tokens, and the API
+Management gateway recorded a 200 from the backend after 1.1 seconds. Foundry
+did not retry. In Foundry's trace the span of the tool run was named
+differently from the spans of successful runs (details: the Foundry BYOM
+README, `demo/foundry-byom/README.md`, section 9). One guess is that the model
+wrote a tool name with a prefix such as `functions.`, which did not match the
+declared name. It rests on that one span and has not been verified.
 
-Eight direct replays through the model API did not reproduce the error: five
-at temperature 1.0 and three at 0.3. All were 200 with no stream anomaly, and
-all seven tool calls carried exactly the declared name. A clean tool call,
-with no text, came back in three of five runs at 1.0 and in three of three at
-0.3. Of the other two runs at 1.0, one answered in text only and one put 56
-characters of text before its tool call. The reconstructed prompt had 472
-tokens against 482 in the real request, so the replays are not token-identical
-to the failed one. A larger replay (24 runs at 1.0, 12 at 0.3) is pending, so
-this account is preliminary. Setting `temperature` on the agent (0.3 so far)
-needs no redeployment and is the mitigation available now; with this sample it
-is something to try, not a fix.
+The same agent definition, with no `temperature` and the same prompt, was then
+run three more times from Foundry through the Responses API, one call after
+another at least 45 seconds apart, with the SDK's retries off. All three
+completed, each with an MCP tool call made by Foundry, and none ended in
+`model_error`. Because none failed, no control call at temperature 0.3 was
+sent.
+
+Direct replays through the model API did not reproduce the error. The request
+of the failed run was reconstructed (one function tool, `tool_choice` `auto`,
+`stream` true and `stream_options`) and sent 44 times to the FP8 route at the
+web app's own address: 29 times at temperature 1.0 and 15 times at 0.3. The
+calls were sequential, at least 15 seconds apart, and none was retried. Every
+call returned HTTP 200 and one `[DONE]`.
+
+| Temperature | Calls | A tool call, no text | Text, then a tool call | Text only |
+| --- | --- | --- | --- | --- |
+| 1.0 | 29 | 26 | 2 | 1 |
+| 0.3 | 15 | 15 | 0 | 0 |
+
+All 43 tool calls carried exactly the declared tool name, and their
+`arguments` were valid JSON. No stream contained a `functions.` prefix on a
+tool name, U+FFFD, NUL, an `error` chunk or a `data:` line, other than
+`[DONE]`, that was not JSON. A call generated 40 to 91 tokens at 1.0 (median
+42) and 42 at 0.3; the failed call generated 37. After the replays, both
+profiles had the same link, readiness, health, model verification and
+activation state as before, and the queue was empty.
+
+The prompt sizes do not agree. The failed request had 482 tokens at vLLM. The
+reconstruction used in the replays had 472 in every call, so the replays are
+not token-identical to the failed request. For the three Foundry retests the
+counters suggest about 486 tokens for the first model request of a turn (see
+"Evidence that K2 answers"): about 14 more than the reconstruction and 4 more
+than the failed request. That figure is an estimate. It rests on a guess about
+how Foundry counts input. The first turn above also shows a difference of 4
+that is not explained, so the 4-token gap to the failed request may come from
+the counting and not from the requests.
+
+What these results show: the error was not reproduced, and its cause is not
+known. The 44 direct replays (29 at temperature 1.0, 15 at 0.3) had no
+abnormal stream. From Foundry, the agent definition without `temperature` has
+run four times, with one failure and three successes, and the same
+instructions at `temperature` 0.3 have run twice, with two successes. These
+samples cannot separate an effect of temperature from chance. The cause may be
+the model's output, how Foundry read the stream, or a difference in the
+request. There is no evidence that the model API caused it: none of the 44
+replays showed an abnormal stream, the three Foundry retests completed, and
+the stream analysis below shows the few ways in which the model API changes a
+stream. Setting `temperature` to 0.3 on the agent is a precaution that needs
+no redeployment: 15 of 15 direct replays and 2 of 2 Foundry runs at that
+value were clean. Those counts are not statistical evidence that it prevents
+the error.
 
 **Stream shapes (offline analysis).** To see what the model API can add to a
 stream that Foundry might call invalid, 69 synthetic upstream streams were fed
@@ -1105,14 +1155,18 @@ non-empty `error` (for example `upstream_error`, `backend_unavailable`,
 
 **Not yet verified.**
 
+- What caused the one Foundry `model_error`: the model's output, how Foundry
+  read the stream, or a difference in the request. It was not reproduced in 44
+  direct replays or in 3 Foundry retests.
+- Why the prompt sizes differ: 482 tokens in the failed request, 472 in the
+  replay reconstruction and about 486 (an estimate) in the successful Foundry
+  requests; and how Foundry counts input tokens for a turn with more than one
+  model request.
 - How Foundry's parser treats an `error` chunk in a stream, and a tool call
   whose `arguments` are not valid JSON.
-- How often vLLM produces unusable output at temperature 1.0 (the larger replay
-  is pending).
 - What the Foundry console shows for this connection: the model setting, the
-  conversation and the tool runs.
+  conversation and the tool runs. This needs a person signed in to the console.
 - The Web IQ search tool with a real key.
-- How Foundry counts input tokens for a turn with more than one model request.
 
 **A related issue in the demo chat (unchanged).** `POST /api/chat` has the same
 exposure that the model API now closes. A user message with an unpaired
@@ -1171,8 +1225,9 @@ encodability check to the demo chat's request validation.
 - Further throughput tuning (expert parallelism, data-parallel replicas,
   `fastsafetensors` loading) is out of scope for this proof.
 - The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
-  registration. Its open items are listed at the end of 8.6: how Foundry
-  handles a stream error chunk and malformed tool arguments, the rate of
-  unusable output at temperature 1.0, console visibility and the Web IQ tool
-  with a real key. Its latency and load are not measured; do that with the
-  customer's scenario once the connection is complete.
+  registration. Its open items are listed at the end of 8.6: the cause of one
+  unexplained Foundry `model_error`, the prompt-size differences, how Foundry
+  handles a stream error chunk and malformed tool arguments, console
+  visibility and the Web IQ tool with a real key. Its latency and load are not
+  measured; do that with the customer's scenario once the connection is
+  complete.
