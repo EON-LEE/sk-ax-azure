@@ -215,6 +215,7 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
 - 게이트웨이가 만든 401(키 없음·틀린 키)은 구독 정보와 트레이스가 로그에 없다. 스모크 창의 401 4건은 3.6 ms 이하로 끝났다. 사전 점검(10:13)에서 가장 먼저 보낸 401 2건은 각각 약 1.4 s였다(원인은 판단하지 않는다). 이 401에는 `x-request-id`가 돌아오지 않는다.
 - Foundry의 에이전트 스팬은 게이트웨이 요청과 다른 OperationId에 기록된다. 게이트웨이 요청에는 호출자 쪽 부모 스팬 ID(`ParentId`)가 있어 Foundry가 `traceparent`를 보내는 것으로 보인다. 그 부모 스팬은 이 작업 영역에 없다. 에이전트 스팬과 게이트웨이 요청은 시각으로 맞춘다. 같은 Foundry 호출 안의 모델 요청은 OperationId를 공유할 수 있다. 그래서 `observe_requests.py`는 요청의 `Id`와 백엔드 호출·트레이스의 `ParentId`로 요청을 묶는다.
 - 로그 수집은 최대 약 5분 늦는다. 로그 조회는 5분 이상 기다린 뒤에 한다.
+- `observe_requests.py`는 `execute_tool` 스팬마다 도구 이름과 `gen_ai.tool.call.result` 속성의 유무(예/아니오)를 `callerSideSpans`에 센다. 쿼리는 속성 묶음을 가져오지 않고 속성 유무만 계산해 돌려준다. 속성 값(메시지, 도구 인자, 도구 결과)은 읽지 않는다. 영문자·숫자·`_`·`.`·`-` 100자 이내가 아닌 도구 이름은 `<other>`로 기록한다. 변경은 단위 테스트와, 9.6절의 ablation 창(13:16)과 `never` v2 창(13:14)을 읽기 전용으로 다시 읽은 결과로 확인했다. 두 창의 결과는 9.6절의 개인 디렉터리 출력과 같았다(ablation: 도구 이름 `functions.microsoft_learn.microsoft_docs_search`, 결과 속성 없음, `chat` 스팬 없음. `never` v2: 도구 이름 `mcp_microsoft_learn.microsoft_docs_search`, 결과 속성 있음, `chat` 스팬 1건). 이 확인 출력은 저장하지 않았다.
 - `AppRequests.Url`에는 클라이언트 URL 전체가 있다. 증거에는 경로, 쿼리 이름, `api-version`만 남긴다.
 
 ### 9.3 에이전트 담당의 첫 Foundry 호출 (503)
@@ -320,7 +321,7 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
   - 추정: 모델이 `functions.` 접두사가 붙은 도구 이름을 내보냈고 Foundry가 이를 요청의 도구와 맞추지 못했을 수 있다. 근거는 정황뿐이다(스팬 이름, 결과 속성 유무). 확인하려면 같은 요청으로 모델 API를 직접 호출해 응답의 `tool_calls[].function.name`을 읽어야 한다. GPU 호출이므로 조정자 승인이 필요하다.
 - **누적(11:40~13:28 창, 스모크 제외):** 게이트웨이가 받은 Foundry 요청은 19건이다. 상태는 200이 15건, 503이 4건이다. NVFP4가 8건(503 4건, 200 4건)이고 FP8이 11건(모두 200)이다. 응답은 19건 모두 백엔드가 만들었다. 클라이언트 자격 증명 전달은 0건이고 `Authorization` 주입은 19/19다. Foundry `invoke_agent` 스팬은 17건이고 `ResultCode` 0이 12건, 500이 5건(11:45의 4건과 ablation 1건)이다.
 - **게이트웨이가 더한 시간:** 게이트웨이 총 소요에서 백엔드 호출 소요를 뺀 값이다. 19건 중 17건이 14.4 ms 이하이고 최소는 1.2 ms다. 2건이 약 255~265 ms다(NVFP4 1a 12:46:45의 265.0 ms, NVFP4 1b 둘째 요청 12:47:23의 254.6 ms). 웹앱 재배포 뒤 4건은 1.2~4.1 ms다. 원인은 판단하지 않는다(단일 표본).
-- 스팬의 이름·시각·종료 사유·토큰 수와 속성 이름은 개인 디렉터리 출력에서 읽었다. 증거 파일에는 스팬 종류별 개수와 `ResultCode`만 있다.
+- 스팬의 이름·시각·종료 사유·토큰 수와 속성 이름은 개인 디렉터리 출력에서 읽었다. 이 절의 증거 파일에는 스팬 종류별 개수와 `ResultCode`만 있다. 이후에 만드는 증거 파일에는 `execute_tool` 스팬의 도구 이름과 결과 속성 유무도 들어간다(9.2절). 기존 증거 파일은 고치지 않았다.
 
 ## 10. Foundry 인계 정보 (에이전트 담당용)
 
@@ -401,7 +402,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 - 스모크 도구는 개인 디렉터리의 사본을 먼저 찾고, 없으면 `demo/tools/model_api_smoke.py`를 쓴다. `--smoke-tool`로 경로를 지정할 수 있다.
 - 백엔드를 배포하거나 활성화하기 전에는 `/v1/*`가 404다(fail-closed). 활성화한 뒤에만 `--go`를 실행한다.
 - 웹앱 재배포(재시작) 창에는 게이트웨이에서 웹앱으로 보내는 프로브와 스모크를 하지 않는다. 오탐이 난다.
-- `observe_requests.py`는 읽기 전용이다. `--since`는 `30m`, `2h` 또는 오프셋이 있는 ISO 시각을 받는다. 로그가 최대 약 5분 늦으므로 창이 끝난 뒤 5분 이상 기다린다. 요청의 `Id`와 백엔드 호출·트레이스의 `ParentId`로 요청을 묶는다. 로그에 `Request Size`와 `Response Size`가 있으면 `requestSize`와 `responseSize`로 기록한다(단위는 4.1절).
+- `observe_requests.py`는 읽기 전용이다. `--since`는 `30m`, `2h` 또는 오프셋이 있는 ISO 시각을 받는다. 로그가 최대 약 5분 늦으므로 창이 끝난 뒤 5분 이상 기다린다. 요청의 `Id`와 백엔드 호출·트레이스의 `ParentId`로 요청을 묶는다. 로그에 `Request Size`와 `Response Size`가 있으면 `requestSize`와 `responseSize`로 기록한다(단위는 4.1절). `execute_tool` 스팬은 도구 이름과 `gen_ai.tool.call.result` 속성의 유무(예/아니오)를 세어 `callerSideSpans`에 기록한다. 속성 값은 읽지 않는다(9.2절).
 - 값 기록을 배포한 뒤(8절)의 요청에는 `parameters`(숫자·불리언 값), `toolCount`, `hasToolChoice`가 증거에 들어간다. 배포 전 요청에서는 이 값이 `null`이다.
 
 **정책 변경**
@@ -414,7 +415,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 
 백엔드 키 교체는 웹앱 담당 소관이다. 교체한 뒤 `byom.py key`를 실행해 게이트웨이의 secret을 갱신한다.
 
-**단위 테스트**(오프라인, 네트워크 없음): `python -m unittest tests.test_foundry_byom`. 80개이며 Windows에서는 1개를 건너뛴다.
+**단위 테스트**(오프라인, 네트워크 없음): `python -m unittest tests.test_foundry_byom`. 84개이며 Windows에서는 1개를 건너뛴다.
 
 ## 13. 문제 대응
 
@@ -468,7 +469,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 | `tracing.bicep` | 트레이싱(AppInsights) 연결 2개 |
 | `byom.py` | 배포·검증·삭제 도구. 활성 계정을 확인하고, what-if에서 `Delete`가 있으면 중단한다 |
 | `verify_gateway.py` | 스모크 도구를 게이트웨이에 실행하고 로그와 상관한다 |
-| `observe_requests.py` | 시간 창 안의 게이트웨이 요청을 읽기 전용으로 관찰한다. 요청을 `Id`와 `ParentId`로 묶고 요청·응답 크기를 기록한다 |
+| `observe_requests.py` | 시간 창 안의 게이트웨이 요청을 읽기 전용으로 관찰한다. 요청을 `Id`와 `ParentId`로 묶고 요청·응답 크기를 기록한다. `execute_tool` 스팬의 도구 이름과 결과 속성 유무도 센다 |
 | `../../tests/test_foundry_byom.py` | 오프라인 단위 테스트 |
 
 증거 파일은 `../../evidence/foundry-byom/`에 있다.

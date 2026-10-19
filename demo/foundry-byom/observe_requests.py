@@ -6,7 +6,9 @@ token-limit field, message roles, tool names and count, the numeric and boolean 
 and max_completion_tokens; never message text, string values or tool schemas), which side produced the status code,
 the gateway and backend durations, the request and response sizes the gateway logged (numbers as logged; the log does
 not document their unit), whether a client credential survived to the backend call, and the gaps between requests
-(retries).
+(retries). For the caller's own spans (a Foundry agent run) it counts each span kind with its ResultCode; for
+tool-execution spans it also lists the tool names and how many spans carry a `gen_ai.tool.call.result` attribute
+(a yes/no only; the attribute's value is never read).
 Nothing is sent to the gateway or the web app. Calls of the verifier's smoke tool are left out unless
 --include-smoke is given. Times are UTC. Logs arrive a few minutes late, so a window that ends now can be incomplete.
 With --label the redacted result is saved under evidence/foundry-byom/gateway-requests-<label>.json.
@@ -38,6 +40,8 @@ REQUEST_CAP, DEPENDENCY_CAP, TRACE_CAP = 500, 1000, 1000
 RELATIVE = re.compile(r"(\d{1,4})([mh])")
 VERSION = re.compile(r"[A-Za-z0-9._-]{1,40}")
 SPAN_KIND = re.compile(r"[A-Za-z0-9_.-]{1,40}")
+TOOL_NAME = re.compile(r"[A-Za-z0-9_.-]{1,100}")
+TOOL_SPAN = "execute_tool"
 BACKEND_CALL = re.compile(r"(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) /")
 
 
@@ -69,8 +73,12 @@ def queries(start, end):
                      "Subscription = tostring(p['Subscription Name']), "
                      "RequestSize = toreal(m['Request Size']), ResponseSize = toreal(m['Response Size']) "
                      f"| order by TimeGenerated asc | take {REQUEST_CAP}"),
-        "dependencies": (f"AppDependencies | where {window} | project TimeGenerated, Id, ParentId, OperationId, Name, "
-                         f"ResultCode, DurationMs, Success | order by TimeGenerated asc | take {DEPENDENCY_CAP}"),
+        # ResultKey is only a boolean: whether the span has a `gen_ai.tool.call.result` attribute. The attribute
+        # bag itself is never returned, because it can hold message text and tool arguments.
+        "dependencies": (f"AppDependencies | where {window} | extend p = parse_json(Properties) "
+                         "| project TimeGenerated, Id, ParentId, OperationId, Name, ResultCode, DurationMs, Success, "
+                         "ResultKey = isnotnull(p['gen_ai.tool.call.result']) "
+                         f"| order by TimeGenerated asc | take {DEPENDENCY_CAP}"),
         "traces": (f"AppTraces | where {window} | project TimeGenerated, ParentId, OperationId, Message "
                    f"| order by TimeGenerated asc | take {TRACE_CAP}")}
 
@@ -175,6 +183,22 @@ def span_kind(name):
     return first if SPAN_KIND.fullmatch(first) else "other"
 
 
+def span_tool(name):
+    """The tool name in an `execute_tool <tool>` span name; anything that is not a plain tool name is not recorded."""
+    parts = str(name or "").split(" ")
+    return parts[1] if len(parts) == 2 and TOOL_NAME.fullmatch(parts[1]) else "<other>"
+
+
+def span_summary(kind, found):
+    """Count and ResultCode per span kind. Tool-execution spans also list their tool names and how many of them
+    carry a result attribute (the name of the attribute only, never its value)."""
+    summary = {"count": sum(found["status"].values()), "status": dict(sorted(found["status"].items()))}
+    if kind == TOOL_SPAN:
+        summary["tools"] = dict(sorted(found["tools"].items()))
+        summary["resultKey"] = {"present": found["resultKey"]["present"], "absent": found["resultKey"]["absent"]}
+    return summary
+
+
 def enclosing(started, spans):
     """Kind of the caller-side span (for example an agent invocation) that was running when the request arrived."""
     for span in spans:
@@ -251,7 +275,13 @@ def summarize(shown, left_out, spans, other_traces):
     traced = [item for item in shown if item["clientCredentialsForwarded"] is not None]
     kinds = {}
     for span in spans:
-        kinds.setdefault(span_kind(span["Name"]), Counter())[str(span["ResultCode"])] += 1
+        kind = span_kind(span["Name"])
+        found = kinds.setdefault(kind, {"status": Counter(), "tools": Counter(), "resultKey": Counter()})
+        found["status"][str(span["ResultCode"])] += 1
+        if kind == TOOL_SPAN:
+            found["tools"][span_tool(span["Name"])] += 1
+            if span.get("ResultKey") is not None:
+                found["resultKey"]["present" if flag(span["ResultKey"]) else "absent"] += 1
     return {
         "requests": len(shown), "smokeLeftOut": left_out,
         "callers": dict(sorted(Counter(item["caller"] for item in shown).items())),
@@ -264,8 +294,7 @@ def summarize(shown, left_out, spans, other_traces):
         "tracedRequests": len(traced),
         "clientCredentialsForwarded": sum(1 for item in traced if item["clientCredentialsForwarded"]),
         "authorizationInjected": sum(1 for item in traced if item["authorizationInjected"]),
-        "callerSideSpans": {kind: {"count": sum(counts.values()), "status": dict(sorted(counts.items()))}
-                            for kind, counts in sorted(kinds.items())},
+        "callerSideSpans": {kind: span_summary(kind, found) for kind, found in sorted(kinds.items())},
         "otherTraceRows": other_traces}
 
 

@@ -752,6 +752,12 @@ def backend_call(arrived, millis, operation, code="503"):
             "DurationMs": millis, "Success": code == "200"}
 
 
+def caller_span(name, code="0", **changes):
+    """A caller-side span row (a Foundry agent run); it hangs under no gateway request."""
+    return {"TimeGenerated": "2026-10-19T11:45:12Z", "OperationId": "agent-op", "ParentId": "caller", "Name": name,
+            "ResultCode": code, "DurationMs": 90.0, "Success": code == "0"} | changes
+
+
 def foundry_tables():
     requests, dependencies, traces = [], [], []
     for index, (arrived, total, backend, span_start) in enumerate(FOUNDRY_CALLS):
@@ -881,6 +887,50 @@ class ObserveTests(ClientCase):
         entry = self.saved()["requests"][0]
         self.assertEqual((entry["backend"], entry["answeredBy"], entry["duringSpan"]), (None, "gateway", "invoke_agent"))
         self.assertEqual(self.saved()["summary"]["callerSideSpans"], {"invoke_agent": {"count": 1, "status": {"0": 1}}})
+
+    def test_tool_execution_spans_list_their_tool_names_and_whether_each_carries_a_result(self):
+        spans = [caller_span("invoke_agent some-agent:1", "500"), caller_span("chat some-model"),
+                 caller_span("execute_tool functions.docs.search", ResultKey=False),
+                 caller_span("execute_tool mcp_docs.search", ResultKey=True),
+                 caller_span("execute_tool mcp_docs.search", ResultKey=True)]
+        text = self.observe({"requests": [gateway_request("2026-10-19T11:45:12Z", 50.0, "one-op", "200")],
+                             "dependencies": spans}, label="test")
+        expected = {"chat": {"count": 1, "status": {"0": 1}},
+                    "execute_tool": {"count": 3, "status": {"0": 3},
+                                     "tools": {"functions.docs.search": 1, "mcp_docs.search": 2},
+                                     "resultKey": {"present": 2, "absent": 1}},
+                    "invoke_agent": {"count": 1, "status": {"500": 1}}}
+        self.assertEqual(self.saved()["summary"]["callerSideSpans"], expected)
+        self.assertIn('"tools": {"functions.docs.search": 1, "mcp_docs.search": 2}', text)
+        saved = (self.evidence / "gateway-requests-test.json").read_text()
+        for leaked in ("some-agent", "some-model"):
+            self.assertNotIn(leaked, saved)
+            self.assertNotIn(leaked, text)
+
+    def test_a_tool_span_name_that_is_not_a_plain_tool_name_is_not_recorded(self):
+        longest = "a" * 100
+        names = ("execute_tool", "execute_tool two words", "execute_tool bad/name", f"execute_tool {longest}a",
+                 f"execute_tool {longest}")
+        self.observe({"requests": [gateway_request("2026-10-19T11:45:12Z", 50.0, "one-op", "200")],
+                      "dependencies": [caller_span(name, ResultKey=False) for name in names]}, label="test")
+        tools = self.saved()["summary"]["callerSideSpans"]["execute_tool"]["tools"]
+        self.assertEqual(tools, {"<other>": 4, longest: 1})
+
+    def test_the_result_flag_counts_text_booleans_and_skips_spans_without_one(self):
+        spans = [caller_span("execute_tool a.b", ResultKey="True"), caller_span("execute_tool a.b", ResultKey="False"),
+                 caller_span("execute_tool a.b")]
+        self.observe({"requests": [gateway_request("2026-10-19T11:45:12Z", 50.0, "one-op", "200")],
+                      "dependencies": spans}, label="test")
+        tool_spans = self.saved()["summary"]["callerSideSpans"]["execute_tool"]
+        self.assertEqual((tool_spans["count"], tool_spans["resultKey"]), (3, {"present": 1, "absent": 1}))
+
+    def test_the_span_query_returns_a_yes_or_no_for_the_result_attribute_and_never_the_attribute_bag(self):
+        text = observe_requests.queries(datetime(2026, 10, 19, 11, 44, 30, tzinfo=timezone.utc),
+                                        datetime(2026, 10, 19, 11, 46, 30, tzinfo=timezone.utc))["dependencies"]
+        columns = text.split("| project ", 1)[1].split(" | ", 1)[0].split(", ")
+        self.assertIn("ResultKey = isnotnull(p['gen_ai.tool.call.result'])", columns)
+        self.assertEqual({"Properties", "p"} & set(columns), set())
+        self.assertEqual(text.count("Properties"), 1)
 
     def test_smoke_tool_requests_are_left_out_unless_asked(self):
         smoke_by_id = policy_traces("op-smoke", "smoke-abc123-chat", shape_message("smoke-abc123-chat"))
