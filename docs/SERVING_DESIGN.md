@@ -845,7 +845,7 @@ set vLLM extensions such as `chat_template_kwargs`, `guided_*` or `priority`.
   UTF-16 surrogate) and JSON nested too deeply are 400 `invalid_json`, checked
   before the request is queued or sent. One such value would make the hub's
   writer fail and close that profile's GPU link under every request in flight,
-  and Foundry retries a 5xx answer.
+  and a client may retry a 5xx answer.
 
 **Responses.**
 
@@ -880,8 +880,9 @@ with no stack trace, internal detail or secret.
 | 503 | `backend_unavailable` | Link not ready (answered at once, `Retry-After: 30`), or link lost during the request or vLLM busy (`Retry-After: 5`) |
 | 504 | `timeout` | No complete answer within the time limit |
 
-Foundry and SDK clients retry 5xx answers (Foundry repeated a 503 four times in
-the first trace), so a request that can never succeed must stay a 4xx.
+Clients may retry 5xx answers (in the first trace Foundry sent four requests
+for one call, and each got a 503), so a request that can never succeed must
+stay a 4xx.
 
 **Protection.**
 
@@ -933,10 +934,11 @@ agent sends: `POST {base}/chat/completions` with no query string (no
 are Foundry's defaults, 1.0 each, when the agent sets none. A turn with tools
 adds `tools`, `parallel_tool_calls` and `tool_choice` (`auto`), and an MCP tool
 reaches the model as a function named `mcp___<label>___<tool>`. When the
-backend fails, Foundry retries, up to four times in about 11 seconds. No other
-field has been seen; any other field is accepted or dropped as described above
-and tested only with fakes. The tests pin the plain shape, with
-`stream_options` as `{"include_usage": true}`, `{}` and
+backend was not ready, Foundry sent four requests for one call in about 11
+seconds and each got a 503. This was seen once; whether they were retries
+is not confirmed. No other field has been seen; any other field is accepted
+or dropped as described above and tested only with fakes. The tests pin the
+plain shape, with `stream_options` as `{"include_usage": true}`, `{}` and
 `{"include_obfuscation": false}`, and with a number or null for `temperature`
 and `top_p`.
 
@@ -1217,11 +1219,11 @@ encodability check to the demo chat's request validation.
     of a periodic cause.
   - *Effect.* While the link is down, the model API answers 503
     `backend_unavailable` at once with `Retry-After: 30` (8.6). That 503 was
-    seen in the first loss (Foundry repeated it four times for one NVFP4
-    call, 8.6). The core session sent no model call during the second loss
-    (its record: 0). `GET {base}/health` shows readiness,
-    but it needs the key and the gateway does not expose it, so behind the
-    gateway the state shows only as the 503 of a model call.
+    seen in the first loss (Foundry sent four requests for one NVFP4 call and
+    each got it, 8.6). The session that monitored the recovery sent no model
+    call during the second loss (its record: 0). `GET {base}/health` shows
+    readiness, but it needs the key and the gateway does not expose it, so
+    behind the gateway the state shows only as the 503 of a model call.
   - *Conclusion.* On this capacity a profile can be not ready for tens of
     minutes (43 to 67 observed). Production needs on-demand or reserved
     capacity, as the limit above says. No code was changed and nothing was
