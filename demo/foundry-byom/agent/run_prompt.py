@@ -253,6 +253,8 @@ def execute(args, clients, prompt, tools, pairs):
     finally:
         if conversation_id and args.delete_conversation:
             result["conversation_deleted"] = delete_conversation(openai, conversation_id)
+    counter = getattr(clients, "http", None)
+    result["client_http"] = counter.summary() if counter else None
     return finish(args, result, answer)
 
 

@@ -1,0 +1,50 @@
+{
+  "schema": "foundry-byom-external-report/1",
+  "provenance": "Reported by the infrastructure owner from APIM gateway logs and relayed by the coordinator. These scripts did not measure these values.",
+  "about": "phase1a-plain.run.json (attempt 1, call started 2026-10-19T20:45:07+09:00)",
+  "client_side": {
+    "responses_create_calls": 1,
+    "openai_client_max_retries": 0,
+    "client_http_counter": "not available for this attempt; added afterwards"
+  },
+  "gateway_requests": [
+    {"at": "2026-10-19T20:45:12.13+09:00", "after_previous_s": null, "status": 503, "gateway_total_ms": 77.7, "backend_ms": 72.0},
+    {"at": "2026-10-19T20:45:12.63+09:00", "after_previous_s": 0.5, "status": 503, "gateway_total_ms": 35.9, "backend_ms": 34.6},
+    {"at": "2026-10-19T20:45:18.12+09:00", "after_previous_s": 5.5, "status": 503, "gateway_total_ms": 14.4, "backend_ms": 13.2},
+    {"at": "2026-10-19T20:45:23.60+09:00", "after_previous_s": 5.5, "status": 503, "gateway_total_ms": 7.3, "backend_ms": 5.9}
+  ],
+  "request_shape": {
+    "method": "POST",
+    "path": "<connection target path>/chat/completions",
+    "query_string": false,
+    "api_version": false,
+    "model": "ax-k2-nvfp4",
+    "stream": true,
+    "top_level_fields": ["messages", "stream", "max_completion_tokens", "stream_options", "model", "temperature", "top_p"],
+    "messages": ["system", "user"],
+    "tools": false,
+    "user_agent": false,
+    "key_header": "api-key",
+    "values_not_reported": ["max_completion_tokens", "stream_options", "temperature", "top_p"]
+  },
+  "gateway_policy": {
+    "removed_before_forwarding": ["api-key header", "subscription key header", "query string"],
+    "injected": "gateway Authorization",
+    "applied_to": "4 of 4 requests"
+  },
+  "gateway_findings": {
+    "status_returned_by": "backend web app, not the gateway",
+    "gateway_overhead_ms": "1.2 to 5.7",
+    "rate_limited_or_policy_error": false,
+    "key_rejected": false,
+    "fast_failure_note": "The backend answered within 6 to 72 ms, so this was a quick pre-check failure rather than a GPU wait timeout (inference by the reporter)."
+  },
+  "tracing": {
+    "invoke_agent_spans": 4,
+    "span_result_code": 500,
+    "span_duration_ms": "98 to 169",
+    "separate_trace_per_attempt": true,
+    "note": "Tracing collection works. The retry source is inferred: the client sent one request with automatic retries off, so Foundry most likely retried. The next call confirms it by comparing client_http.responses_posts with the gateway request count."
+  },
+  "budget_rule": "Count model calls by gateway requests, not by responses.create calls. One failing call reached the backend 4 times."
+}

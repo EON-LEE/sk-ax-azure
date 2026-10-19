@@ -133,11 +133,28 @@ def run_stage(stage, function, *args, **kwargs):
         raise StageFailure(stage, exc) from exc
 
 
+class HttpRequestCounter:
+    """httpx request hook that counts what the OpenAI client really sent, so any retry shows up in the evidence."""
+
+    def __init__(self):
+        self.requests = 0
+        self.responses_posts = 0
+
+    def __call__(self, request):
+        self.requests += 1
+        if request.method == "POST" and request.url.path.rstrip("/").endswith("/responses"):
+            self.responses_posts += 1
+
+    def summary(self):
+        return {"requests": self.requests, "responses_posts": self.responses_posts}
+
+
 @dataclasses.dataclass
 class Clients:
     project: Any
     openai: Any
     models: Any
+    http: Any = None
 
 
 def register_secret(value):
@@ -618,8 +635,14 @@ def open_clients(args, with_openai=True):
     """Create the project client and, unless with_openai is False, the OpenAI-compatible client (imports the SDK lazily)."""
     from azure.ai.projects import AIProjectClient, models
     project = AIProjectClient(endpoint=args.project_endpoint, credential=make_credential(args.auth))
-    openai = project.get_openai_client(max_retries=0) if with_openai else None
-    return Clients(project=project, openai=openai, models=models)
+    counter = HttpRequestCounter()
+    openai = None
+    if with_openai:
+        from openai import DefaultHttpxClient
+        # max_retries=0: an SDK retry would be a hidden extra model call; the counter proves none happened.
+        openai = project.get_openai_client(
+            max_retries=0, http_client=DefaultHttpxClient(event_hooks={"request": [counter]}))
+    return Clients(project=project, openai=openai, models=models, http=counter)
 
 
 def connect(args, clients=None, with_openai=True):

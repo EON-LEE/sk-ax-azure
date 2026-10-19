@@ -1,6 +1,7 @@
 """Foundry BYOM agent scripts: config, redaction, run flow and evidence checks with a mocked SDK; no Azure calls."""
 import contextlib
 import enum
+import http.server
 import importlib.util
 import inspect
 import io
@@ -11,9 +12,12 @@ import re
 import stat
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_DIR = ROOT / "demo" / "foundry-byom" / "agent"
@@ -39,6 +43,7 @@ finally:
 try:
     from azure.ai.projects import AIProjectClient, models as sdk_models
     from azure.ai.projects.operations import AgentsOperations, ConnectionsOperations
+    from azure.core.credentials import AccessToken
     from openai.resources.conversations.items import Items as ConversationItems
     from openai.resources.responses import Responses as OpenAIResponses
     SDK_AVAILABLE = True
@@ -834,6 +839,14 @@ class ClientSetupTests(ScriptCase):
             common.run_stage("connect", lambda: (_ for _ in ()).throw(common.ConfigError("bad")))
         self.assertEqual(common.run_stage("x", lambda a, b=0: a + b, 1, b=2), 3)
 
+    def test_http_request_counter_counts_every_request_and_only_response_posts(self):
+        counter = common.HttpRequestCounter()
+        self.assertEqual(counter.summary(), {"requests": 0, "responses_posts": 0})
+        for method, path in (("POST", "/p/openai/v1/conversations"), ("POST", "/p/openai/v1/responses"),
+                             ("GET", "/p/openai/v1/responses/resp_1"), ("POST", "/p/openai/v1/responses/")):
+            counter(types.SimpleNamespace(method=method, url=types.SimpleNamespace(path=path)))
+        self.assertEqual(counter.summary(), {"requests": 4, "responses_posts": 2})
+
 
 class CreateAgentTests(ScriptCase):
     def live(self, *argv, clients):
@@ -1222,6 +1235,14 @@ class RunPromptTests(ScriptCase):
         self.run_script(run_prompt, ["--agent-version", "3"], clients)
         reference = clients.openai.responses.calls[0]["extra_body"]["agent_reference"]
         self.assertEqual(reference, {"type": "agent_reference", "name": "byom-demo-agent", "version": "3"})
+
+    def test_result_carries_the_client_http_counts_only_when_the_clients_count_them(self):
+        _, out, _ = self.run_script(run_prompt, [], fake_clients([response([message("ok")])]))
+        self.assertIsNone(json.loads(out)["client_http"])
+        counted = fake_clients([response([message("ok")])])
+        counted.http = types.SimpleNamespace(summary=lambda: {"requests": 2, "responses_posts": 1})
+        _, out, _ = self.run_script(run_prompt, [], counted)
+        self.assertEqual(json.loads(out)["client_http"], {"requests": 2, "responses_posts": 1})
 
     def test_zero_limits_are_omitted(self):
         clients = fake_clients([response([message("ok")])])
@@ -1786,11 +1807,70 @@ class SdkCompatibilityTests(ScriptCase):
         self.assertEqual(str(clients.openai.base_url).rstrip("/"), ENDPOINT + "/openai/v1")
         self.assertEqual(clients.openai.max_retries, 0)
         self.assertIs(clients.models, sdk_models)
+        self.assertIsInstance(clients.http, common.HttpRequestCounter)
+        self.assertEqual(clients.http.summary(), {"requests": 0, "responses_posts": 0})
         with patch("socket.socket.connect", side_effect=guard), patch("socket.getaddrinfo", side_effect=guard), \
                 patch.object(common, "make_credential", return_value=OfflineCredential()):
             project_only = common.open_clients(args, with_openai=False)
         self.assertIsInstance(project_only.project, AIProjectClient)
         self.assertIsNone(project_only.openai)
+
+    def serve_loopback(self):
+        """Loopback stand-in for the project endpoint: conversations succeed, every responses call gets a model-side 503."""
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                size = int(self.headers.get("Content-Length") or 0)
+                path = urlsplit(self.path).path
+                seen.append((path, json.loads(self.rfile.read(size) or b"{}")))
+                if path.endswith("/conversations"):
+                    status, payload = 200, {"id": CONVERSATION, "object": "conversation"}
+                else:
+                    status, payload = 503, {"error": {
+                        "code": "model_error", "type": "server_error", "param": None,
+                        "message": "Model could not be accessed - Received 503 status code from model."}}
+                data = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                if status == 503:
+                    self.send_header("Retry-After", "1")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        for cleanup in (lambda: thread.join(5), server.server_close, server.shutdown):
+            self.addCleanup(cleanup)
+        return f"http://127.0.0.1:{server.server_address[1]}/api/projects/demo", seen
+
+    def test_a_failing_call_reaches_the_service_once_and_the_counter_proves_it(self):
+        class StaticCredential:
+            def get_token(self, *scopes, **kwargs):
+                return AccessToken("fake-token", int(time.time()) + 3600)
+
+        endpoint, seen = self.serve_loopback()
+        args = run_prompt.build_parser().parse_args(
+            ["--project-endpoint", endpoint, "--max-output-tokens", "256", "--max-tool-calls", "0"])
+        loopback = {"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+        with patch.dict(os.environ, loopback), patch.object(common, "make_credential", return_value=StaticCredential()):
+            clients = common.open_clients(args)
+            prompt, pairs = run_prompt.prepare(args)
+            result = run_prompt.execute(args, clients, prompt, None, pairs)
+        sent = [body for path, body in seen if path.endswith("/responses")]
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["agent_reference"], {"type": "agent_reference", "name": "byom-demo-agent"})
+        self.assertEqual((sent[0]["max_output_tokens"], sent[0]["conversation"]), (256, CONVERSATION))
+        self.assertNotIn("max_tool_calls", sent[0])
+        self.assertNotIn("timeout", sent[0])
+        self.assertEqual(result["client_http"], {"requests": 2, "responses_posts": 1})
+        self.assertEqual((result["stopped"], result["rounds"]), ("error", []))
+        self.assertEqual((result["error"]["status_code"], result["error"]["code"]), (503, "model_error"))
 
 
 class HygieneTests(unittest.TestCase):
