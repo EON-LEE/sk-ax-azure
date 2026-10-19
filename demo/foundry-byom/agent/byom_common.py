@@ -2,7 +2,9 @@
 
 Importing this module never touches the network. Everything printed or written goes through
 redact(): subscription/tenant/object IDs, full resource IDs, keys, tokens, e-mail addresses and
-resource-specific Azure hostnames are replaced before they leave the process.
+resource-specific Azure hostnames are replaced before they leave the process, and service IDs
+(resp_..., conv_...) are shortened to their first characters. With BYOM_PRIVATE_DIR set, evidence files are
+mirrored there with whole IDs (same masking otherwise), outside the repository.
 """
 from __future__ import annotations
 
@@ -98,6 +100,12 @@ ERROR_HINTS = {
 
 REDACT_ENTRY_RE = re.compile(r"(?P<literal>.+?)=(?P<alias><[a-z0-9][a-z0-9:_-]{0,30}>)")
 
+# Service IDs such as resp_<hex> or conv_<hex>. Public output keeps their first ID_KEEP characters only;
+# the full values stay in the private copy kept under BYOM_PRIVATE_DIR (outside the repository).
+SERVICE_ID_RE = re.compile(r"(?<![A-Za-z0-9])([a-z]{2,8})_(?=[A-Za-z0-9]*\d)([A-Za-z0-9]{12,})(?![A-Za-z0-9])")
+ID_KEEP = 8
+PRIVATE_DIR_ENV = "BYOM_PRIVATE_DIR"
+
 _runtime_secrets: set[str] = set()
 
 
@@ -190,27 +198,36 @@ def scan_for_secrets(value, literals):
     return any(literal in text or json.dumps(literal, ensure_ascii=False)[1:-1] in text for literal in eligible)
 
 
-def redact_text(text, literals=None):
+def shorten_ids(text):
+    """resp_0a1b2c3d4e5f... -> resp_0a1b2c3d…; shorter IDs and everything else stay untouched (idempotent)."""
+    return SERVICE_ID_RE.sub(lambda match: f"{match[1]}_{match[2][:ID_KEEP]}…", text)
+
+
+def redact_text(text, literals=None, *, keep_ids=False):
     aliases = {literal.lower(): alias for literal, alias in redact_entries() if alias}
     for literal in secret_literals() if literals is None else literals:
         text = re.sub(re.escape(literal), aliases.get(literal.lower(), "<redacted>"), text, flags=re.I)
     for name, pattern in PATTERNS.items():
         text = pattern.sub(f"<redacted:{name}>", text)
     text = PROJECT_PATH.sub(r"\1<project>", text)
-    return KV_SECRET.sub(r"\1\2<redacted>", text)
+    text = KV_SECRET.sub(r"\1\2<redacted>", text)
+    return text if keep_ids else shorten_ids(text)
 
 
-def redact(value, literals=None):
-    """Return a copy with sensitive keys, identifiers and secret literals replaced."""
+def redact(value, literals=None, *, keep_ids=False):
+    """Return a copy with sensitive keys, identifiers and secret literals replaced.
+
+    Service IDs (resp_..., conv_...) are shortened unless keep_ids is set; only the private copy sets it.
+    """
     literals = secret_literals() if literals is None else literals
     if isinstance(value, str):
-        return redact_text(value, literals)
+        return redact_text(value, literals, keep_ids=keep_ids)
     if isinstance(value, Mapping):
-        return {redact_text(str(key), literals):
+        return {redact_text(str(key), literals, keep_ids=keep_ids):
                 "<redacted>" if value[key] is not None and str(key).lower().replace("-", "_") in SENSITIVE_KEYS
-                else redact(value[key], literals) for key in value}
+                else redact(value[key], literals, keep_ids=keep_ids) for key in value}
     if isinstance(value, (list, tuple)):
-        return [redact(item, literals) for item in value]
+        return [redact(item, literals, keep_ids=keep_ids) for item in value]
     return value
 
 
@@ -267,8 +284,8 @@ def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
-def dumps(payload):
-    return json.dumps(redact(payload), indent=2, ensure_ascii=False, default=str)
+def dumps(payload, *, keep_ids=False):
+    return json.dumps(redact(payload, keep_ids=keep_ids), indent=2, ensure_ascii=False, default=str)
 
 
 def emit(payload):
@@ -296,9 +313,60 @@ def display_path(path):
         return Path(path).name
 
 
+def private_directory():
+    """The directory for full-ID copies named by BYOM_PRIVATE_DIR, or None when unset.
+
+    It must be absolute and outside the repository; on POSIX an existing directory must belong to the current
+    user and carry mode 0700 (a missing one is created that way).
+    """
+    raw = os.environ.get(PRIVATE_DIR_ENV)
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise ConfigError(f"{PRIVATE_DIR_ENV} must be an absolute path")
+    path = path.resolve()
+    if path == ROOT or ROOT in path.parents:
+        raise ConfigError(f"{PRIVATE_DIR_ENV} must be outside the repository")
+    if path.exists():
+        if not path.is_dir():
+            raise ConfigError(f"{PRIVATE_DIR_ENV} is not a directory")
+        if os.name == "posix" and (path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077):
+            raise ConfigError(f"{PRIVATE_DIR_ENV} must belong to the current user and have mode 0700")
+    return path
+
+
+def private_copy(path):
+    """The full-ID copy of an evidence file, when BYOM_PRIVATE_DIR holds one."""
+    directory = private_directory()
+    candidate = directory / Path(path).name if directory else None
+    return candidate if candidate is not None and candidate.is_file() else None
+
+
+def write_private(directory, name, payload):
+    if not directory.exists():
+        directory.mkdir(parents=True, mode=0o700)
+        if os.name == "posix":
+            os.chmod(directory, 0o700)
+    target = directory / name
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(dumps(payload, keep_ids=True) + "\n")
+    if os.name == "posix":
+        os.chmod(target, 0o600)
+
+
 def write_json(path, payload):
+    """Write the public evidence file (secrets masked, service IDs shortened).
+
+    With BYOM_PRIVATE_DIR set, a second copy with the same masking but whole IDs goes there (mode 0600).
+    """
+    directory = private_directory()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dumps(payload) + "\n", encoding="utf-8")
+    if directory is not None:
+        write_private(directory, path.name, payload)
+        print(f"saved private copy {path.name}", file=sys.stderr)
 
 
 def emit_result(result, label, kind, schema):
@@ -419,6 +487,7 @@ def require_live(args):
     if not args.project_endpoint:
         raise ConfigError("--project-endpoint (or FOUNDRY_PROJECT_ENDPOINT) is required unless --dry-run")
     args.project_endpoint = check_endpoint(args.project_endpoint)
+    private_directory()
 
 
 def resolve_instructions(args):

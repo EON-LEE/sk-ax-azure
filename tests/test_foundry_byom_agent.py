@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 import tempfile
 import types
@@ -52,6 +53,7 @@ GUID = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
 DOC_URL = "https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/bring-your-own-model"
 MCP_TOOL_RECORD = {"type": "mcp", "server_label": "microsoft_learn", "server_url": "https://learn.microsoft.com/api/mcp",
                    "allowed_tools": ["microsoft_docs_search"], "require_approval": "never"}
+LONG_ID = "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071"
 
 
 class ApiError(Exception):
@@ -441,8 +443,8 @@ class RedactionTests(ScriptCase):
             self.assertNotIn(leaked, masked)
         self.assertIn('"api_key": "<redacted>"', masked)
 
-    def test_service_ids_and_public_urls_survive(self):
-        text = "resp_0a1b2c3d4e5f conv_9f8e7d6c input_tokens=120 https://learn.microsoft.com/api/mcp"
+    def test_short_service_ids_and_public_urls_survive(self):
+        text = "resp_1 conv_9f8e7d6c input_tokens=120 https://learn.microsoft.com/api/mcp"
         self.assertEqual(common.redact_text(text), text)
 
     def test_azure_hosts_with_several_labels_are_masked(self):
@@ -526,6 +528,171 @@ class RedactionTests(ScriptCase):
         self.assertIsNone(common.clip(None))
         text = "see https://learn.microsoft.com/a/b. and (https://learn.microsoft.com/a/b), https://example.com/c?x=1;"
         self.assertEqual(common.urls_in(text), ["https://learn.microsoft.com/a/b", "https://example.com/c?x=1"])
+
+
+class ServiceIdTests(ScriptCase):
+    def test_long_ids_keep_only_the_first_eight_characters(self):
+        for prefix in ("resp", "caresp", "conv", "msg", "fc", "rs", "mcpr", "mcpl", "call", "ws"):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(common.redact_text(f"{prefix}_{LONG_ID}"), f"{prefix}_0a1b2c3d…")
+
+    def test_ids_in_sentences_json_and_keys_are_shortened(self):
+        payload = {"response_id": f"resp_{LONG_ID}", f"conv_{LONG_ID}": ["x", f"see (msg_{LONG_ID}), ok"]}
+        self.assertEqual(common.redact(payload),
+                         {"response_id": "resp_0a1b2c3d…", "conv_0a1b2c3d…": ["x", "see (msg_0a1b2c3d…), ok"]})
+        self.assertEqual(common.redact_text(f"응답resp_{LONG_ID}입니다"), "응답resp_0a1b2c3d…입니다")
+
+    def test_shortening_is_idempotent(self):
+        once = common.redact_text(f"resp_{LONG_ID} conv_{LONG_ID}")
+        self.assertEqual(once, "resp_0a1b2c3d… conv_0a1b2c3d…")
+        self.assertEqual(common.redact_text(once), once)
+
+    def test_other_names_codes_and_short_ids_are_left_alone(self):
+        text = ("r-0a1b2c3d byom-marker-0a1b2c3d4e5f6071 lookup_demo_stock max_output_tokens previous_response_id "
+                "mcp_approval_request microsoft_docs_search call_1 conv_9f8e7d6c FOUNDRY_PROJECT_ENDPOINT "
+                f"{common.PRIVATE_DIR_ENV}")
+        self.assertEqual(common.redact_text(text), text)
+
+    def test_words_without_digits_are_not_treated_as_ids(self):
+        text = "tool_microsoftdocsearchresult resp_abcdefghijklmnop"
+        self.assertEqual(common.redact_text(text), text)
+
+    def test_keep_ids_leaves_ids_whole_but_still_masks_everything_else(self):
+        payload = {"id": f"resp_{LONG_ID}", "note": f"{GUID} user@example.com conv_{LONG_ID}", "headers": {"k": "v"}}
+        full = common.redact(payload, keep_ids=True)
+        self.assertEqual(full["id"], f"resp_{LONG_ID}")
+        self.assertEqual(full["note"], f"<redacted:guid> <redacted:email> conv_{LONG_ID}")
+        self.assertEqual(full["headers"], "<redacted>")
+        self.assertIn(f"resp_{LONG_ID}", common.dumps(payload, keep_ids=True))
+        self.assertNotIn(LONG_ID, common.dumps(payload))
+
+
+class PrivateCopyTests(ScriptCase):
+    def setUp(self):
+        super().setUp()
+        self.private_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.private_tmp.cleanup)
+        self.private = Path(self.private_tmp.name) / "raw"
+
+    def use_private(self):
+        patcher = patch.dict(os.environ, {common.PRIVATE_DIR_ENV: str(self.private)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def quiet_write(self, name, payload):
+        target = Path(self.tmp.name) / name
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            common.write_json(target, payload)
+        return target, err.getvalue()
+
+    def test_write_json_keeps_whole_ids_only_in_the_private_copy(self):
+        self.use_private()
+        target, err = self.quiet_write("unit.run.json", {"response_id": f"resp_{LONG_ID}", "tenant": GUID})
+        public = json.loads(target.read_text(encoding="utf-8"))
+        private = json.loads((self.private / "unit.run.json").read_text(encoding="utf-8"))
+        self.assertEqual(public, {"response_id": "resp_0a1b2c3d…", "tenant": "<redacted:guid>"})
+        self.assertEqual(private, {"response_id": f"resp_{LONG_ID}", "tenant": "<redacted:guid>"})
+        self.assertEqual(err, "saved private copy unit.run.json\n")
+
+    def test_without_the_variable_only_the_public_file_is_written(self):
+        target, err = self.quiet_write("unit.run.json", {"response_id": f"resp_{LONG_ID}"})
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"response_id": "resp_0a1b2c3d…"})
+        self.assertEqual(err, "")
+        self.assertFalse(self.private.exists())
+        self.assertIsNone(common.private_directory())
+        self.assertIsNone(common.private_copy(target))
+
+    def test_the_private_directory_must_be_absolute_and_outside_the_repository(self):
+        for value in ("relative/dir", str(common.ROOT), str(common.ROOT / "evidence" / "private")):
+            with self.subTest(value=value), patch.dict(os.environ, {common.PRIVATE_DIR_ENV: value}):
+                with self.assertRaises(common.ConfigError):
+                    common.private_directory()
+
+    def test_a_file_is_not_accepted_as_the_private_directory(self):
+        file = Path(self.private_tmp.name) / "file"
+        file.write_text("x", encoding="utf-8")
+        with patch.dict(os.environ, {common.PRIVATE_DIR_ENV: str(file)}), self.assertRaises(common.ConfigError):
+            common.private_directory()
+
+    def test_live_runs_reject_a_bad_private_directory_before_any_call(self):
+        guard = AssertionError("cloud access before the private directory was checked")
+        with patch.dict(os.environ, {common.PRIVATE_DIR_ENV: "relative/dir"}), \
+                patch.object(common, "open_clients", side_effect=guard):
+            code, out, err = self.run_script(run_prompt, [])
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn(common.PRIVATE_DIR_ENV, err)
+
+    def test_the_private_copy_is_found_and_preferred_when_reading(self):
+        self.use_private()
+        target, _ = self.quiet_write("unit.run.json", {"conversation_id": f"conv_{LONG_ID}"})
+        self.assertEqual(common.private_copy(target), self.private.resolve() / "unit.run.json")
+        self.assertEqual(collect_evidence.load(target), {"conversation_id": f"conv_{LONG_ID}"})
+        (self.private / "unit.run.json").unlink()
+        self.assertEqual(collect_evidence.load(target), {"conversation_id": "conv_0a1b2c3d…"})
+
+    @unittest.skipUnless(os.name == "posix", "POSIX permission bits")
+    def test_private_files_are_owner_only(self):
+        self.use_private()
+        self.quiet_write("unit.run.json", {"a": 1})
+        self.assertEqual(stat.S_IMODE(self.private.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.private / "unit.run.json").stat().st_mode), 0o600)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX permission bits")
+    def test_a_group_readable_private_directory_is_refused(self):
+        self.private.mkdir()
+        os.chmod(self.private, 0o755)
+        with patch.dict(os.environ, {common.PRIVATE_DIR_ENV: str(self.private)}), self.assertRaises(common.ConfigError):
+            common.private_directory()
+
+    def test_a_run_saves_shortened_ids_publicly_and_whole_ids_privately(self):
+        self.use_private()
+        reply = response([message("hi r-fixed07")], f"resp_{LONG_ID}", conversation={"id": f"conv_{LONG_ID}"})
+        clients = fake_clients([reply])
+        clients.openai.conversations.create = lambda: Model(id=f"conv_{LONG_ID}")
+        code, out, err = self.run_script(run_prompt, ["--nonce", "r-fixed07", "--evidence-label", "unit-ids"], clients)
+        public = (Path(self.tmp.name) / "unit-ids.run.json").read_text(encoding="utf-8")
+        private = (self.private / "unit-ids.run.json").read_text(encoding="utf-8")
+        self.assertEqual(code, 0)
+        for text in (out, public):
+            self.assertNotIn(LONG_ID, text)
+            self.assertIn("resp_0a1b2c3d…", text)
+            self.assertIn("conv_0a1b2c3d…", text)
+        self.assertIn(f"resp_{LONG_ID}", private)
+        self.assertIn(f"conv_{LONG_ID}", private)
+        self.assertNotIn(LONG_ID, err)
+
+    def test_collect_evidence_fetches_with_the_whole_ids_from_the_private_run_file(self):
+        self.use_private()
+        output = [list_tools(), mcp_call(f"Title: BYOM\nLink: {DOC_URL}"), message(f"BYOM {DOC_URL} r-fixed08")]
+        final = response(output, f"resp_{LONG_ID}", conversation={"id": f"conv_{LONG_ID}"})
+        agents = FakeAgents()
+        agents.versions["3"] = stored_definition(tools=[MCP_TOOL_RECORD])
+        clients = fake_clients([final], agents=agents, stored={f"resp_{LONG_ID}": final},
+                               items=[message("질문", role="user"), *output])
+        clients.openai.conversations.create = lambda: Model(id=f"conv_{LONG_ID}")
+        self.run_script(run_prompt, ["--scenario", "mcp", "--nonce", "r-fixed08", "--evidence-label", "unit-priv"], clients)
+        code, _, _ = self.run_script(collect_evidence, ["--label", "unit-priv", "--connection", CONNECTION], clients)
+        evidence = self.read_saved("unit-priv.json")
+        self.assertEqual(code, 0)
+        self.assertEqual(clients.openai.conversations.items.calls[0]["conversation_id"], f"conv_{LONG_ID}")
+        self.assertEqual(evidence["server_records"]["errors"], [])
+        self.assertNotIn(LONG_ID, json.dumps(evidence))
+        self.assertIn(f"resp_{LONG_ID}", (self.private / "unit-priv.json").read_text(encoding="utf-8"))
+
+    def test_shortened_ids_in_a_run_file_are_reported_not_fetched(self):
+        final = response([message("hi r-fixed09")], f"resp_{LONG_ID}", conversation={"id": f"conv_{LONG_ID}"})
+        agents = FakeAgents()
+        agents.versions["3"] = stored_definition()
+        clients = fake_clients([final], agents=agents, stored={f"resp_{LONG_ID}": final})
+        clients.openai.conversations.create = lambda: Model(id=f"conv_{LONG_ID}")
+        self.run_script(run_prompt, ["--nonce", "r-fixed09", "--evidence-label", "unit-short"], clients)
+        code, _, _ = self.run_script(collect_evidence, ["--label", "unit-short", "--connection", CONNECTION], clients)
+        errors = self.read_saved("unit-short.json")["server_records"]["errors"]
+        self.assertEqual(code, 0)
+        self.assertEqual([(row["call"], row["type"]) for row in errors],
+                         [("responses.retrieve", "ShortenedId"), ("conversations.items.list", "ShortenedId")])
+        self.assertEqual(clients.openai.conversations.items.calls, [])
 
 
 class SecretScanTests(ScriptCase):
@@ -1639,6 +1806,13 @@ class HygieneTests(unittest.TestCase):
                 patterns["resource id"] = self.RESOURCE_ID
             found += [f"{path.relative_to(ROOT).as_posix()}: {name}" for name, pattern in patterns.items()
                       if pattern.search(text)]
+        self.assertEqual(found, [])
+
+    def test_evidence_files_hold_no_whole_service_ids(self):
+        evidence = ROOT / "evidence" / "foundry-byom"
+        files = sorted(evidence.rglob("*.json")) if evidence.is_dir() else []
+        found = [path.name for path in files
+                 if common.SERVICE_ID_RE.search(path.read_text(encoding="utf-8", errors="replace"))]
         self.assertEqual(found, [])
 
 

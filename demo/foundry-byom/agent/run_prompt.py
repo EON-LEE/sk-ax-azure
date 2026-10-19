@@ -295,9 +295,9 @@ def main(argv=None, clients=None):
         common.emit({"action": "error", "error": common.describe_error(exc)})
         return 1
     result = execute(args, clients, prompt, tools, pairs)
+    common.emit(result)
     if args.evidence_label:
         common.write_json(common.evidence_path(args.evidence_label, "run"), result)
-    common.emit(result)
     if result["request_header_echoed"]:
         print("warning: a request header value appears in the Foundry response; treat it as stored and rotate it",
               file=sys.stderr)

@@ -82,14 +82,15 @@ def manual_checks(existing, marks):
 
 
 def load(path):
-    if not path.exists():
+    source = common.private_copy(path) or path
+    if not source.exists():
         return None
     try:
-        data = common.read_json(path)
+        data = common.read_json(source)
     except (OSError, ValueError) as exc:
-        raise common.ConfigError(f"cannot read {common.display_path(path)}: {type(exc).__name__}") from exc
+        raise common.ConfigError(f"cannot read {common.display_path(source)}: {type(exc).__name__}") from exc
     if not isinstance(data, dict):
-        raise common.ConfigError(f"{common.display_path(path)} is not a JSON object")
+        raise common.ConfigError(f"{common.display_path(source)} is not a JSON object")
     return data
 
 
@@ -101,14 +102,25 @@ def attempt(errors, call, function):
         return None
 
 
+def usable_id(value, call, errors):
+    """IDs saved in public evidence are shortened (resp_0a1b2c3d…) and cannot be fetched; say so instead of calling."""
+    if isinstance(value, str) and "…" in value:
+        errors.append({"call": call, "type": "ShortenedId",
+                       "message": "the saved run file holds a shortened ID; run with BYOM_PRIVATE_DIR set "
+                                  "or pass the full ID with --response-id / --conversation-id"})
+        return None
+    return value
+
+
 def fetch_records(args, clients, run, errors, literals=()):
     request = (run or {}).get("request") or {}
     rounds = (run or {}).get("rounds") or []
     last = rounds[-1] if rounds else {}
     name = args.agent_name or request.get("agent_name") or common.DEFAULT_AGENT
     version = args.agent_version or request.get("agent_version") or (last.get("agent") or {}).get("version")
-    response_id = args.response_id or last.get("response_id")
-    conversation_id = args.conversation_id or (run or {}).get("conversation_id")
+    response_id = args.response_id or usable_id(last.get("response_id"), "responses.retrieve", errors)
+    conversation_id = args.conversation_id or usable_id((run or {}).get("conversation_id"),
+                                                        "conversations.items.list", errors)
     records = {"agent_version": None, "response": None, "conversation_items": None, "secret_scan": None}
     scan = {}
     if version is None:
