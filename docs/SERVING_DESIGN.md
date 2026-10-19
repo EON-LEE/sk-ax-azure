@@ -769,12 +769,466 @@ has deliberately different per-model histories. Tool execution can diverge.
 Displayed timing/token metrics use actual frontend lifecycle and model usage,
 not estimates or the earlier GPU-direct measurements. See `demo/README.md`.
 
+## 8.6 Model-only API for a Foundry BYOM pre-demo
+
+This is a bring-your-own-model (BYOM) pre-demo path. It is not a Model Catalog
+registration, and nothing in this section implies one. A Foundry agent that
+uses its own model needs an OpenAI-compatible chat-completions endpoint:
+Foundry appends `chat/completions` to the connection's base URL and names the
+model in the `model` field of the request body. The chain is
+
+    Foundry agent -> gateway (key check, forwarding) -> web app model API
+      -> reverse GPU link -> vLLM
+
+The API lives in the demo web app (`demo/frontend/model_api.py`) because the hub
+that holds the reverse GPU link exists only inside that process. It sends only
+`/v1/chat/completions` over the link, one of the two upstream paths the link
+already allows, so nothing on the GPU side changed. The demo chat (`/api/chat`)
+and the Agent Framework demo (`/api/agent`) are separate paths and are
+unchanged. This section covers the model API only; the gateway and the Foundry
+agent are configured elsewhere, and no performance figures for this path are
+recorded here (measure latency and load with the customer's scenario once the
+connection works).
+
+**Endpoints.** Each profile has its own base path, model name and alias:
+
+| Profile | Base path | Model name | Alias |
+| --- | --- | --- | --- |
+| FP8 | `/v1` | `ax-k2-fp8` | `skt/A.X-K2` |
+| NVFP4 | `/models/nvfp4/v1` | `ax-k2-nvfp4` | `skt/A.X-K2-NVFP4` |
+
+- `POST {base}/chat/completions`: chat, tools and streaming.
+- `GET {base}/models` and `GET {base}/models/{id}`: a static OpenAI-style list
+  with the model name only. It does not depend on the GPU, so a connection
+  check never mixes in the GPU state. `{id}` may be the name or the alias.
+- `GET {base}/health`: 200 when the profile is ready (the link is up and, for
+  NVFP4, the node has reported the expected model evidence), otherwise 503 with
+  `Retry-After: 30`. The body is `{status, ready, state, profile, model}`
+  (`status` is `ok` or `unavailable`; `state` is the profile's power state, for
+  example `ready` or `off`) and has no region or job details.
+- The names contain no slash because an agent refers to a model as
+  `<connection>/<model name>`. A name that is neither the model name nor an
+  alias is 404 `model_not_found`. vLLM always receives its own served name,
+  `axk2`.
+
+**Authentication.** Every route needs the key as `Authorization: Bearer <key>`
+or `api-key: <key>`. The settings hold only the SHA-256 digest (hex) of the
+key; several digests may be listed while a key rotates, and they are compared
+in constant time. Without a valid digest the routes are not mounted and `/v1`
+answers 404 (fail closed). The demo's cookies, passwords and admin token do not
+open this API, and the key opens nothing under `/api`. A missing or wrong key
+is 401 (`missing_api_key`, `invalid_api_key`).
+
+**Requests.** The upstream body is built from an allow-list, so a caller cannot
+set vLLM extensions such as `chat_template_kwargs`, `guided_*` or `priority`.
+
+- Accepted: `model`; `messages` (roles `system`, `developer` (sent as
+  `system`), `user`, `assistant` with `tool_calls`, and `tool` with
+  `tool_call_id`; content as a string or an array of text parts); `tools`
+  (function tools) with `tool_choice` (default `auto`) and
+  `parallel_tool_calls`, which are forwarded only when tools are present;
+  `max_completion_tokens` or `max_tokens` (the first wins); `temperature` (0 to
+  2, default 0.6); `top_p` (0 to 1, default 0.95); `stop` (up to four strings);
+  `seed`; `stream`; `stream_options.include_usage`; `response_format` with
+  `type` `text`. A `null` field counts as absent.
+- Refused with 400 `unsupported_value`: image, audio and file content, `n`
+  above 1, `logprobs`, `top_logprobs` above 0, `logit_bias`, `functions`, audio
+  output and other `response_format` types. `logprobs: false` and
+  `top_logprobs: 0` are accepted because SDKs send them.
+- Dropped without an error: every other field (`store`, `metadata`, `user`,
+  `service_tier`, `reasoning_effort`, vLLM extensions and so on). Only the
+  field names are logged.
+- Thinking is always off (`enable_thinking` false); a caller cannot turn it on.
+  A token limit above the cap is clamped to it, not refused. An invalid value
+  (zero, negative, fractional, wrong type) is 400 `invalid_value`.
+- Text that UTF-8 cannot carry (a JSON escape such as `\ud800` is an unpaired
+  UTF-16 surrogate) and JSON nested too deeply are 400 `invalid_json`, checked
+  before the request is queued or sent. One such value would make the hub's
+  writer fail and close that profile's GPU link under every request in flight,
+  and a client may retry a 5xx answer.
+
+**Responses.**
+
+- Stream: vLLM's `data:` chunks pass through unchanged and the stream ends with
+  `data: [DONE]`; there are no `event:` lines. vLLM always gets
+  `include_usage`; the final usage chunk is removed unless the caller asked for
+  it. `reasoning_content` is removed. When the first token takes longer than
+  ten seconds, the response starts (HTTP 200) and `: keepalive` comment lines
+  follow every ten seconds of silence. A failure after the first byte is an
+  error object in a `data:` chunk followed by `[DONE]`; before that it is an
+  ordinary HTTP error.
+- Non-stream: one `chat.completion` JSON built from vLLM's chunks, with
+  `tool_calls` deltas merged by index, `function.arguments` as a JSON string,
+  `finish_reason` (`stop`, `length` or `tool_calls`) and `usage`.
+- Every response carries `x-request-id` (the caller's value when it matches
+  `[A-Za-z0-9._:-]{1,128}`, otherwise a generated one), `x-axk2-profile`
+  (`fp8` or `nvfp4`) and `Cache-Control: no-store`.
+
+**Errors.** Every error is `{"error": {"message", "type", "param", "code"}}`
+with no stack trace, internal detail or secret.
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_json`, `invalid_value`, `missing_required_parameter`, `unsupported_value`, `invalid_request` | Malformed or unsupported request |
+| 400 | `context_length_exceeded` | The prompt does not fit the model's context (from vLLM) |
+| 401 | `missing_api_key`, `invalid_api_key` | Authentication, with `WWW-Authenticate: Bearer` |
+| 404 | `model_not_found`, `not_found` | Unknown model name, unknown URL |
+| 405, 408, 413 | `method_not_allowed`, `request_timeout`, `request_too_large` | Wrong method, body not received in 30 seconds, body over the limit |
+| 429 | `capacity_exceeded`, `rate_limit_exceeded` | No place in the gate, request limit, or wrong-key limit; with `Retry-After` |
+| 500 | `internal_error` | Server fault, no detail |
+| 502 | `upstream_error` | vLLM or the link returned something unusable |
+| 503 | `backend_unavailable` | Link not ready (answered at once, `Retry-After: 30`), or link lost during the request or vLLM busy (`Retry-After: 5`) |
+| 504 | `timeout` | No complete answer within the time limit |
+
+Clients may retry 5xx answers (in the first trace Foundry sent four requests
+for one call, and each got a 503), so a request that can never succeed must
+stay a 4xx.
+
+**Protection.**
+
+- Each profile has its own gate (default 4 running, 8 waiting), separate from
+  the demo chat's, so API traffic cannot use up the demo's places and the
+  reverse holds too. A request waits at most `QUEUE_TIMEOUT` seconds for a
+  place, and the model has `TIMEOUT` seconds from the send to the end of the
+  answer.
+- Each profile accepts at most `RATE_PER_MINUTE` authenticated chat requests
+  per minute; refused ones count too.
+- Wrong keys are counted per caller address (10 in a minute) and across all
+  addresses (300 in a minute), for both profiles together. Once a count is
+  reached, requests get 429 before their key is checked, so even a right key is
+  refused until the minute has passed.
+- A caller that leaves is noticed (within about a second for a plain call or
+  before the first byte): its place is returned and a cancel goes to vLLM,
+  which aborts the generation.
+- A request the API refuses itself (authentication, validation, size, limits,
+  or a link that is not ready) never reaches the link, and any gate place it
+  held is returned.
+
+**Settings.** All names start with `AXK2_MODEL_API_`. None of them holds a key;
+`KEY_SHA256` holds only digests. A value that cannot be parsed falls back to
+its default, and a number outside its allowed range is clamped.
+
+| Name (after the prefix) | Default | Meaning |
+| --- | --- | --- |
+| `KEY_SHA256` | none (API off) | SHA-256 hex digests of the accepted keys, separated by commas, semicolons or white space |
+| `NAME_FP8`, `NAME_NVFP4` | `ax-k2-fp8`, `ax-k2-nvfp4` | Model names |
+| `ALIASES_FP8`, `ALIASES_NVFP4` | `skt/A.X-K2`, `skt/A.X-K2-NVFP4` | Extra accepted names, separated by commas or new lines |
+| `MAX_ACTIVE`, `MAX_QUEUE` | 4, 8 | Running and waiting requests per profile |
+| `QUEUE_TIMEOUT`, `TIMEOUT` | 30, 300 | Seconds to wait for a place; seconds for the model to answer |
+| `RATE_PER_MINUTE` | 60 | Chat requests per minute per profile |
+| `MAX_TOKENS`, `DEFAULT_MAX_TOKENS` | 8192, 4096 | Output cap (a larger request is clamped); default when none is given |
+| `MAX_BODY_BYTES` | 2097152 | Request body size |
+| `MAX_MESSAGES`, `MAX_TOOLS`, `MAX_SCHEMA_BYTES` | 400, 64, 131072 | Messages, tools, serialized tool definitions |
+
+**Logs.** One JSON line per request on stdout (logger `axk2.model_api`):
+`request_id`, `profile`, `route`, `stream`, `status`, `prompt_tokens`,
+`completion_tokens`, `ttft_ms`, `queue_ms`, `total_ms`, `finish_reason`, a short
+`error` code and `dropped_fields` (names only). Prompts, answers, headers, keys
+and caller addresses are never logged.
+
+**Foundry's request.** Traces at the API Management gateway show what a Foundry
+agent sends: `POST {base}/chat/completions` with no query string (no
+`api-version`) and no `User-Agent` header. The top-level fields are `messages`,
+`stream` (true), `max_completion_tokens` (not `max_tokens`), `stream_options`,
+`model` (the connection's model name), `temperature` and `top_p`; the last two
+are Foundry's defaults, 1.0 each, when the agent sets none. A turn with tools
+adds `tools`, `parallel_tool_calls` and `tool_choice` (`auto`), and an MCP tool
+reaches the model as a function named `mcp___<label>___<tool>`. When the
+backend was not ready, Foundry sent four requests for one call in about 11
+seconds and each got a 503. This was seen once; whether they were retries
+is not confirmed. No other field has been seen; any other field is accepted
+or dropped as described above and tested only with fakes. The tests pin the
+plain shape, with `stream_options` as `{"include_usage": true}`, `{}` and
+`{"include_obfuscation": false}`, and with a number or null for `temperature`
+and `top_p`.
+
+**Smoke test.** `demo/tools/model_api_smoke.py` runs the checks `models`,
+`chat`, `stream`, `tool`, `tool_result` and `auth` (`--only` selects a subset):
+
+    python demo/tools/model_api_smoke.py --base-url https://<host>/v1 \
+        --model ax-k2-fp8 --key-file <file> --out <result.json>
+
+For a gateway that takes the key only in `api-key`, add `--auth-header api-key`.
+For NVFP4 use the `/models/nvfp4/v1` base path and `--model ax-k2-nvfp4`. The
+key comes from `--key-file`, `--key-stdin` or the variable named by `--key-env`
+(default `AXK2_MODEL_API_KEY`) and is never printed. At most four calls reach
+the GPU, one at a time, with no retry, a small output limit (`--max-tokens`) and
+thinking off. The JSON summary has no secrets. It records the `x-request-id` of
+every check and, for the stream check, the chunk count, the delay to the first
+chunk, time to first token, time per output token, and the span and longest gap
+between chunks (to show whether a gateway buffers the stream). The `auth` check
+asserts status 401 only, so a gateway's own 401 body is fine.
+
+The tests (`tests/test_demo_model_api*.py`) use a fake hub link and a fake
+vLLM. They cover authentication, validation, the stream and non-stream relay,
+the tool-call round trip, error mapping, limits, cancellation, malformed text
+and the absence of secrets in responses and logs. They are not live results.
+
+**Deployment and live checks.** The first deployment, `e70debb`, was used from
+a Foundry agent for plain chat, a function tool and an MCP tool (approval
+`never` and `always`), the NVFP4 route included. Failure-path tests with the
+fake link found two input defects in that version, an unpaired surrogate and
+JSON nested too deeply (see Requests). `9cd2220` fixes both and changes
+`model_api.py` alone. It was deployed as an exact package of that commit (52
+files), which used the last of the three web app restarts that were allowed. A
+regression check and the direct smoke test then passed (4 of 4). The earlier
+behaviour on these inputs was reproduced with the fake link only; the old code
+was not probed live.
+
+**Live probes of the fix.** To show that the fix is the running code, three
+probes were sent to the web app's own address, one at a time and without
+retry. Each is an input on which the earlier version also failed before
+anything was written to the hub (a 500 in the fake-link tests), so none could
+close a link.
+
+| Probe | Profile | Input | Answer | Time |
+| --- | --- | --- | --- | --- |
+| P1 | NVFP4 | An unpaired surrogate in a tool definition | 400 `invalid_json`, `param` null | 187.7 ms |
+| P1 | FP8 | The same | 400 `invalid_json`, `param` null | 135.3 ms |
+| P2 | NVFP4 | A tool call in the history with `arguments` nested too deeply | 400 `invalid_value`, `param` `messages[1].tool_calls[0].function.arguments` | 354.4 ms |
+
+Before and after the probes, both profiles had the same link, readiness,
+health, model verification and activation state, the queue stayed empty and the
+vLLM token counter did not move, so nothing reached the GPU. The times are
+those of refused requests and are not performance figures. A further probe,
+P3, was not approved or sent. Reading the code, it would have told the two
+versions apart by the error code (400 `invalid_value` before the fix, 400
+`invalid_json` after it), but P1 had already shown how an unpaired surrogate
+is rejected, on both profiles.
+
+**Evidence that K2 answers.** Foundry's usage was compared with the vLLM token
+counter, read before and after a turn. Output tokens matched exactly: 16 and 16
+for an NVFP4 turn, 142 and 142 for a turn with an MCP tool. Three more calls to
+an FP8 agent with an MCP tool matched in the same way (129, 131 and 123 output
+tokens in Foundry's usage and in the counter), while the NVFP4 counters did not
+move. The figures of each call are in a redacted record,
+`demo/evidence/fp8-foundry-default-temperature-repeat-redacted.json`. That is
+independent evidence that those turns used this model. Prompt tokens differ, by
+4 in the first turn, by 488 in the second and by 486 in each of the three
+repeats. One reading is that Foundry's usage counts only the input of the last
+model request in a turn, while vLLM counts all of them, so that the difference
+is the input of the first request. The same difference in all three repeats
+fits that reading, but it is a guess and has not been checked: the counter was
+sampled every 12 seconds, which cannot separate the first request from the
+second.
+
+**An unexplained Foundry `model_error`.** One run of an FP8 agent with an MCP
+tool (approval `never`) ended in a Foundry 500 `model_error` ("The model
+produced invalid content. Consider modifying your prompt...") after about 2
+seconds. The agent had the same instructions as an agent that had worked at
+`temperature` 0.3, but it set no `temperature`, so Foundry sent its default,
+1.0. The request reached vLLM, which generated 37 tokens, and the API
+Management gateway recorded a 200 from the backend after 1.1 seconds. Foundry
+did not retry. In Foundry's trace the span of the tool run was named
+differently from the spans of successful runs (details: the Foundry BYOM
+README, `demo/foundry-byom/README.md`, section 9). One guess is that the model
+wrote a tool name with a prefix such as `functions.`, which did not match the
+declared name. It rests on that one span and has not been verified.
+
+The same agent definition, with no `temperature` and the same prompt, was then
+run three more times from Foundry through the Responses API, one call after
+another at least 45 seconds apart, with the SDK's retries off. All three
+completed, each with an MCP tool call made by Foundry, and none ended in
+`model_error`. Because none failed, no control call at temperature 0.3 was
+sent.
+
+Direct replays through the model API did not reproduce the error. The request
+of the failed run was reconstructed (one function tool, `tool_choice` `auto`,
+`stream` true and `stream_options`) and sent 44 times to the FP8 route at the
+web app's own address: 29 times at temperature 1.0 and 15 times at 0.3. The
+calls were sequential, at least 15 seconds apart, and none was retried. Every
+call returned HTTP 200 and one `[DONE]`.
+
+| Temperature | Calls | A tool call, no text | Text, then a tool call | Text only |
+| --- | --- | --- | --- | --- |
+| 1.0 | 29 | 26 | 2 | 1 |
+| 0.3 | 15 | 15 | 0 | 0 |
+
+All 43 tool calls carried exactly the declared tool name, and their
+`arguments` were valid JSON. No stream contained a `functions.` prefix on a
+tool name, U+FFFD, NUL, an `error` chunk or a `data:` line, other than
+`[DONE]`, that was not JSON. A call generated 40 to 91 tokens at 1.0 (median
+42) and 42 at 0.3; the failed call generated 37. After the replays, both
+profiles had the same link, readiness, health, model verification and
+activation state as before, and the queue was empty.
+
+The prompt sizes do not agree. The failed request had 482 tokens at vLLM. The
+reconstruction used in the replays had 472 in every call, so the replays are
+not token-identical to the failed request. For the three Foundry retests the
+counters suggest about 486 tokens for the first model request of a turn (see
+"Evidence that K2 answers"): about 14 more than the reconstruction and 4 more
+than the failed request. That figure is an estimate. It rests on a guess about
+how Foundry counts input. The first turn above also shows a difference of 4
+that is not explained, so the 4-token gap to the failed request may come from
+the counting and not from the requests.
+
+What these results show: the error was not reproduced, and its cause is not
+known. The 44 direct replays (29 at temperature 1.0, 15 at 0.3) had no
+abnormal stream. From Foundry, the agent definition without `temperature` has
+run four times, with one failure and three successes, and the same
+instructions at `temperature` 0.3 have run twice, with two successes. These
+samples cannot separate an effect of temperature from chance. The cause may be
+the model's output, how Foundry read the stream, or a difference in the
+request. There is no evidence that the model API caused it: none of the 44
+replays showed an abnormal stream, the three Foundry retests completed, and
+the stream analysis below shows the few ways in which the model API changes a
+stream. Setting `temperature` to 0.3 on the agent is a precaution that needs
+no redeployment: 15 of 15 direct replays and 2 of 2 Foundry runs at that
+value were clean. Those counts are not statistical evidence that it prevents
+the error.
+
+**Stream shapes (offline analysis).** To see what the model API can add to a
+stream that Foundry might call invalid, 69 synthetic upstream streams were fed
+through the real relay code with a fake link. The bytes sent were compared with
+the bytes received, and each output was parsed with the OpenAI Python SDK. 44
+streams left the model API as vLLM sent them (line endings aside); the other 25
+were changed or answered by the model API as the table shows, and one of those
+is an ordinary HTTP error, not a stream.
+
+| The upstream stream has | The model API sends | Responsible |
+| --- | --- | --- |
+| Tool-call `arguments` that are not valid JSON or are cut off (`finish_reason` `length`); a tool name that was not declared, misspelled or prefixed (for example `functions.`); an empty answer; text mixed with tool calls; `tool_calls` with no call, or a call with `stop`; a missing `id`, `type` or `index`; a repeated `finish_reason`; a usage chunk in an odd place when the caller asked for usage | The same bytes | Model |
+| U+FFFD, `\u0000` or `\ud800` escapes, invalid UTF-8 bytes, a multi-byte character split across reads | The same bytes | Model |
+| A usage chunk (empty `choices`) that the caller did not ask for | Nothing: the chunk is removed | Model API, by design |
+| `reasoning_content` | A chunk with only reasoning is dropped; with other delta fields it is re-serialized as compact JSON | Model API, by design |
+| No `[DONE]`, a second `[DONE]`, events after it, `event:`, `id:` or `retry:` lines, CRLF | One `[DONE]` at the end, the rest dropped, CRLF as LF | Model API, by design |
+| No data for ten seconds or more before the first chunk | `: keepalive` comment lines, which the OpenAI Python SDK ignores | Model API, by design |
+| An upstream error event, an end without `finish_reason`, a lost link, the time limit, an upstream 4xx after the response started, a raw NUL byte in a JSON string | A `data:` chunk with an `error` object, then `[DONE]`, in an HTTP 200 response; the log's `error` field is set (limit 7) | Model API |
+| An upstream 4xx before any byte | An ordinary HTTP error with the OpenAI error body | Model API |
+| `reasoning_content` and an unpaired surrogate escape in the same chunk | An `internal_error` chunk, then `[DONE]` (limit 8) | Model API, a defect |
+
+The model API never changes tool names, arguments, `finish_reason`, ids or
+indexes, and it does not validate or retry them: a malformed tool call from the
+model reaches Foundry as it is, because the stream passes through unchanged by
+design. The `error` chunk has no `choices`. The OpenAI Python SDK raises
+`APIError` on it and ignores comment lines; how Foundry's parser treats either
+is not known.
+
+To tell the model's output from a fault of the model API, find the request's
+`x-request-id` in the model API's log line. A `status` of 200 with an empty
+`error` means the stream was the model's own output, apart from the changes
+marked "by design" above. A `finish_reason` of `length`, or `completion_tokens`
+near the token cap, means an answer that was cut off. A `status` of 200 with a
+non-empty `error` (for example `upstream_error`, `backend_unavailable`,
+`timeout` or `internal_error`) means the model API sent an error chunk.
+
+**Known limits.**
+
+1. Foundry's requests are only partly observed. Foundry has called both
+   profiles, and the turns seen are plain chat, function tools and MCP tools
+   (approval `never` and `always`). The request fields above are what the
+   gateway traces recorded. A field not in that list, such as
+   `response_format`, `reasoning_effort`, `store`, `metadata` or `user`, is
+   accepted or dropped by design and tested with fakes only.
+2. The `model` field in a response is vLLM's served name (`axk2`), not the
+   public model name, because stream chunks pass through unchanged.
+3. The NVFP4 routes use the same code as FP8. The tests reach them only with a
+   fake link that reports the model evidence (checkpoint, revision,
+   parallelism, source) the hub requires before it calls the NVFP4 profile
+   ready; the live NVFP4 runs are the direct smoke test and the Foundry turns
+   above.
+4. Wrong keys are limited per caller address, taken from the last
+   `X-Forwarded-For` entry. Behind a gateway every caller shares one address,
+   so ten wrong keys in a minute also block the right key (429
+   `rate_limit_exceeded`, `Retry-After: 60`) until the window passes. Let the
+   gateway reject wrong keys, and do not retry a 401 blindly.
+5. A caller that leaves a stream while the model is silent may be noticed only
+   at the next write, up to about ten seconds later (the keepalive interval).
+   The cancel to vLLM and the release of the place follow then.
+6. The smoke test's `models` check accepts the model name only: `--model` must
+   be the name the list returns, so an alias fails that check even though chat
+   accepts it.
+7. A failure after the first byte of a stream cannot change the HTTP status,
+   which was sent with that byte. It is an `error` chunk inside an HTTP 200
+   response, so the App Service HTTP 5xx metric, and alerts built on it, do
+   not count it. Use the `status` and `error` fields of the model API's log
+   line instead. A failure before the first byte is an ordinary 4xx or 5xx.
+8. A chunk from vLLM that holds a `reasoning_content` key and also a lone
+   surrogate escape (such as `\ud800`) cannot be forwarded: the compact JSON
+   the model API writes after it removes the reasoning (`ensure_ascii=False`)
+   cannot be encoded as UTF-8, so the client gets an `internal_error` chunk
+   and `[DONE]` instead of that chunk. vLLM does not emit a lone surrogate and
+   thinking is off, so this is practically out of reach. It is a known limit
+   and was not corrected, because that needs a redeployment. The minimal fix
+   for the next deployment is in `Events.chunk`: write the chunk with
+   `ensure_ascii=True` when the UTF-8 encoding fails, which keeps the
+   reasoning removal. A standalone check shows that the escaped text encodes
+   and parses back to the same chunk.
+
+**Not yet verified.**
+
+- What caused the one Foundry `model_error`: the model's output, how Foundry
+  read the stream, or a difference in the request. It was not reproduced in 44
+  direct replays or in 3 Foundry retests.
+- Why the prompt sizes differ: 482 tokens in the failed request, 472 in the
+  replay reconstruction and about 486 (an estimate) in the successful Foundry
+  requests; and how Foundry counts input tokens for a turn with more than one
+  model request.
+- How Foundry's parser treats an `error` chunk in a stream, and a tool call
+  whose `arguments` are not valid JSON.
+- What the Foundry console shows for this connection: the model setting, the
+  conversation and the tool runs. This needs a person signed in to the console.
+- The Web IQ search tool with a real key.
+
+**A related issue in the demo chat (unchanged).** `POST /api/chat` has the same
+exposure that the model API now closes. A user message with an unpaired
+surrogate (a JSON escape such as `\ud800`) passes its validation, makes the
+hub's writer fail and closes the profile's GPU link, which ends every request
+in flight on it, other users' demo chats and model API calls included; the
+link reconnects. It needs the demo login. It was reproduced with a fake link,
+is recorded here as a pre-existing issue, and was not changed with this API
+because the hub and the demo chat are outside it. A fix would apply the same
+encodability check to the demo chat's request validation.
+
 ## 9. Known limits and next steps
 
 - Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
   was available in two of twelve regions when asked. Production needs
   on-demand or reserved capacity in the customer subscription. Run the
   same image and command there, on AKS + KubeRay/LWS or CycleCloud Slurm.
+- **Reverse GPU link stability.** The demo's low-priority nodes were kept
+  running, and the reverse GPU link between a serving job and the web app
+  was lost twice on 2026-10-19: for both profiles at once, then for FP8 alone.
+  Counted from the loss to an observed ready state, a profile was not ready
+  for about 43, 66 and 67 minutes (FP8, NVFP4, FP8). These are observed times,
+  not a guarantee, and the cause is not verified. The timeline is in a redacted
+  record, `demo/evidence/recurrent-link-loss-recovery-redacted.json`.
+  - *First loss.* Both profiles lost the link, 3.1 seconds apart. The
+    supervisor released the FP8 job (it cancels the job and starts a
+    replacement) 20 minutes 39 seconds after the loss, and FP8 was ready 22
+    minutes 15 seconds later, 43 minutes after the loss. NVFP4 had one approved
+    manual restart, requested 44 minutes after the loss, and was stably ready
+    22 minutes after the request, 66 minutes after the loss.
+  - *Second loss.* Only FP8 lost the link. About 7 minutes later its job went
+    to Queued with no usable node, and the supervisor released it by its rule:
+    no link for 1,200 seconds and fewer than two usable nodes. FP8 was first
+    ready 66 minutes 49.7 seconds after the loss, 46 minutes 18.6 seconds after
+    the release and 31 minutes 47.8 seconds after both nodes were allocated.
+    Counted from the allocation alone, that is still longer than the first FP8
+    replacement took from release to ready (22 minutes 15 seconds). The reason
+    was not found; Spot capacity and the cache state are candidates only and
+    were not checked. No link loss was observed on NVFP4, but its samples
+    around the loss were up to 112 seconds apart, so a short reconnection
+    cannot be excluded.
+  - *Cause: not verified.* The Azure Activity Log for a ten-minute window
+    around the second loss has 52 entries, all reads, and no Resource Health or
+    Service Health event. The Resource Health query was unavailable, so that
+    source was not observed. Node preemption or re-creation and a restart of
+    the worker process alone are unconfirmed. The two FP8 losses are 10,804.9
+    seconds (3 hours 4.9 seconds) apart; that may be chance and is not evidence
+    of a periodic cause.
+  - *Effect.* While the link is down, the model API answers 503
+    `backend_unavailable` at once with `Retry-After: 30` (8.6). That 503 was
+    seen in the first loss (Foundry sent four requests for one NVFP4 call and
+    each got it, 8.6). The session that monitored the recovery sent no model
+    call during the second loss (its record: 0). `GET {base}/health` shows
+    readiness, but it needs the key and the gateway does not expose it, so
+    behind the gateway the state shows only as the 503 of a model call.
+  - *Conclusion.* On this capacity a profile can be not ready for tens of
+    minutes (43 to 67 observed). Production needs on-demand or reserved
+    capacity, as the limit above says. No code was changed and nothing was
+    redeployed for this (the allowed web app restarts are used up, 8.6), and
+    the hub's reconnection behaviour is unchanged.
 - Native DSA depends on an unmerged upstream PR carried as a hash-checked
   overlay. Re-validate (kernel tests plus the 2-layer comparison in
   `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
@@ -815,3 +1269,10 @@ not estimates or the earlier GPU-direct measurements. See `demo/README.md`.
   weights once into same-region storage or an image cache.
 - Further throughput tuning (expert parallelism, data-parallel replicas,
   `fastsafetensors` loading) is out of scope for this proof.
+- The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
+  registration. Its open items are listed at the end of 8.6: the cause of one
+  unexplained Foundry `model_error`, the prompt-size differences, how Foundry
+  handles a stream error chunk and malformed tool arguments, console
+  visibility and the Web IQ tool with a real key. Its latency and load are not
+  measured; do that with the customer's scenario once the connection is
+  complete.
