@@ -1184,6 +1184,47 @@ encodability check to the demo chat's request validation.
   was available in two of twelve regions when asked. Production needs
   on-demand or reserved capacity in the customer subscription. Run the
   same image and command there, on AKS + KubeRay/LWS or CycleCloud Slurm.
+- **Reverse GPU link stability.** The demo's low-priority nodes were kept
+  running, and the reverse GPU link between a serving job and the web app
+  was lost twice on 2026-10-19: for both profiles at once, then for FP8 alone.
+  Counted from the loss to an observed ready state, a profile was not ready
+  for about 43, 66 and 67 minutes (FP8, NVFP4, FP8). These are observed times,
+  not a guarantee, and the cause is not verified. The timeline is in a redacted
+  record, `demo/evidence/recurrent-link-loss-recovery-redacted.json`.
+  - *First loss.* Both profiles lost the link, 3.1 seconds apart. The
+    supervisor released the FP8 job (it cancels the job and starts a
+    replacement) 20 minutes 39 seconds after the loss, and FP8 was ready 22
+    minutes 15 seconds later, 43 minutes after the loss. NVFP4 had one approved
+    manual restart, requested 44 minutes after the loss, and was stably ready
+    22 minutes after the request, 66 minutes after the loss.
+  - *Second loss.* Only FP8 lost the link. About 7 minutes later its job went
+    to Queued with no usable node, and the supervisor released it by its rule:
+    no link for 1,200 seconds and fewer than two usable nodes. FP8 was first
+    ready 66 minutes 49.7 seconds after the loss, 46 minutes 18.6 seconds after
+    the release and 31 minutes 47.8 seconds after both nodes were allocated.
+    Counted from the allocation alone, that is still longer than the first FP8
+    replacement took from release to ready (22 minutes 15 seconds). The reason
+    was not found; Spot capacity and the cache state are candidates only and
+    were not checked. No link loss was observed on NVFP4, but its samples
+    around the loss were up to 112 seconds apart, so a short reconnection
+    cannot be excluded.
+  - *Cause: not verified.* The Azure Activity Log for a ten-minute window
+    around the second loss has 52 entries, all reads, and no Resource Health or
+    Service Health event. The Resource Health query was unavailable, so that
+    source was not observed. Node preemption or re-creation and a restart of
+    the worker process alone are unconfirmed. The two FP8 losses are 10,804.9
+    seconds (3 hours 4.9 seconds) apart; that may be chance and is not evidence
+    of a periodic cause.
+  - *Effect.* While the link is down, the model API answers 503
+    `backend_unavailable` at once with `Retry-After: 30` (8.6). No model API
+    call was made during the second loss. `GET {base}/health` shows readiness,
+    but it needs the key and the gateway does not expose it, so behind the
+    gateway the state shows only as the 503 of a model call.
+  - *Conclusion.* On this capacity a profile can be not ready for tens of
+    minutes (43 to 67 observed). Production needs on-demand or reserved
+    capacity, as the limit above says. No code was changed and nothing was
+    redeployed for this (the allowed web app restarts are used up, 8.6), and
+    the hub's reconnection behaviour is unchanged.
 - Native DSA depends on an unmerged upstream PR carried as a hash-checked
   overlay. Re-validate (kernel tests plus the 2-layer comparison in
   `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
