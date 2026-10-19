@@ -1,7 +1,7 @@
 """What a chat call does, on loopback: the real app, the real backend_link.Link and a scripted fake vLLM. The
 request vLLM gets (built by the server from an allow-list), the answer in both forms (one chat.completion, or
 vLLM's own SSE chunks), tool calls and their round trip, the requests a Foundry agent sends and what is refused
-before the GPU sees it."""
+before the GPU sees it. Failures, limits and the log are in test_demo_model_api_failures.py."""
 import asyncio
 import json
 import sys

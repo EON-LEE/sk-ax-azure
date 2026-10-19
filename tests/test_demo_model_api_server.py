@@ -2,7 +2,8 @@
 backend_link.Link as the GPU side and a scripted fake vLLM behind it. This file has the shared fixtures
 (ApiCase, ScriptedVLLM, Reply) and covers authentication (also against the demo's own credentials), the static
 model list, the health route, correlation headers and both profiles. What a chat call does is in
-test_demo_model_api_chat.py; the smoke tool is tested in test_demo_model_api_smoke.py."""
+test_demo_model_api_chat.py, failures, limits and the log are in test_demo_model_api_failures.py, and the smoke
+tool is tested in test_demo_model_api_smoke.py."""
 import asyncio
 import collections
 import contextlib
