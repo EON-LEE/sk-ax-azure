@@ -106,17 +106,19 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 | `stopped`, `ok` | 끝난 이유와 성공 판정. `stopped`가 `completed`면 성공이다. |
 | `request` | 호출 조건. 시나리오, 에이전트 이름, 확인 코드(`nonce`), 상한(`limits`: `max_output_tokens`, `max_tool_calls`, `max_rounds`, `timeout_s`), 승인한 도구 |
 | `started_at`, `last_request_at`, `finished_at` | 시작, 마지막 요청, 종료 시각(UTC, 초 단위. KST는 UTC+9). 인프라 담당이 APIM 기록과 시간대를 맞출 때 쓴다. |
-| `rounds` | 응답마다 한 항목. `response_id`, `status`, `model`, `output_item_types`, `usage`, `error`, `chained_by`, `requested_at`, `elapsed_s`를 담는다. |
+| `rounds` | 응답마다 한 항목. 주요 키는 `response_id`, `status`, `model`, `output_item_types`, `usage`, `error`, `chained_by`, `requested_at`, `elapsed_s`다. |
 | `item_sequence` | 출력 항목 종류의 순서. 도구 호출 흔적을 본다. |
 | `tool_events` | 도구 목록, 도구 호출, 승인 요청 항목의 요약 |
 | `function_results` | 로컬에서 실행한 함수의 결과 |
 | `final_answer`, `final_answer_contains_nonce` | 최종 답과 확인 코드(`--nonce`) 포함 여부 |
 | `client_http` | 클라이언트가 실제로 보낸 HTTP 요청 수. `responses_posts`가 `responses.create` 호출 수보다 크면 SDK가 다시 보낸 것이다. SDK 자동 재시도는 꺼져 있다(`max_retries=0`). |
 | `error` | 실패한 호출의 상태 코드, Foundry 오류 코드, 메시지 |
+| `conversation_id`, `conversation_deleted` | 이 호출이 만든 대화의 ID(증거 파일에는 앞 8자). `--delete-conversation`을 쓴 호출만 삭제 결과가 들어가고, 아니면 `null`이다. |
+| `request_header_echoed` | `--mcp-request-header`를 쓴 호출에서 헤더 값이 Foundry 응답에 다시 나타났는지 검사한 결과. 쓰지 않았으면 `null`이다. 값이 나타나면 Foundry에 저장된 것으로 보고 그 값을 교체한다. |
 
 `rounds[].model`은 에이전트의 모델 참조(`<연결 별칭>/<모델 이름>`)다. 이 값만으로는 A.X K2가 답했다고 말할 수 없다(DESIGN.md 7절).
 
-종료 코드는 0이 성공, 1이 실행 또는 API 오류, 2가 설정 오류, 3이 미완이다.
+종료 코드는 0이 성공, 1이 실행 또는 API 오류, 2가 설정 오류, 3이 미완이다. 3은 승인이 필요한 도구 호출을 `--approve-tool`로 승인하지 않았을 때, `max_rounds`를 다 썼을 때, OAuth 동의가 필요할 때, 응답이 `incomplete`일 때 나온다(`--expect-failure`를 쓰면 1).
 
 ## 증거 파일
 
