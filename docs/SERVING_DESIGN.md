@@ -769,6 +769,226 @@ has deliberately different per-model histories. Tool execution can diverge.
 Displayed timing/token metrics use actual frontend lifecycle and model usage,
 not estimates or the earlier GPU-direct measurements. See `demo/README.md`.
 
+## 8.6 Model-only API for a Foundry BYOM pre-demo
+
+This is a bring-your-own-model (BYOM) pre-demo path. It is not a Model Catalog
+registration, and nothing in this section implies one. A Foundry agent that
+uses its own model needs an OpenAI-compatible chat-completions endpoint:
+Foundry appends `chat/completions` to the connection's base URL and names the
+model in the `model` field of the request body. The chain is
+
+    Foundry agent -> gateway (key check, forwarding) -> web app model API
+      -> reverse GPU link -> vLLM
+
+The API lives in the demo web app (`demo/frontend/model_api.py`) because the hub
+that holds the reverse GPU link exists only inside that process. It sends only
+`/v1/chat/completions` over the link, one of the two upstream paths the link
+already allows, so nothing on the GPU side changed. The demo chat (`/api/chat`)
+and the Agent Framework demo (`/api/agent`) are separate paths and are
+unchanged. This section covers the model API only; the gateway and the Foundry
+agent are configured elsewhere, and no performance figures for this path are
+recorded here (measure latency and load with the customer's scenario once the
+connection works).
+
+**Endpoints.** Each profile has its own base path, model name and alias:
+
+| Profile | Base path | Model name | Alias |
+| --- | --- | --- | --- |
+| FP8 | `/v1` | `ax-k2-fp8` | `skt/A.X-K2` |
+| NVFP4 | `/models/nvfp4/v1` | `ax-k2-nvfp4` | `skt/A.X-K2-NVFP4` |
+
+- `POST {base}/chat/completions`: chat, tools and streaming.
+- `GET {base}/models` and `GET {base}/models/{id}`: a static OpenAI-style list
+  with the model name only. It does not depend on the GPU, so a connection
+  check never mixes in the GPU state. `{id}` may be the name or the alias.
+- `GET {base}/health`: 200 when the profile is ready (the link is up and, for
+  NVFP4, the node has reported the expected model evidence), otherwise 503 with
+  `Retry-After: 30`. The body is `{status, ready, state, profile, model}`
+  (`status` is `ok` or `unavailable`; `state` is the profile's power state, for
+  example `ready` or `off`) and has no region or job details.
+- The names contain no slash because an agent refers to a model as
+  `<connection>/<model name>`. A name that is neither the model name nor an
+  alias is 404 `model_not_found`. vLLM always receives its own served name,
+  `axk2`.
+
+**Authentication.** Every route needs the key as `Authorization: Bearer <key>`
+or `api-key: <key>`. The settings hold only the SHA-256 digest (hex) of the
+key; several digests may be listed while a key rotates, and they are compared
+in constant time. Without a valid digest the routes are not mounted and `/v1`
+answers 404 (fail closed). The demo's cookies, passwords and admin token do not
+open this API, and the key opens nothing under `/api`. A missing or wrong key
+is 401 (`missing_api_key`, `invalid_api_key`).
+
+**Requests.** The upstream body is built from an allow-list, so a caller cannot
+set vLLM extensions such as `chat_template_kwargs`, `guided_*` or `priority`.
+
+- Accepted: `model`; `messages` (roles `system`, `developer` (sent as
+  `system`), `user`, `assistant` with `tool_calls`, and `tool` with
+  `tool_call_id`; content as a string or an array of text parts); `tools`
+  (function tools) with `tool_choice` (default `auto`) and
+  `parallel_tool_calls`, which are forwarded only when tools are present;
+  `max_completion_tokens` or `max_tokens` (the first wins); `temperature` (0 to
+  2, default 0.6); `top_p` (0 to 1, default 0.95); `stop` (up to four strings);
+  `seed`; `stream`; `stream_options.include_usage`; `response_format` with
+  `type` `text`. A `null` field counts as absent.
+- Refused with 400 `unsupported_value`: image, audio and file content, `n`
+  above 1, `logprobs`, `top_logprobs` above 0, `logit_bias`, `functions`, audio
+  output and other `response_format` types. `logprobs: false` and
+  `top_logprobs: 0` are accepted because SDKs send them.
+- Dropped without an error: every other field (`store`, `metadata`, `user`,
+  `service_tier`, `reasoning_effort`, vLLM extensions and so on). Only the
+  field names are logged.
+- Thinking is always off (`enable_thinking` false); a caller cannot turn it on.
+  A token limit above the cap is clamped to it, not refused. An invalid value
+  (zero, negative, fractional, wrong type) is 400 `invalid_value`.
+- Text that UTF-8 cannot carry (a JSON escape such as `\ud800` is an unpaired
+  UTF-16 surrogate) and JSON nested too deeply are 400 `invalid_json`, checked
+  before the request is queued or sent. One such value would make the hub's
+  writer fail and close that profile's GPU link under every request in flight,
+  and Foundry retries a 5xx answer.
+
+**Responses.**
+
+- Stream: vLLM's `data:` chunks pass through unchanged and the stream ends with
+  `data: [DONE]`; there are no `event:` lines. vLLM always gets
+  `include_usage`; the final usage chunk is removed unless the caller asked for
+  it. `reasoning_content` is removed. When the first token takes longer than
+  ten seconds, the response starts (HTTP 200) and `: keepalive` comment lines
+  follow every ten seconds of silence. A failure after the first byte is an
+  error object in a `data:` chunk followed by `[DONE]`; before that it is an
+  ordinary HTTP error.
+- Non-stream: one `chat.completion` JSON built from vLLM's chunks, with
+  `tool_calls` deltas merged by index, `function.arguments` as a JSON string,
+  `finish_reason` (`stop`, `length` or `tool_calls`) and `usage`.
+- Every response carries `x-request-id` (the caller's value when it matches
+  `[A-Za-z0-9._:-]{1,128}`, otherwise a generated one), `x-axk2-profile`
+  (`fp8` or `nvfp4`) and `Cache-Control: no-store`.
+
+**Errors.** Every error is `{"error": {"message", "type", "param", "code"}}`
+with no stack trace, internal detail or secret.
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_json`, `invalid_value`, `missing_required_parameter`, `unsupported_value`, `invalid_request` | Malformed or unsupported request |
+| 400 | `context_length_exceeded` | The prompt does not fit the model's context (from vLLM) |
+| 401 | `missing_api_key`, `invalid_api_key` | Authentication, with `WWW-Authenticate: Bearer` |
+| 404 | `model_not_found`, `not_found` | Unknown model name, unknown URL |
+| 405, 408, 413 | `method_not_allowed`, `request_timeout`, `request_too_large` | Wrong method, body not received in 30 seconds, body over the limit |
+| 429 | `capacity_exceeded`, `rate_limit_exceeded` | No place in the gate, request limit, or wrong-key limit; with `Retry-After` |
+| 500 | `internal_error` | Server fault, no detail |
+| 502 | `upstream_error` | vLLM or the link returned something unusable |
+| 503 | `backend_unavailable` | Link not ready (answered at once, `Retry-After: 30`), or link lost during the request or vLLM busy (`Retry-After: 5`) |
+| 504 | `timeout` | No complete answer within the time limit |
+
+Foundry and SDK clients retry 5xx answers (Foundry repeated a 503 four times in
+the first trace), so a request that can never succeed must stay a 4xx.
+
+**Protection.**
+
+- Each profile has its own gate (default 4 running, 8 waiting), separate from
+  the demo chat's, so API traffic cannot use up the demo's places and the
+  reverse holds too. A request waits at most `QUEUE_TIMEOUT` seconds for a
+  place, and the model has `TIMEOUT` seconds from the send to the end of the
+  answer.
+- Each profile accepts at most `RATE_PER_MINUTE` authenticated chat requests
+  per minute; refused ones count too.
+- Wrong keys are counted per caller address (10 in a minute) and across all
+  addresses (300 in a minute), for both profiles together. Once a count is
+  reached, requests get 429 before their key is checked, so even a right key is
+  refused until the minute has passed.
+- A caller that leaves is noticed (within about a second for a plain call or
+  before the first byte): its place is returned and a cancel goes to vLLM,
+  which aborts the generation.
+- A request the API refuses itself (authentication, validation, size, limits,
+  or a link that is not ready) never reaches the link, and any gate place it
+  held is returned.
+
+**Settings.** All names start with `AXK2_MODEL_API_`. None of them holds a key;
+`KEY_SHA256` holds only digests. A value that cannot be parsed falls back to
+its default, and a number outside its allowed range is clamped.
+
+| Name (after the prefix) | Default | Meaning |
+| --- | --- | --- |
+| `KEY_SHA256` | none (API off) | SHA-256 hex digests of the accepted keys, separated by commas, semicolons or white space |
+| `NAME_FP8`, `NAME_NVFP4` | `ax-k2-fp8`, `ax-k2-nvfp4` | Model names |
+| `ALIASES_FP8`, `ALIASES_NVFP4` | `skt/A.X-K2`, `skt/A.X-K2-NVFP4` | Extra accepted names, separated by commas or new lines |
+| `MAX_ACTIVE`, `MAX_QUEUE` | 4, 8 | Running and waiting requests per profile |
+| `QUEUE_TIMEOUT`, `TIMEOUT` | 30, 300 | Seconds to wait for a place; seconds for the model to answer |
+| `RATE_PER_MINUTE` | 60 | Chat requests per minute per profile |
+| `MAX_TOKENS`, `DEFAULT_MAX_TOKENS` | 8192, 4096 | Output cap (a larger request is clamped); default when none is given |
+| `MAX_BODY_BYTES` | 2097152 | Request body size |
+| `MAX_MESSAGES`, `MAX_TOOLS`, `MAX_SCHEMA_BYTES` | 400, 64, 131072 | Messages, tools, serialized tool definitions |
+
+**Logs.** One JSON line per request on stdout (logger `axk2.model_api`):
+`request_id`, `profile`, `route`, `stream`, `status`, `prompt_tokens`,
+`completion_tokens`, `ttft_ms`, `queue_ms`, `total_ms`, `finish_reason`, a short
+`error` code and `dropped_fields` (names only). Prompts, answers, headers, keys
+and caller addresses are never logged.
+
+**Foundry's request.** One request from a Foundry agent was traced at the
+gateway: `POST {base}/chat/completions` with no query string and these
+top-level fields: `messages` (a system and a user message), `stream` (true),
+`max_completion_tokens`, `stream_options`, `model`, `temperature` and `top_p`.
+It carried no tools. The tests pin this shape, with `stream_options` as
+`{"include_usage": true}`, `{}` and `{"include_obfuscation": false}`, and with
+a number or null for `temperature` and `top_p`.
+
+**Smoke test.** `demo/tools/model_api_smoke.py` runs the checks `models`,
+`chat`, `stream`, `tool`, `tool_result` and `auth` (`--only` selects a subset):
+
+    python demo/tools/model_api_smoke.py --base-url https://<host>/v1 \
+        --model ax-k2-fp8 --key-file <file> --out <result.json>
+
+For a gateway that takes the key only in `api-key`, add `--auth-header api-key`.
+For NVFP4 use the `/models/nvfp4/v1` base path and `--model ax-k2-nvfp4`. The
+key comes from `--key-file`, `--key-stdin` or the variable named by `--key-env`
+(default `AXK2_MODEL_API_KEY`) and is never printed. At most four calls reach
+the GPU, one at a time, with no retry, a small output limit (`--max-tokens`) and
+thinking off. The JSON summary has no secrets. It records the `x-request-id` of
+every check and, for the stream check, the chunk count, the delay to the first
+chunk, time to first token, time per output token, and the span and longest gap
+between chunks (to show whether a gateway buffers the stream). The `auth` check
+asserts status 401 only, so a gateway's own 401 body is fine.
+
+The tests (`tests/test_demo_model_api*.py`) use a fake hub link and a fake
+vLLM. They cover authentication, validation, the stream and non-stream relay,
+the tool-call round trip, error mapping, limits, cancellation, malformed text
+and the absence of secrets in responses and logs. They are not live results.
+
+**Known limits.**
+
+1. Foundry's requests are only partly observed. Only the plain-chat request
+   above was seen. The tool path (function or MCP tools, `tool_choice`,
+   `parallel_tool_calls`, tool results in the history) is accepted by design
+   and tested with fakes, but not yet seen from Foundry.
+2. The `model` field in a response is vLLM's served name (`axk2`), not the
+   public model name, because stream chunks pass through unchanged.
+3. The NVFP4 routes use the same code and are tested only with a fake link that
+   reports the model evidence (checkpoint, revision, parallelism, source) the
+   hub requires before it calls the NVFP4 profile ready. A live NVFP4 run is a
+   separate check.
+4. Wrong keys are limited per caller address, taken from the last
+   `X-Forwarded-For` entry. Behind a gateway every caller shares one address,
+   so ten wrong keys in a minute also block the right key (429
+   `rate_limit_exceeded`, `Retry-After: 60`) until the window passes. Let the
+   gateway reject wrong keys, and do not retry a 401 blindly.
+5. A caller that leaves a stream while the model is silent may be noticed only
+   at the next write, up to about ten seconds later (the keepalive interval).
+   The cancel to vLLM and the release of the place follow then.
+6. The smoke test's `models` check accepts the model name only: `--model` must
+   be the name the list returns, so an alias fails that check even though chat
+   accepts it.
+
+**A related issue in the demo chat (unchanged).** `POST /api/chat` has the same
+exposure that the model API now closes. A user message with an unpaired
+surrogate (a JSON escape such as `\ud800`) passes its validation, makes the
+hub's writer fail and closes the profile's GPU link, which ends every request
+in flight on it, other users' demo chats and model API calls included; the
+link reconnects. It needs the demo login. It was reproduced with a fake link,
+is recorded here as a pre-existing issue, and was not changed with this API
+because the hub and the demo chat are outside it. A fix would apply the same
+encodability check to the demo chat's request validation.
+
 ## 9. Known limits and next steps
 
 - Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
