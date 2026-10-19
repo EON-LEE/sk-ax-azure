@@ -1,0 +1,3550 @@
+{
+  "schema_version": 1,
+  "scope": "FP8 direct model API SSE replay; exact original bodies, no tool execution.",
+  "variants": {
+    "A": {
+      "temperature": 1.0
+    },
+    "B": {
+      "temperature": 0.3
+    }
+  },
+  "raw_material": "Request bodies, SSE, credentials and complete runtime snapshots retained privately only.",
+  "redaction": "Structural fields only; no request/response content, query values, hosts, credentials or GUIDs.",
+  "historical_failed_foundry_prompt_delta": 482,
+  "classification_precedence": [
+    "ERROR_CHUNK",
+    "NAME_MISMATCH",
+    "BAD_ARGS",
+    "TOOL_WITH_CONTENT",
+    "CLEAN_TOOL",
+    "TEXT_ONLY",
+    "OTHER"
+  ],
+  "batches": {
+    "initial_8": {
+      "requests": 8,
+      "sequence": [
+        "A",
+        "A",
+        "B",
+        "A",
+        "B",
+        "A",
+        "B",
+        "A"
+      ],
+      "retry_count": 0,
+      "minimum_response_end_to_next_request_seconds": 16.117,
+      "variants": {
+        "A": {
+          "requests": 5,
+          "classifications": {
+            "CLEAN_TOOL": 3,
+            "TOOL_WITH_CONTENT": 1,
+            "TEXT_ONLY": 1,
+            "NAME_MISMATCH": 0,
+            "BAD_ARGS": 0,
+            "ERROR_CHUNK": 0,
+            "OTHER": 0
+          },
+          "completion_tokens": {
+            "count": 5,
+            "min": 42,
+            "median": 42,
+            "max": 91,
+            "counts_by_value": {
+              "42": 3,
+              "57": 1,
+              "91": 1
+            }
+          },
+          "tool_query_characters": {
+            "count": 4,
+            "min": 47,
+            "median": 47.0,
+            "max": 47,
+            "counts_by_value": {
+              "47": 4
+            }
+          }
+        },
+        "B": {
+          "requests": 3,
+          "classifications": {
+            "CLEAN_TOOL": 3,
+            "TOOL_WITH_CONTENT": 0,
+            "TEXT_ONLY": 0,
+            "NAME_MISMATCH": 0,
+            "BAD_ARGS": 0,
+            "ERROR_CHUNK": 0,
+            "OTHER": 0
+          },
+          "completion_tokens": {
+            "count": 3,
+            "min": 42,
+            "median": 42,
+            "max": 42,
+            "counts_by_value": {
+              "42": 3
+            }
+          },
+          "tool_query_characters": {
+            "count": 3,
+            "min": 47,
+            "median": 47,
+            "max": 47,
+            "counts_by_value": {
+              "47": 3
+            }
+          }
+        }
+      },
+      "results": [
+        {
+          "number": 1,
+          "variant": "A",
+          "kst": "2026-10-19T22:35:45.469973+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 676.1,
+          "total_ms": 1528.5,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:35:42.203413+00:00",
+            "to_utc": "2026-10-19T13:35:54.203514+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.802
+        },
+        {
+          "number": 2,
+          "variant": "A",
+          "kst": "2026-10-19T22:36:03.800862+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 525.2,
+          "total_ms": 1407.2,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:35:54.203514+00:00",
+            "to_utc": "2026-10-19T13:36:18.203797+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.327
+        },
+        {
+          "number": 3,
+          "variant": "B",
+          "kst": "2026-10-19T22:36:21.534581+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 519.8,
+          "total_ms": 1399.0,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:36:18.203797+00:00",
+            "to_utc": "2026-10-19T13:36:30.203993+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.117
+        },
+        {
+          "number": 4,
+          "variant": "A",
+          "kst": "2026-10-19T22:36:39.050706+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 513.6,
+          "total_ms": 2377.5,
+          "sse_data_lines": 94,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "stop": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 91,
+            "tool_calls": 90,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 0,
+          "tool_calls_count": 0,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 91,
+            "total_tokens": 563
+          },
+          "usage_occurrences": 1,
+          "content_characters": 328,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "TEXT_ONLY",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:36:30.203993+00:00",
+            "to_utc": "2026-10-19T13:36:54.204494+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 91.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 89.0,
+          "response_end_to_next_request_seconds": 16.718
+        },
+        {
+          "number": 5,
+          "variant": "B",
+          "kst": "2026-10-19T22:36:58.146271+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 487.0,
+          "total_ms": 1395.1,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:36:54.204494+00:00",
+            "to_utc": "2026-10-19T13:37:06.204666+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 17.498
+        },
+        {
+          "number": 6,
+          "variant": "A",
+          "kst": "2026-10-19T22:37:17.039781+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 700.3,
+          "total_ms": 1628.7,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:37:06.204666+00:00",
+            "to_utc": "2026-10-19T13:37:30.205068+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.201
+        },
+        {
+          "number": 7,
+          "variant": "B",
+          "kst": "2026-10-19T22:37:34.869698+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 688.2,
+          "total_ms": 1568.9,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:37:30.205068+00:00",
+            "to_utc": "2026-10-19T13:37:42.205249+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.343
+        },
+        {
+          "number": 8,
+          "variant": "A",
+          "kst": "2026-10-19T22:37:52.781396+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 520.8,
+          "total_ms": 1699.0,
+          "sse_data_lines": 37,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 34,
+            "tool_calls": 33,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 57,
+            "total_tokens": 529
+          },
+          "usage_occurrences": 1,
+          "content_characters": 56,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "TOOL_WITH_CONTENT",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:37:42.205249+00:00",
+            "to_utc": "2026-10-19T13:38:06.205739+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 57.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 57.0
+        }
+      ],
+      "usage_totals": {
+        "prompt": 3776,
+        "completion": 400
+      },
+      "independent_counter_matches": 8
+    },
+    "expanded_36": {
+      "requests": 36,
+      "sequence": [
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B",
+        "A",
+        "A",
+        "B"
+      ],
+      "retry_count": 0,
+      "minimum_response_end_to_next_request_seconds": 16.071,
+      "variants": {
+        "A": {
+          "requests": 24,
+          "classifications": {
+            "CLEAN_TOOL": 23,
+            "TOOL_WITH_CONTENT": 1,
+            "TEXT_ONLY": 0,
+            "NAME_MISMATCH": 0,
+            "BAD_ARGS": 0,
+            "ERROR_CHUNK": 0,
+            "OTHER": 0
+          },
+          "completion_tokens": {
+            "count": 24,
+            "min": 40,
+            "median": 42.0,
+            "max": 65,
+            "counts_by_value": {
+              "40": 6,
+              "42": 13,
+              "44": 4,
+              "65": 1
+            }
+          },
+          "tool_query_characters": {
+            "count": 24,
+            "min": 33,
+            "median": 47.0,
+            "max": 63,
+            "counts_by_value": {
+              "33": 1,
+              "42": 5,
+              "47": 14,
+              "63": 4
+            }
+          }
+        },
+        "B": {
+          "requests": 12,
+          "classifications": {
+            "CLEAN_TOOL": 12,
+            "TOOL_WITH_CONTENT": 0,
+            "TEXT_ONLY": 0,
+            "NAME_MISMATCH": 0,
+            "BAD_ARGS": 0,
+            "ERROR_CHUNK": 0,
+            "OTHER": 0
+          },
+          "completion_tokens": {
+            "count": 12,
+            "min": 42,
+            "median": 42.0,
+            "max": 42,
+            "counts_by_value": {
+              "42": 12
+            }
+          },
+          "tool_query_characters": {
+            "count": 12,
+            "min": 47,
+            "median": 47.0,
+            "max": 47,
+            "counts_by_value": {
+              "47": 12
+            }
+          }
+        }
+      },
+      "results": [
+        {
+          "number": 1,
+          "variant": "A",
+          "kst": "2026-10-19T22:50:18.899978+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 529.0,
+          "total_ms": 1401.8,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:50:16.515061+00:00",
+            "to_utc": "2026-10-19T13:50:28.515392+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 20.39
+        },
+        {
+          "number": 2,
+          "variant": "A",
+          "kst": "2026-10-19T22:50:40.693702+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 519.8,
+          "total_ms": 1396.9,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:50:28.515392+00:00",
+            "to_utc": "2026-10-19T13:50:52.516122+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.494
+        },
+        {
+          "number": 3,
+          "variant": "B",
+          "kst": "2026-10-19T22:50:58.585625+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 497.4,
+          "total_ms": 1378.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:50:52.516122+00:00",
+            "to_utc": "2026-10-19T13:51:16.517582+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 21.883
+        },
+        {
+          "number": 4,
+          "variant": "A",
+          "kst": "2026-10-19T22:51:21.848004+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 631.3,
+          "total_ms": 1514.0,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:51:16.517582+00:00",
+            "to_utc": "2026-10-19T13:51:28.517979+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 18.106
+        },
+        {
+          "number": 5,
+          "variant": "A",
+          "kst": "2026-10-19T22:51:41.468960+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 514.2,
+          "total_ms": 1343.6,
+          "sse_data_lines": 19,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 16,
+            "tool_calls": 15,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 15,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 40,
+            "total_tokens": 512
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 42
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:51:28.517979+00:00",
+            "to_utc": "2026-10-19T13:52:16.519755+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 40.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 40.0,
+          "response_end_to_next_request_seconds": 35.45
+        },
+        {
+          "number": 6,
+          "variant": "B",
+          "kst": "2026-10-19T22:52:18.264680+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 556.2,
+          "total_ms": 1438.7,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:52:16.519755+00:00",
+            "to_utc": "2026-10-19T13:52:40.520463+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 30.093
+        },
+        {
+          "number": 7,
+          "variant": "A",
+          "kst": "2026-10-19T22:52:49.797565+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 616.8,
+          "total_ms": 1498.9,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:52:40.520463+00:00",
+            "to_utc": "2026-10-19T13:53:16.521472+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 30.386
+        },
+        {
+          "number": 8,
+          "variant": "A",
+          "kst": "2026-10-19T22:53:21.683107+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 509.3,
+          "total_ms": 1385.1,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:53:16.521472+00:00",
+            "to_utc": "2026-10-19T13:54:16.523417+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 55.375
+        },
+        {
+          "number": 9,
+          "variant": "B",
+          "kst": "2026-10-19T22:54:18.443916+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 489.6,
+          "total_ms": 1361.6,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:54:16.523417+00:00",
+            "to_utc": "2026-10-19T13:54:28.523691+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.172
+        },
+        {
+          "number": 10,
+          "variant": "A",
+          "kst": "2026-10-19T22:54:35.980257+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 723.0,
+          "total_ms": 2076.9,
+          "sse_data_lines": 44,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 41,
+            "tool_calls": 40,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 65,
+            "total_tokens": 537
+          },
+          "usage_occurrences": 1,
+          "content_characters": 51,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "TOOL_WITH_CONTENT",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:54:28.523691+00:00",
+            "to_utc": "2026-10-19T13:54:52.524453+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 65.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 65.0,
+          "response_end_to_next_request_seconds": 17.639
+        },
+        {
+          "number": 11,
+          "variant": "A",
+          "kst": "2026-10-19T22:54:55.697570+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 523.9,
+          "total_ms": 1384.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:54:52.524453+00:00",
+            "to_utc": "2026-10-19T13:55:28.525525+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 36.782
+        },
+        {
+          "number": 12,
+          "variant": "B",
+          "kst": "2026-10-19T22:55:33.865075+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 523.3,
+          "total_ms": 1407.2,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:55:28.525525+00:00",
+            "to_utc": "2026-10-19T13:55:40.525828+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.352
+        },
+        {
+          "number": 13,
+          "variant": "A",
+          "kst": "2026-10-19T22:55:51.626085+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 511.4,
+          "total_ms": 1386.5,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:55:40.525828+00:00",
+            "to_utc": "2026-10-19T13:56:04.526613+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.071
+        },
+        {
+          "number": 14,
+          "variant": "A",
+          "kst": "2026-10-19T22:56:09.084146+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 693.5,
+          "total_ms": 1508.0,
+          "sse_data_lines": 19,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 16,
+            "tool_calls": 15,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 15,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 40,
+            "total_tokens": 512
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 33
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:56:04.526613+00:00",
+            "to_utc": "2026-10-19T13:56:28.527480+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 40.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 40.0,
+          "response_end_to_next_request_seconds": 25.16
+        },
+        {
+          "number": 15,
+          "variant": "B",
+          "kst": "2026-10-19T22:56:35.753609+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 483.9,
+          "total_ms": 1365.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:56:28.527480+00:00",
+            "to_utc": "2026-10-19T13:56:52.528055+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.643
+        },
+        {
+          "number": 16,
+          "variant": "A",
+          "kst": "2026-10-19T22:56:53.764015+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 629.9,
+          "total_ms": 1562.6,
+          "sse_data_lines": 23,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 20,
+            "tool_calls": 19,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 19,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 44,
+            "total_tokens": 516
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 63
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:56:52.528055+00:00",
+            "to_utc": "2026-10-19T13:57:04.528567+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 44.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 44.0,
+          "response_end_to_next_request_seconds": 19.95
+        },
+        {
+          "number": 17,
+          "variant": "A",
+          "kst": "2026-10-19T22:57:15.277570+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 703.1,
+          "total_ms": 1582.2,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:57:04.528567+00:00",
+            "to_utc": "2026-10-19T13:57:40.529575+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 31.417
+        },
+        {
+          "number": 18,
+          "variant": "B",
+          "kst": "2026-10-19T22:57:48.278226+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 495.4,
+          "total_ms": 1369.6,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:57:40.529575+00:00",
+            "to_utc": "2026-10-19T13:58:04.530343+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 17.047
+        },
+        {
+          "number": 19,
+          "variant": "A",
+          "kst": "2026-10-19T22:58:06.695741+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 544.4,
+          "total_ms": 1427.2,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:58:04.530343+00:00",
+            "to_utc": "2026-10-19T13:58:16.530691+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.464
+        },
+        {
+          "number": 20,
+          "variant": "A",
+          "kst": "2026-10-19T22:58:24.588210+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 500.0,
+          "total_ms": 1377.8,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:58:16.530691+00:00",
+            "to_utc": "2026-10-19T13:58:52.531689+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 29.84
+        },
+        {
+          "number": 21,
+          "variant": "B",
+          "kst": "2026-10-19T22:58:55.806704+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 688.3,
+          "total_ms": 1570.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:58:52.531689+00:00",
+            "to_utc": "2026-10-19T13:59:04.531933+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.504
+        },
+        {
+          "number": 22,
+          "variant": "A",
+          "kst": "2026-10-19T22:59:13.881518+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 500.5,
+          "total_ms": 1385.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:59:04.531933+00:00",
+            "to_utc": "2026-10-19T13:59:28.533764+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.503
+        },
+        {
+          "number": 23,
+          "variant": "A",
+          "kst": "2026-10-19T22:59:31.771514+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 505.9,
+          "total_ms": 1374.9,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T13:59:28.533764+00:00",
+            "to_utc": "2026-10-19T14:00:04.534978+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 34.036
+        },
+        {
+          "number": 24,
+          "variant": "B",
+          "kst": "2026-10-19T23:00:07.183629+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 540.8,
+          "total_ms": 1415.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:00:04.534978+00:00",
+            "to_utc": "2026-10-19T14:00:16.535410+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 17.676
+        },
+        {
+          "number": 25,
+          "variant": "A",
+          "kst": "2026-10-19T23:00:26.275864+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 548.7,
+          "total_ms": 1458.3,
+          "sse_data_lines": 23,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 20,
+            "tool_calls": 19,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 19,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 44,
+            "total_tokens": 516
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 63
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:00:16.535410+00:00",
+            "to_utc": "2026-10-19T14:00:40.536322+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 44.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 44.0,
+          "response_end_to_next_request_seconds": 16.45
+        },
+        {
+          "number": 26,
+          "variant": "A",
+          "kst": "2026-10-19T23:00:44.185924+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 580.4,
+          "total_ms": 1473.2,
+          "sse_data_lines": 23,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 20,
+            "tool_calls": 19,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 19,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 44,
+            "total_tokens": 516
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 63
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:00:40.536322+00:00",
+            "to_utc": "2026-10-19T14:00:52.536580+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 44.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 44.0,
+          "response_end_to_next_request_seconds": 16.404
+        },
+        {
+          "number": 27,
+          "variant": "B",
+          "kst": "2026-10-19T23:01:02.064515+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 599.3,
+          "total_ms": 1508.4,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:00:52.536580+00:00",
+            "to_utc": "2026-10-19T14:01:16.537363+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.212
+        },
+        {
+          "number": 28,
+          "variant": "A",
+          "kst": "2026-10-19T23:01:19.786014+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 492.4,
+          "total_ms": 1400.1,
+          "sse_data_lines": 23,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 20,
+            "tool_calls": 19,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 19,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 44,
+            "total_tokens": 516
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 63
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:01:16.537363+00:00",
+            "to_utc": "2026-10-19T14:01:28.537758+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 44.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 44.0,
+          "response_end_to_next_request_seconds": 16.243
+        },
+        {
+          "number": 29,
+          "variant": "A",
+          "kst": "2026-10-19T23:01:37.429876+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 515.3,
+          "total_ms": 1341.0,
+          "sse_data_lines": 19,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 16,
+            "tool_calls": 15,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 15,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 40,
+            "total_tokens": 512
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 42
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:01:28.537758+00:00",
+            "to_utc": "2026-10-19T14:02:04.538820+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 40.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 40.0,
+          "response_end_to_next_request_seconds": 30.557
+        },
+        {
+          "number": 30,
+          "variant": "B",
+          "kst": "2026-10-19T23:02:09.327940+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 497.3,
+          "total_ms": 1384.2,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:02:04.538820+00:00",
+            "to_utc": "2026-10-19T14:02:16.539257+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.143
+        },
+        {
+          "number": 31,
+          "variant": "A",
+          "kst": "2026-10-19T23:02:26.856748+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 691.1,
+          "total_ms": 1525.3,
+          "sse_data_lines": 19,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 16,
+            "tool_calls": 15,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 15,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 40,
+            "total_tokens": 512
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 42
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:02:16.539257+00:00",
+            "to_utc": "2026-10-19T14:02:40.539877+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 40.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 40.0,
+          "response_end_to_next_request_seconds": 16.195
+        },
+        {
+          "number": 32,
+          "variant": "A",
+          "kst": "2026-10-19T23:02:44.577826+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 491.1,
+          "total_ms": 1391.9,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:02:40.539877+00:00",
+            "to_utc": "2026-10-19T14:03:04.541096+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 31.069
+        },
+        {
+          "number": 33,
+          "variant": "B",
+          "kst": "2026-10-19T23:03:17.039963+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 652.3,
+          "total_ms": 1535.8,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:03:04.541096+00:00",
+            "to_utc": "2026-10-19T14:03:28.543343+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0,
+          "response_end_to_next_request_seconds": 16.218
+        },
+        {
+          "number": 34,
+          "variant": "A",
+          "kst": "2026-10-19T23:03:34.795278+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 514.0,
+          "total_ms": 1350.8,
+          "sse_data_lines": 19,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 16,
+            "tool_calls": 15,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 15,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 40,
+            "total_tokens": 512
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 42
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:03:28.543343+00:00",
+            "to_utc": "2026-10-19T14:03:40.543763+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 40.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 40.0,
+          "response_end_to_next_request_seconds": 16.323
+        },
+        {
+          "number": 35,
+          "variant": "A",
+          "kst": "2026-10-19T23:03:52.470044+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 505.2,
+          "total_ms": 1369.9,
+          "sse_data_lines": 19,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 16,
+            "tool_calls": 15,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 15,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 40,
+            "total_tokens": 512
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 42
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:03:40.543763+00:00",
+            "to_utc": "2026-10-19T14:04:04.544398+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 40.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 40.0,
+          "response_end_to_next_request_seconds": 16.839
+        },
+        {
+          "number": 36,
+          "variant": "B",
+          "kst": "2026-10-19T23:04:10.680535+09:00",
+          "request_bytes": 1837,
+          "http": 200,
+          "ttfb_ms": 549.7,
+          "total_ms": 1430.3,
+          "sse_data_lines": 21,
+          "non_json_data_lines": 0,
+          "non_utf8_lines": 0,
+          "done_count": 1,
+          "duplicate_done_count": 0,
+          "finish_reasons": {
+            "tool_calls": 1
+          },
+          "delta_kinds": {
+            "role": 1,
+            "content": 18,
+            "tool_calls": 17,
+            "reasoning": 0
+          },
+          "sse_error_events": 0,
+          "sse_error_objects": 0,
+          "tool_call_fragments": 17,
+          "tool_calls_count": 1,
+          "usage": {
+            "prompt_tokens": 472,
+            "completion_tokens": 42,
+            "total_tokens": 514
+          },
+          "usage_occurrences": 1,
+          "content_characters": 0,
+          "reasoning_characters": 0,
+          "U_FFFD_count": 0,
+          "NUL_count": 0,
+          "special_counts": {
+            "<|": 0,
+            "|>": 0,
+            "<tool_call>": 0,
+            "</tool_call>": 0,
+            "functions.": 0,
+            "[TOOL_CALLS]": 0
+          },
+          "post_call_gate": "unchanged",
+          "classification": "CLEAN_TOOL",
+          "delta_kind_counting": "Key presence including empty/null values.",
+          "tools": [
+            {
+              "name": "mcp___mcp_microsoft_learn___microsoft_docs_search",
+              "name_ascii_at_most_80": true,
+              "declared_name_exact_match": true,
+              "id_format": "chatcmpl-tool-*",
+              "index_present": true,
+              "index_missing_fragments": 0,
+              "arguments_json_valid": true,
+              "argument_top_level_keys": [
+                "query"
+              ],
+              "arguments_top_level_type": "dict",
+              "query_characters": 47
+            }
+          ],
+          "independent_poller": {
+            "from_utc": "2026-10-19T14:04:04.544398+00:00",
+            "to_utc": "2026-10-19T14:04:16.544818+00:00",
+            "prompt_delta": 472.0,
+            "output_delta": 42.0
+          },
+          "usage_matches_independent_prompt_delta": true,
+          "usage_matches_independent_output_delta": true,
+          "early_vllm_prompt_delta": 472.0,
+          "early_vllm_output_delta": 42.0
+        }
+      ],
+      "usage_totals": {
+        "prompt": 16992,
+        "completion": 1531
+      },
+      "independent_counter_matches": 36
+    }
+  },
+  "post_replay_observation": {
+    "utc": "2026-10-19T14:06:14.009332+00:00",
+    "approved_poller_deadline_utc": "2026-10-19T14:05:12.112244+00:00",
+    "after_last_response_seconds": 121.897,
+    "profiles": [
+      {
+        "profile": "fp8",
+        "link": true,
+        "ready": true,
+        "healthy": true,
+        "verified": true,
+        "provenance_ok": true,
+        "phase": "ready",
+        "activation_unchanged": true,
+        "queue_active": 0,
+        "queue_waiting": 0,
+        "prompt_delta": 16992.0,
+        "output_delta": 1531.0
+      },
+      {
+        "profile": "nvfp4",
+        "link": true,
+        "ready": true,
+        "healthy": true,
+        "verified": true,
+        "provenance_ok": true,
+        "phase": "ready",
+        "activation_unchanged": true,
+        "queue_active": 0,
+        "queue_waiting": 0,
+        "prompt_delta": 0.0,
+        "output_delta": 0.0
+      }
+    ],
+    "model_calls_after_replay": 0,
+    "deployment_settings_restart_actions": 0
+  }
+}
