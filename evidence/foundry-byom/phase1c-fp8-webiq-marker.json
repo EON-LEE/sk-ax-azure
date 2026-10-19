@@ -1,0 +1,210 @@
+{
+  "schema": "foundry-byom-evidence/1",
+  "label": "phase1c-fp8-webiq-marker",
+  "generated_at": "2026-10-19T12:45:52+00:00",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "expected": {
+    "model_reference": "<conn-fp8>/ax-k2-fp8",
+    "scenario": "mcp",
+    "agent": {
+      "name": "byom-demo-webiq-agent-fp8",
+      "version": "1"
+    }
+  },
+  "run": {
+    "schema": "foundry-byom-run/1",
+    "started_at": "2026-10-19T12:43:38+00:00",
+    "request": {
+      "scenario": "mcp",
+      "agent_name": "byom-demo-webiq-agent-fp8",
+      "agent_version": "1",
+      "prompt": "웹 검색으로 Microsoft Foundry Agent Service의 최근 소식을 찾아 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. [추적 ID: r-55f05fe5]",
+      "nonce": "r-55f05fe5",
+      "limits": {
+        "max_output_tokens": 384,
+        "max_tool_calls": 0,
+        "max_rounds": 4,
+        "timeout_s": 180
+      },
+      "use_conversation": true,
+      "approve_tools": [],
+      "request_header_names": [
+        "x-apikey"
+      ],
+      "expect_failure": false
+    },
+    "request_header_echoed": null,
+    "conversation_id": "conv_01a143cb…",
+    "conversation_deleted": null,
+    "rounds": [],
+    "function_results": [],
+    "stopped": "error",
+    "error": {
+      "type": "BadRequestError",
+      "status_code": 400,
+      "code": "invalid_payload",
+      "message": "Error code: 400 - {'error': {'code': 'invalid_payload', 'message': 'Not allowed when agent is specified. [Request ID: 13087c4a…]', 'param': 'tools', 'type': 'invalid_request_error', 'details': [{'code': 'ValidationError', 'message': 'Not allowed when agent is specified.', 'param': 'tools', 'type': 'error', 'details': []}], 'additionalInfo': {'request_id': '13087c4a…'}}}"
+    },
+    "client_http": {
+      "requests": 2,
+      "responses_posts": 1
+    },
+    "final_answer": null,
+    "final_answer_contains_nonce": false,
+    "item_sequence": [],
+    "tool_events": [],
+    "ok": false
+  },
+  "server_records": {
+    "agent_version": {
+      "name": "byom-demo-webiq-agent-fp8",
+      "version": "1",
+      "definition": {
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 web 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다.",
+        "temperature": 0.3,
+        "tools": [
+          {
+            "type": "mcp",
+            "server_label": "web_iq",
+            "server_url": "https://api.microsoft.ai/v3/mcp",
+            "allowed_tools": [
+              "web"
+            ],
+            "require_approval": "never"
+          }
+        ]
+      }
+    },
+    "response": null,
+    "conversation_items": [],
+    "secret_scan": {
+      "values_checked": 1,
+      "agent_version": false,
+      "conversation_items": false
+    },
+    "errors": []
+  },
+  "observations": {
+    "agent_definition_model": "<conn-fp8>/ax-k2-fp8",
+    "response_model": null,
+    "final_answer": null
+  },
+  "checks": [
+    {
+      "id": "agent_definition_model_reference",
+      "status": "confirmed",
+      "detail": "agent definition model is <conn-fp8>/ax-k2-fp8"
+    },
+    {
+      "id": "response_agent_reference",
+      "status": "unverified",
+      "detail": "response carries no agent reference"
+    },
+    {
+      "id": "response_completed",
+      "status": "unverified",
+      "detail": "response status unknown"
+    },
+    {
+      "id": "tool_listed",
+      "status": "failed",
+      "detail": "no mcp_list_tools item in the output"
+    },
+    {
+      "id": "tool_called",
+      "status": "failed",
+      "detail": "no mcp_call item in the output"
+    },
+    {
+      "id": "tool_then_answer_order",
+      "status": "unverified",
+      "detail": "no item sequence recorded"
+    },
+    {
+      "id": "tool_result_used",
+      "status": "unverified",
+      "detail": "no final answer recorded"
+    },
+    {
+      "id": "no_thinking_trace",
+      "status": "unverified",
+      "detail": "no output or usage recorded"
+    },
+    {
+      "id": "usage_recorded",
+      "status": "unverified",
+      "detail": "no usage recorded"
+    },
+    {
+      "id": "nonce_echoed",
+      "status": "not_applicable",
+      "detail": "nonce echo is checked in the plain scenario"
+    },
+    {
+      "id": "negative_control_failed_as_expected",
+      "status": "not_applicable",
+      "detail": "not a negative control"
+    },
+    {
+      "id": "conversation_tool_history",
+      "status": "failed",
+      "detail": "conversation holds no tool item"
+    },
+    {
+      "id": "request_secret_not_in_server_records",
+      "status": "confirmed",
+      "detail": "value not found in: agent version, conversation items; Application Insights traces and portal screens are not covered"
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "apim_gateway_log",
+      "description": "APIM log shows the Foundry call with the A.X K2 model name for this run",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "backend_hub_log",
+      "description": "Web app/hub record shows the A.X K2 runtime for the same time window",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_model_settings",
+      "description": "Foundry console shows the agent's model reference",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_conversation",
+      "description": "Foundry console shows the conversation",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_tool_history",
+      "description": "Foundry console shows the tool execution history",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "tracing_visible",
+      "description": "Traces for this run are visible (Application Insights connected)",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    }
+  ],
+  "summary": {
+    "confirmed": 2,
+    "failed": 3,
+    "unverified": 12,
+    "not_applicable": 2
+  }
+}

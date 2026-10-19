@@ -1,0 +1,69 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-19T12:28:11+00:00",
+  "request": {
+    "scenario": "plain",
+    "agent_name": "byom-demo-agent-fp8",
+    "agent_version": "1",
+    "prompt": "한 문장으로 인사하고, 아래 확인 코드를 그대로 포함하세요. 확인 코드: r-cf1e73d6",
+    "nonce": "r-cf1e73d6",
+    "limits": {
+      "max_output_tokens": 256,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "conversation_id": "conv_0f775a44…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_0f775a44…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "agent": {
+        "name": "byom-demo-agent-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_0f775a44…",
+      "output_item_types": [
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [],
+      "final_answer": "안녕하세요! 확인 코드: r-cf1e73d6",
+      "answer_chars": 24,
+      "answer_urls": [],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 80,
+        "output_tokens": 15,
+        "total_tokens": 95,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation"
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1
+  },
+  "final_answer": "안녕하세요! 확인 코드: r-cf1e73d6",
+  "final_answer_contains_nonce": true,
+  "item_sequence": [
+    "message"
+  ],
+  "tool_events": [],
+  "ok": true
+}

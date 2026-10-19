@@ -1,0 +1,355 @@
+{
+  "schema": "foundry-byom-evidence/1",
+  "label": "phase1b-fp8-function",
+  "generated_at": "2026-10-19T12:45:40+00:00",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "expected": {
+    "model_reference": "<conn-fp8>/ax-k2-fp8",
+    "scenario": "function",
+    "agent": {
+      "name": "byom-demo-fn-agent-fp8",
+      "version": "1"
+    }
+  },
+  "run": {
+    "schema": "foundry-byom-run/1",
+    "started_at": "2026-10-19T12:29:05+00:00",
+    "request": {
+      "scenario": "function",
+      "agent_name": "byom-demo-fn-agent-fp8",
+      "agent_version": "1",
+      "prompt": "재고 조회 도구로 SKU AX-100의 재고 수량을 확인한 뒤, 수량과 아래 확인 코드를 한 문장으로 알려 주세요. 확인 코드: r-3e010e4d",
+      "nonce": "r-3e010e4d",
+      "limits": {
+        "max_output_tokens": 256,
+        "max_tool_calls": 0,
+        "max_rounds": 3,
+        "timeout_s": 180
+      },
+      "use_conversation": true,
+      "approve_tools": [],
+      "request_header_names": [],
+      "expect_failure": false
+    },
+    "request_header_echoed": null,
+    "conversation_id": "conv_02f4e790…",
+    "conversation_deleted": null,
+    "rounds": [
+      {
+        "response_id": "resp_02f4e790…",
+        "status": "completed",
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "agent": {
+          "name": "byom-demo-fn-agent-fp8",
+          "version": "1"
+        },
+        "conversation_id": "conv_02f4e790…",
+        "output_item_types": [
+          "message",
+          "function_call"
+        ],
+        "reasoning_item_count": 0,
+        "tool_events": [
+          {
+            "type": "function_call",
+            "name": "lookup_demo_stock",
+            "arguments": {
+              "sku": "AX-100"
+            },
+            "call_id": "call_chatcmpl-tool-9b0d2a08abdc1e71_agents",
+            "status": "completed"
+          }
+        ],
+        "final_answer": "먼저 도구를 호출하여 SKU AX-100의 재고 수량을 확인합니다.",
+        "answer_chars": 37,
+        "answer_urls": [],
+        "think_tag": false,
+        "usage": {
+          "input_tokens": 310,
+          "output_tokens": 96,
+          "total_tokens": 406,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        },
+        "incomplete_reason": null,
+        "error": null,
+        "chained_by": "conversation"
+      },
+      {
+        "response_id": "resp_02f4e790…",
+        "status": "completed",
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "agent": {
+          "name": "byom-demo-fn-agent-fp8",
+          "version": "1"
+        },
+        "conversation_id": "conv_02f4e790…",
+        "output_item_types": [
+          "message"
+        ],
+        "reasoning_item_count": 0,
+        "tool_events": [],
+        "final_answer": "SKU AX-100의 현재 재고 수량은 7,516개이며, 확인 코드는 r-3e010e4d입니다.",
+        "answer_chars": 53,
+        "answer_urls": [],
+        "think_tag": false,
+        "usage": {
+          "input_tokens": 390,
+          "output_tokens": 36,
+          "total_tokens": 426,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        },
+        "incomplete_reason": null,
+        "error": null,
+        "chained_by": "conversation"
+      }
+    ],
+    "function_results": [
+      {
+        "name": "lookup_demo_stock",
+        "call_id": "call_chatcmpl-tool-9b0d2a08abdc1e71_agents",
+        "output": "{\"sku\": \"AX-100\", \"stock\": 7516}"
+      }
+    ],
+    "stopped": "completed",
+    "error": null,
+    "client_http": {
+      "requests": 3,
+      "responses_posts": 2
+    },
+    "final_answer": "SKU AX-100의 현재 재고 수량은 7,516개이며, 확인 코드는 r-3e010e4d입니다.",
+    "final_answer_contains_nonce": true,
+    "item_sequence": [
+      "message",
+      "function_call",
+      "message"
+    ],
+    "tool_events": [
+      {
+        "type": "function_call",
+        "name": "lookup_demo_stock",
+        "arguments": {
+          "sku": "AX-100"
+        },
+        "call_id": "call_chatcmpl-tool-9b0d2a08abdc1e71_agents",
+        "status": "completed"
+      }
+    ],
+    "ok": true
+  },
+  "server_records": {
+    "agent_version": {
+      "name": "byom-demo-fn-agent-fp8",
+      "version": "1",
+      "definition": {
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "instructions": "간결한 한국어로 답한다. 최신 정보나 확인이 필요한 사실은 제공된 도구를 먼저 호출하고, 도구 결과에 있는 내용만 근거로 답한다. 도구 결과에 근거가 없으면 모른다고 답한다.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "lookup_demo_stock",
+            "description": "Return the demo stock quantity for a SKU code.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "sku": {
+                  "type": "string",
+                  "description": "SKU code such as AX-100"
+                }
+              },
+              "required": [
+                "sku"
+              ],
+              "additionalProperties": false
+            },
+            "strict": false
+          }
+        ]
+      }
+    },
+    "response": {
+      "response_id": "resp_02f4e790…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "agent": {
+        "name": "byom-demo-fn-agent-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_02f4e790…",
+      "output_item_types": [
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [],
+      "final_answer": "SKU AX-100의 현재 재고 수량은 7,516개이며, 확인 코드는 r-3e010e4d입니다.",
+      "answer_chars": 53,
+      "answer_urls": [],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 390,
+        "output_tokens": 36,
+        "total_tokens": 426,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null
+    },
+    "conversation_items": [
+      {
+        "type": "message",
+        "role": "user",
+        "text": "재고 조회 도구로 SKU AX-100의 재고 수량을 확인한 뒤, 수량과 아래 확인 코드를 한 문장으로 알려 주세요. 확인 코드: r-3e010e4d"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "text": "먼저 도구를 호출하여 SKU AX-100의 재고 수량을 확인합니다."
+      },
+      {
+        "type": "function_call",
+        "name": "lookup_demo_stock",
+        "arguments": {
+          "sku": "AX-100"
+        },
+        "call_id": "call_chatcmpl-tool-9b0d2a08abdc1e71_agents",
+        "status": "completed"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_chatcmpl-tool-9b0d2a08abdc1e71_agents",
+        "output": "{\"sku\": \"AX-100\", \"stock\": 7516}"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "text": "SKU AX-100의 현재 재고 수량은 7,516개이며, 확인 코드는 r-3e010e4d입니다."
+      }
+    ],
+    "secret_scan": null,
+    "errors": []
+  },
+  "observations": {
+    "agent_definition_model": "<conn-fp8>/ax-k2-fp8",
+    "response_model": "<conn-fp8>/ax-k2-fp8",
+    "final_answer": "SKU AX-100의 현재 재고 수량은 7,516개이며, 확인 코드는 r-3e010e4d입니다."
+  },
+  "checks": [
+    {
+      "id": "agent_definition_model_reference",
+      "status": "confirmed",
+      "detail": "agent definition model is <conn-fp8>/ax-k2-fp8"
+    },
+    {
+      "id": "response_agent_reference",
+      "status": "confirmed",
+      "detail": "response agent_reference is byom-demo-fn-agent-fp8:1"
+    },
+    {
+      "id": "response_completed",
+      "status": "confirmed",
+      "detail": "status=completed"
+    },
+    {
+      "id": "tool_listed",
+      "status": "not_applicable",
+      "detail": "no MCP tool in this scenario"
+    },
+    {
+      "id": "tool_called",
+      "status": "confirmed",
+      "detail": "function_call lookup_demo_stock {\"sku\": \"AX-100\"}"
+    },
+    {
+      "id": "tool_then_answer_order",
+      "status": "confirmed",
+      "detail": "sequence: message > function_call > message"
+    },
+    {
+      "id": "tool_result_used",
+      "status": "confirmed",
+      "detail": "final answer contains the value returned by the function"
+    },
+    {
+      "id": "no_thinking_trace",
+      "status": "confirmed",
+      "detail": "no reasoning item, reasoning token or <think tag; output_tokens=132, answer_chars=53; compare them to spot hidden reasoning (server-side default needs the API owner's confirmation)"
+    },
+    {
+      "id": "usage_recorded",
+      "status": "confirmed",
+      "detail": "input_tokens=700, output_tokens=132"
+    },
+    {
+      "id": "nonce_echoed",
+      "status": "not_applicable",
+      "detail": "nonce echo is checked in the plain scenario"
+    },
+    {
+      "id": "negative_control_failed_as_expected",
+      "status": "not_applicable",
+      "detail": "not a negative control"
+    },
+    {
+      "id": "conversation_tool_history",
+      "status": "confirmed",
+      "detail": "1 tool item(s) in the conversation: function_call"
+    },
+    {
+      "id": "request_secret_not_in_server_records",
+      "status": "not_applicable",
+      "detail": "no request-time secret was used or given with --scan-env"
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "apim_gateway_log",
+      "description": "APIM log shows the Foundry call with the A.X K2 model name for this run",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "backend_hub_log",
+      "description": "Web app/hub record shows the A.X K2 runtime for the same time window",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_model_settings",
+      "description": "Foundry console shows the agent's model reference",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_conversation",
+      "description": "Foundry console shows the conversation",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_tool_history",
+      "description": "Foundry console shows the tool execution history",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "tracing_visible",
+      "description": "Traces for this run are visible (Application Insights connected)",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    }
+  ],
+  "summary": {
+    "confirmed": 9,
+    "failed": 0,
+    "unverified": 6,
+    "not_applicable": 4
+  }
+}

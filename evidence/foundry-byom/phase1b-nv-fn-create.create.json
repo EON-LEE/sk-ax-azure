@@ -1,0 +1,52 @@
+{
+  "schema": "foundry-byom-create/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-19T12:47:18+00:00",
+  "action": "created",
+  "agent": "byom-demo-fn-agent-nv",
+  "version": "1",
+  "model_reference": "<conn-nvfp4>/ax-k2-nvfp4",
+  "definition": {
+    "model": "<conn-nvfp4>/ax-k2-nvfp4",
+    "instructions": "간결한 한국어로 답한다. 최신 정보나 확인이 필요한 사실은 제공된 도구를 먼저 호출하고, 도구 결과에 있는 내용만 근거로 답한다. 도구 결과에 근거가 없으면 모른다고 답한다.",
+    "tools": [
+      {
+        "type": "function",
+        "name": "lookup_demo_stock",
+        "description": "Return the demo stock quantity for a SKU code.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sku": {
+              "type": "string",
+              "description": "SKU code such as AX-100"
+            }
+          },
+          "required": [
+            "sku"
+          ],
+          "additionalProperties": false
+        },
+        "strict": false
+      }
+    ]
+  },
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "verification": {
+    "requested_model": "<conn-nvfp4>/ax-k2-nvfp4",
+    "agents_get": {
+      "version": "1",
+      "model": "<conn-nvfp4>/ax-k2-nvfp4",
+      "matches": true
+    },
+    "get_version": {
+      "version": "1",
+      "model": "<conn-nvfp4>/ax-k2-nvfp4",
+      "matches": true
+    },
+    "ok": true
+  }
+}
