@@ -143,6 +143,11 @@ resource "azurerm_linux_web_app" "demo" {
       app_settings["AXK2_WEBIQ_ENDPOINT"],
       app_settings["AXK2_WEBIQ_API_KEY"],
       app_settings["AXK2_WEBIQ_ACCESS_APPROVED"],
+      app_settings["AXK2_WEBIQ_TOOL"],
+      app_settings["AXK2_WEBIQ_QUERY_FIELD"],
+      app_settings["AXK2_WEBIQ_ARGUMENTS_JSON"],
+      app_settings["AXK2_WEBIQ_BEARER_TOKEN"],
+      app_settings["AXK2_MODEL_API_KEY_SHA256"],
     ]
   }
 }

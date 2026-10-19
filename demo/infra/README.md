@@ -136,6 +136,68 @@ zero cost from a public OFF badge alone. If frontend/auth is unavailable, restor
 its saved deployment/credentials before operating; do not only cancel AML jobs
 while a live desired-ON supervisor can resubmit them.
 
+## Model-only API preparation and reviewed web deployment
+
+Model-only API credentials are separate from admin/demo credentials and Web IQ.
+The API remains disabled when `AXK2_MODEL_API_KEY_SHA256` is unset. Terraform
+preserves this externally managed setting rather than accepting its value as a
+Terraform variable. Refreshed Terraform state may still contain it; keep the
+entire state directory protected as described above.
+
+```bash
+# Local preparation only: generates a 256-bit key once; never changes Azure.
+python3 demo/target.py --directory "$D" model-key
+# Only after the deployment owner receives approval for this exact commit:
+python3 demo/target.py --directory "$D" deploy-revision \
+  --commit <full-40-character-reviewed-commit> --allow-live-web-recycle
+```
+
+The raw key exists only in `$D/model-api-backend.key` (0600). The digest is staged
+in `$D/model-api-settings.json` (0600), never printed or passed on the command
+line. Do not put either value in a document, shell history, evidence, or git.
+An existing key is reused. `model-key --rotate` stages a new key and retains the
+old digest for overlap; distribute the new key through the approved private
+consumer configuration before `model-key --retire-previous` stages removal of
+the old digest. A second rotation is refused until the first is retired. These
+commands only stage files. After the initial code deployment, activate a staged
+rotation/retirement with `model-settings --allow-live-web-recycle`, only in an
+explicitly approved window. This settings-only operation requires the saved
+successful model API deployment proof and rechecks both original reverse links.
+
+`deploy-revision` packages the exact git commit, not the current working tree,
+and refuses short SHAs, tags, branches, unsafe archive paths and symlinks. Fetch
+and review the candidate before using its SHA. It verifies the saved rollback ZIP
+against its manifest and the actual deployed archive, then retains that ZIP,
+manifest, app settings and current profile bindings in a new private rollback
+directory. Existing settings are preserved; only the staged API setting changes.
+It does not call GPU power, change compute, submit jobs or apply Terraform.
+
+Unlike the ordinary OFF-only `deploy`, this operation explicitly permits a live
+web recycle. App Service ZIP deployment and app-setting updates are **separate
+operations**. The approved procedure permits **two web recycles, zero GPU
+restarts**, in one coordinated window. The API code deploys first with no digest
+configured, so the new routes are briefly disabled (404). Before activation,
+check health, status, capabilities and disabled routes, and require both existing
+model reverse links to recover with unchanged profile activation times and empty
+queues. Only then activate the credential, wait for both links and empty queues
+again, and run smoke. These health checks are not inference tests.
+
+After deployment, run the **reviewed candidate's**
+`demo/tools/model_api_smoke.py` using its documented protected key-file argument,
+not a key value in argv. Require sequential, thinking-OFF checks of model listing,
+non-stream/stream responses, actual tool call and tool-result replay, missing/wrong
+key rejection, and a secret-free JSON record of actual model admissions. Its
+exact CLI and approved call limit must be confirmed with the API implementation
+owner; do not invent parameters or run a second smoke attempt automatically.
+`candidate-proof.json` explicitly records smoke as not run until this separate
+verification completes.
+
+If upload transport or OneDeploy is uncertain, inspect that deployment instead
+of resubmitting. If recovery fails, preserve the candidate/rollback evidence and
+report the blocker. The private rollback directory contains the previous ZIP and
+settings for a separately approved recovery; do not shut down or restart GPUs as
+a frontend rollback strategy.
+
 ## Web IQ and optional services
 
 Web IQ is explicitly unavailable until **authorized target-specific** credentials

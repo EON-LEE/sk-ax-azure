@@ -7,12 +7,14 @@ import argparse
 import base64
 import fcntl
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import secrets
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -91,6 +93,47 @@ def bundle(root, destination):
     return expected
 
 
+def git_read(*args, text=False):
+    git = "git"
+    pointer = ROOT / ".git"
+    if os.name != "nt" and pointer.is_file() and re.match(
+            r"gitdir:\s*[A-Za-z]:[/\\]", pointer.read_text().strip()):
+        git = shutil.which("git.exe")
+        if not git:
+            raise RuntimeError("This Windows-managed worktree requires git.exe from WSL")
+    return subprocess.run([git, *args], cwd=ROOT, capture_output=True, text=text, check=True).stdout
+
+
+def bundle_revision(revision, destination):
+    if not re.fullmatch(r"[0-9a-f]{40}", revision or ""):
+        raise ValueError("An exact full lowercase commit SHA is required")
+    resolved = git_read("rev-parse", "--verify", revision + "^{commit}", text=True).strip()
+    if resolved != revision:
+        raise ValueError("Requested source is not the exact commit")
+    source = git_read("archive", "--format=zip", revision)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        with zipfile.ZipFile(io.BytesIO(source)) as archive:
+            for item in archive.infolist():
+                path = Path(item.filename)
+                if (path.is_absolute() or ".." in path.parts or "\\" in item.filename
+                        or (item.external_attr >> 16) & 0o170000 == 0o120000):
+                    raise ValueError("Unsafe path or symlink in revision archive")
+            archive.extractall(root)
+        return bundle(root, destination)
+
+
+def private_text(path, value):
+    temporary = path.with_suffix(".tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(value)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class Target:
     def __init__(self, directory):
         self.directory = directory
@@ -114,7 +157,9 @@ class Target:
                              env=self.env, capture_output=True, text=True)
         if run.returncode:
             # Error output can contain request bodies/settings. Keep full diagnostics private.
-            (self.directory / "azure-error.log").write_text(run.stderr)
+            diagnostic = ("App settings operation failed; credential-bearing response suppressed."
+                          if args[:3] == ("webapp", "config", "appsettings") else run.stderr)
+            (self.directory / "azure-error.log").write_text(diagnostic)
             raise RuntimeError(f"Azure CLI {args[0]} {args[1]} failed; see private azure-error.log")
         return json.loads(run.stdout) if run.stdout.strip() else {}
 
@@ -127,17 +172,17 @@ class Target:
             raise RuntimeError("Terraform failed; inspect private terraform-" + args[0] + ".log")
         return run.stdout
 
-    def request(self, url, body=None, cloud=False, raw=False):
+    def request(self, url, body=None, cloud=False, raw=False, anonymous=False):
         if cloud:
             if self.token is None:
                 self.token = self.az("account", "get-access-token",
                                      "--resource", "https://management.azure.com/")["accessToken"]
             credential = self.token
-        else:
+        elif not anonymous:
             if self.admin is None:
                 self.admin = json.loads((self.directory / "secrets.json").read_text())["admin"]
             credential = self.admin
-        headers = {"Authorization": "Bearer " + credential}
+        headers = {} if anonymous else {"Authorization": "Bearer " + credential}
         if body is not None:
             headers["Content-Type"] = "application/zip" if raw else "application/json"
         request = urllib.request.Request(url, data=body if raw else
@@ -218,6 +263,10 @@ class Target:
         archive = self.directory / "frontend.zip"
         expected = bundle(ROOT, archive)
         write_private(self.directory / "frontend-expected.json", expected)
+        self.publish(archive, expected)
+        print(self.url)
+
+    def publish(self, archive, expected):
         deployment_url = f"https://{self.name}.scm.azurewebsites.net/api/deployments/latest"
         try:
             previous_id = self.request(deployment_url, cloud=True).get("id")
@@ -241,7 +290,173 @@ class Target:
         else:
             raise TimeoutError("Deployment not verified; inspect the in-flight deployment before retrying")
         self.verify_archive(expected)
-        print(self.url)
+
+    def model_key(self, rotate=False, retire_previous=False):
+        if rotate and retire_previous:
+            raise ValueError("Rotate and retire-previous are separate operations")
+        path = self.directory / "model-api-backend.key"
+        staged = self.directory / "model-api-settings.json"
+        if path.is_symlink() or staged.is_symlink():
+            raise ValueError("Model credential files must not be symlinks")
+        previous = json.loads(staged.read_text()) if staged.exists() else {}
+        if path.exists():
+            if path.stat().st_mode & 0o077:
+                raise PermissionError("Existing model API key must have mode 0600")
+            key = path.read_text().strip()
+            if not re.fullmatch(r"[0-9a-f]{64}", key):
+                raise ValueError("Existing backend key is not a generated 256-bit key")
+            old_hash = hashlib.sha256(key.encode()).hexdigest()
+        else:
+            if previous or rotate or retire_previous:
+                raise ValueError("Existing backend key is required for rotation")
+            key, old_hash = secrets.token_hex(32), None
+        if rotate:
+            if len(previous.get("AXK2_MODEL_API_KEY_SHA256", "").split(",")) > 1:
+                raise ValueError("Retire the previous rotation before rotating again")
+            key = secrets.token_hex(32)
+        current_hash = hashlib.sha256(key.encode()).hexdigest()
+        hashes = [current_hash]
+        if rotate:
+            hashes.append(old_hash)
+        elif not retire_previous:
+            hashes.extend(value for value in previous.get("AXK2_MODEL_API_KEY_SHA256", "").split(",")
+                          if value and value != current_hash)
+        if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes):
+            raise ValueError("Invalid staged model API digest")
+        # Only the protected key file contains plaintext; nothing is applied here.
+        private_text(path, key + "\n")
+        write_private(staged, {"AXK2_MODEL_API_KEY_SHA256": ",".join(hashes)})
+        print("Model API key and settings staged privately; no cloud settings changed.")
+
+    def staged_model_settings(self):
+        settings_path = self.directory / "model-api-settings.json"
+        if not settings_path.exists():
+            raise ValueError("Stage the backend key before the approved deployment")
+        settings = json.loads(settings_path.read_text())
+        if set(settings) != {"AXK2_MODEL_API_KEY_SHA256"} or not re.fullmatch(
+                r"[0-9a-f]{64}(?:,[0-9a-f]{64})?", settings["AXK2_MODEL_API_KEY_SHA256"]):
+            raise ValueError("Invalid staged model API settings")
+        key_path = self.directory / "model-api-backend.key"
+        if key_path.is_symlink() or key_path.stat().st_mode & 0o077:
+            raise PermissionError("Model backend key must be a private regular file")
+        key = key_path.read_text().strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", key) or hashlib.sha256(key.encode()).hexdigest() != (
+                settings["AXK2_MODEL_API_KEY_SHA256"].split(",")[0]):
+            raise ValueError("Staged API digest does not match the current backend key")
+        return settings_path
+
+    def model_settings(self, allow_live_web_recycle=False):
+        if not allow_live_web_recycle:
+            raise ValueError("Settings activation requires explicit --allow-live-web-recycle")
+        settings_path = self.staged_model_settings()
+        proof_path = self.directory / "candidate-proof.json"
+        if not proof_path.exists() or json.loads(proof_path.read_text()).get("state") != "deployed_links_recovered":
+            raise ValueError("A verified model API code deployment is required before key rotation activation")
+        baseline = self.request(self.url + "/api/models")
+        self.wait_web_recovery(baseline)
+        self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
+                "--settings", "@" + str(settings_path))
+        recovered = self.wait_web_recovery(baseline)
+        write_private(self.directory / "model-settings-proof.json", {
+            "state": "activated_links_recovered", "models": recovered,
+            "smoke": "not_run; separately verify the rotated consumer connection"})
+        print("Staged model API settings activated; original reverse links recovered.")
+
+    def deploy_revision(self, revision, allow_live_web_recycle=False):
+        if not allow_live_web_recycle:
+            raise ValueError("Live web deployment requires explicit --allow-live-web-recycle")
+        settings_path = self.staged_model_settings()
+        archive = self.directory / "candidate-frontend.zip"
+        expected = bundle_revision(revision, archive)
+        manifest = self.directory / "frontend-expected.json"
+        previous_archive = self.directory / "frontend.zip"
+        if not manifest.exists() or not previous_archive.exists():
+            raise ValueError("Verified current deployment package is required for rollback")
+        previous = json.loads(manifest.read_text())
+        with zipfile.ZipFile(previous_archive) as package:
+            if set(package.namelist()) != set(previous) or any(
+                    hashlib.sha256(package.read(name)).hexdigest() != digest
+                    for name, digest in previous.items()):
+                raise ValueError("Saved rollback package does not match its source manifest")
+        self.verify_archive(previous)
+        baseline = self.request(self.url + "/api/models")
+        if not all(model["status"]["healthy"] and model["runtime"]["state"] == "verified"
+                   for model in baseline["models"]):
+            raise ValueError("Both model links must be healthy before the web-only deployment")
+        self.wait_web_recovery(baseline)
+        rollback = self.directory / ("rollback-" + str(time.time_ns()))
+        rollback.mkdir(mode=0o700)
+        shutil.copyfile(previous_archive, rollback / "frontend.zip")
+        write_private(rollback / "frontend-expected.json", previous)
+        current = self.az("webapp", "config", "appsettings", "list", "-g", self.rg, "-n", self.name)
+        if any(item["name"] == "AXK2_MODEL_API_KEY_SHA256" and item["value"] for item in current):
+            raise ValueError("Initial disabled-code rollout requires an unset API digest; review rotation separately")
+        write_private(rollback / "appsettings.json", {item["name"]: item["value"] for item in current})
+        write_private(rollback / "models.json", baseline)
+        write_private(self.directory / "candidate-proof.json", {
+            "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "expected_files": len(expected), "state": "attempted", "rollback": rollback.name})
+        # Deploy disabled code first, then enable its credential. These are distinct
+        # App Service operations; they can cause more than one web process recycle.
+        self.publish(archive, expected)
+        first_recovery = self.wait_web_recovery(baseline)
+        self.request(self.url + "/healthz")
+        self.request(self.url + "/api/status")
+        capabilities = self.request(self.url + "/api/capabilities")
+        if capabilities["web_iq"]["state"] != "ready":
+            raise ValueError("Web IQ discovery regressed during code deployment")
+        for prefix in ("", "/models/nvfp4"):
+            for route, body in (("/v1/models", None), ("/v1/chat/completions", {})):
+                try:
+                    self.request(self.url + prefix + route, body, anonymous=True)
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 404:
+                        raise ValueError("Unconfigured model API did not fail closed with HTTP 404") from None
+                else:
+                    raise ValueError("Unconfigured model API unexpectedly accepted a request")
+        write_private(self.directory / "code-deployment-regression.json", {
+            "revision": revision, "health": True, "status": True, "web_iq_ready": True,
+            "model_api_disabled": True, "models": first_recovery})
+        self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
+                "--settings", "@" + str(settings_path))
+        second_recovery = self.wait_web_recovery(baseline)
+        shutil.copyfile(archive, previous_archive)
+        write_private(manifest, expected)
+        write_private(self.directory / "candidate-proof.json", {
+            "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "expected_files": len(expected), "state": "deployed_links_recovered",
+            "rollback": rollback.name, "gpu_binding_unchanged": True,
+            "code_recycle": first_recovery, "settings_recycle": second_recovery,
+            "model_api_smoke": "not_run; execute the candidate's reviewed smoke tool separately"})
+        print("Exact revision deployed; both original model links recovered. Smoke verification still required.")
+
+    def wait_web_recovery(self, baseline):
+        expected_ids = {"fp8", "nvfp4"}
+        if {model["id"] for model in baseline["models"]} != expected_ids:
+            raise ValueError("Both baseline profiles are required")
+        original = {model["id"]: model["status"]["active_since"] for model in baseline["models"]}
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            try:
+                models = self.request(self.url + "/api/models")
+                if ({model["id"] for model in models["models"]} == expected_ids
+                        and all(model["status"]["healthy"] and model["runtime"]["state"] == "verified"
+                                and model["status"]["queue"]["active"] == 0
+                                and model["status"]["queue"]["waiting"] == 0
+                                for model in models["models"])):
+                    if {m["id"]: m["status"]["active_since"] for m in models["models"]} != original:
+                        raise ValueError("GPU profile binding changed during web-only deployment")
+                    return {"observed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "profiles": [{"id": model["id"], "healthy": True,
+                                          "runtime_verified": True, "same_active_since": True,
+                                          "active_requests": 0, "waiting_requests": 0}
+                                         for model in models["models"]]}
+            except (urllib.error.URLError, TimeoutError) as exc:
+                write_private(self.directory / "web-recovery-wait.json", {
+                    "state": "waiting_for_reverse_links", "transport_error": type(exc).__name__})
+            time.sleep(10)
+        else:
+            raise TimeoutError("Web deployment completed but both reverse links have not recovered")
 
     def verify_archive(self, expected):
         code = """
@@ -380,11 +595,16 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("action", choices=("init", "plan", "provision", "deploy", "status", "off", "run", "on", "webiq"))
+    parser.add_argument("action", choices=("init", "plan", "provision", "deploy", "status", "off", "run", "on",
+                                         "webiq", "model-key", "model-settings", "deploy-revision"))
     parser.add_argument("--subscription")
     parser.add_argument("--name")
     parser.add_argument("--seconds", type=int)
     parser.add_argument("--keep-on", action="store_true")
+    parser.add_argument("--rotate", action="store_true")
+    parser.add_argument("--retire-previous", action="store_true")
+    parser.add_argument("--commit")
+    parser.add_argument("--allow-live-web-recycle", action="store_true")
     args = parser.parse_args()
     directory = args.directory.expanduser().resolve()
     if directory == ROOT or ROOT in directory.parents:
@@ -421,6 +641,12 @@ def main():
             target.on(args.keep_on)
         elif args.action == "plan":
             target.provision(apply_plan=False)
+        elif args.action == "model-key":
+            target.model_key(args.rotate, args.retire_previous)
+        elif args.action == "model-settings":
+            target.model_settings(args.allow_live_web_recycle)
+        elif args.action == "deploy-revision":
+            target.deploy_revision(args.commit, args.allow_live_web_recycle)
         else:
             getattr(target, args.action)()
 
