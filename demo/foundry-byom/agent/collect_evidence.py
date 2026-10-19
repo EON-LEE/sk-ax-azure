@@ -217,6 +217,22 @@ def check(identifier, status, detail):
     return {"id": identifier, "status": status, "detail": detail}
 
 
+def request_failed(view):
+    """True when the request ended in an error before any response was recorded."""
+    run = view["run"] or {}
+    return bool(run.get("error")) and not run.get("rounds")
+
+
+def failure_label(view):
+    error = (view["run"] or {}).get("error") or {}
+    return str(error.get("status_code") or error.get("code") or error.get("type") or "error")
+
+
+def no_output_check(name, view):
+    return check(name, "unverified", f"the request failed before any output ({failure_label(view)}); "
+                                     "see response_completed")
+
+
 def model_reference_check(view):
     name = "agent_definition_model_reference"
     observed = ((view["agent_record"] or {}).get("definition") or {}).get("model")
@@ -244,6 +260,10 @@ def response_agent_check(view):
 def completed_check(view):
     name = "response_completed"
     status = view["response"].get("status")
+    if status is None and request_failed(view):
+        if ((view["run"] or {}).get("request") or {}).get("expect_failure"):
+            return check(name, "not_applicable", "negative control: no response was expected")
+        return check(name, "failed", f"no response: the request failed ({failure_label(view)})")
     if status is None:
         return check(name, "unverified", "response status unknown")
     detail = f"status={status}"
@@ -259,6 +279,8 @@ def tool_listed_check(view):
         return check(name, "not_applicable", "no MCP tool in this scenario")
     if not view["known"]:
         return check(name, "unverified", "no run or response record")
+    if request_failed(view):
+        return no_output_check(name, view)
     listings = [event for event in view["events"] if event.get("type") == "mcp_list_tools"]
     usable = [event for event in listings if event.get("tools") and not event.get("error")]
     if usable:
@@ -276,6 +298,8 @@ def tool_called_check(view):
         return check(name, "not_applicable", "no tool in this scenario")
     if not view["known"]:
         return check(name, "unverified", "no run or response record")
+    if request_failed(view):
+        return no_output_check(name, view)
     if view["scenario"] == "function":
         calls = [event for event in view["events"]
                  if event.get("type") == "function_call" and event.get("name") == common.DEMO_FUNCTION["name"]]
@@ -403,10 +427,15 @@ def history_check(view):
         return check(name, "not_applicable", "no tool in this scenario")
     if view["items"] is None:
         return check(name, "unverified", "conversation items were not retrieved")
-    kinds = [item.get("type") for item in view["items"] if item.get("type") in TOOL_ITEMS]
+    if request_failed(view):
+        return no_output_check(name, view)
+    types = [item.get("type") for item in view["items"]]
+    kinds = [kind for kind in types if kind in TOOL_ITEMS]
     if kinds:
         return check(name, "confirmed", f"{len(kinds)} tool item(s) in the conversation: {', '.join(kinds)}")
-    return check(name, "failed", "conversation holds no tool item")
+    others = [kind for kind in types if kind and kind != "message"]
+    held = ", ".join(others) if others else "no non-message item"
+    return check(name, "failed", f"conversation holds no {'/'.join(TOOL_ITEMS)} item (it holds: {held})")
 
 
 def secret_check(view):

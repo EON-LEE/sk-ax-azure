@@ -1346,6 +1346,27 @@ class RunPromptTests(ScriptCase):
         _, out, _ = self.run_script(run_prompt, ["--scenario", "function", "--no-conversation"], clients)
         self.assertEqual([item["chained_by"] for item in json.loads(out)["rounds"]], ["none", "previous_response_id"])
 
+    def test_each_round_records_when_it_was_requested_and_how_long_it_took(self):
+        clients = fake_clients([response([function_call()], "resp_1"), response([message("done")], "resp_2")])
+        _, out, _ = self.run_script(run_prompt, ["--scenario", "function"], clients)
+        result = json.loads(out)
+        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00")
+        for item in result["rounds"]:
+            self.assertRegex(item["requested_at"], stamp)
+            self.assertGreaterEqual(item["elapsed_s"], 0)
+        self.assertEqual(result["last_request_at"], result["rounds"][-1]["requested_at"])
+        self.assertRegex(result["finished_at"], stamp)
+        self.assertLessEqual(result["started_at"], result["rounds"][0]["requested_at"])
+        self.assertLessEqual(result["rounds"][-1]["requested_at"], result["finished_at"])
+
+    def test_a_failed_request_still_records_when_it_was_requested(self):
+        clients = fake_clients([RuntimeError("boom")])
+        _, out, _ = self.run_script(run_prompt, ["--scenario", "plain"], clients)
+        result = json.loads(out)
+        self.assertEqual(result["rounds"], [])
+        self.assertIsNotNone(result["last_request_at"])
+        self.assertIsNotNone(result["finished_at"])
+
     def test_round_cap_stops_a_pending_tool_loop(self):
         clients = fake_clients([response([function_call(f"call_{index}")], f"resp_{index}") for index in range(4)])
         code, out, _ = self.run_script(run_prompt, ["--scenario", "function", "--max-rounds", "2"], clients)
@@ -1562,6 +1583,18 @@ class CollectEvidenceTests(ScriptCase):
                 self.assertEqual(checks["tool_then_answer_order"]["status"], "confirmed")
                 self.assertEqual(checks["conversation_tool_history"]["status"], "confirmed")
 
+    def test_conversation_without_a_tool_call_item_names_what_it_holds(self):
+        clients = self.mcp_world()
+        items = clients.openai.conversations.items.items
+        items[:] = [item for item in items if item.get("type") != "mcp_call"]
+        _, checks, _ = self.capture("unit-history-gap", clients, ["--scenario", "mcp", "--nonce", "r-fixed05"])
+        row = checks["conversation_tool_history"]
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("function_call/mcp_call", row["detail"])
+        self.assertIn("mcp_list_tools", row["detail"])
+        self.assertNotIn("message", row["detail"].split("it holds:")[1])
+        self.assertEqual(checks["tool_called"]["status"], "confirmed")
+
     def test_plain_nonce_echo(self):
         clients = fake_clients([response([message("안녕하세요 r-fixed07")])])
         _, checks, _ = self.capture("unit-plain", clients, ["--nonce", "r-fixed07"])
@@ -1645,7 +1678,26 @@ class CollectEvidenceTests(ScriptCase):
         evidence, checks, _ = self.capture("unit-negative", clients, ["--expect-failure"])
         self.assertEqual(checks["negative_control_failed_as_expected"]["status"], "confirmed")
         self.assertIn("404", checks["negative_control_failed_as_expected"]["detail"])
+        self.assertEqual(checks["response_completed"]["status"], "not_applicable")
         self.assertTrue(evidence["server_records"]["errors"])
+
+    def test_a_request_that_failed_before_any_output_is_not_judged_on_tools(self):
+        clients = fake_clients([ApiError(500, "The model produced invalid content.")])
+        evidence, checks, _ = self.capture("unit-failed-request", clients, ["--scenario", "mcp"])
+        self.assertEqual(checks["response_completed"]["status"], "failed")
+        self.assertIn("500", checks["response_completed"]["detail"])
+        for identifier in ("tool_listed", "tool_called", "conversation_tool_history"):
+            with self.subTest(check=identifier):
+                self.assertEqual(checks[identifier]["status"], "unverified")
+                self.assertIn("failed before any output (500)", checks[identifier]["detail"])
+        self.assertEqual(evidence["summary"]["failed"], 1)
+
+    def test_a_failure_after_a_recorded_response_still_judges_the_tools_seen_so_far(self):
+        clients = fake_clients([response([list_tools(), approval_request()], "resp_1"), ApiError(500, "boom")])
+        _, checks, _ = self.capture("unit-late-failure", clients,
+                                    ["--scenario", "mcp", "--approve-tool", "microsoft_docs_search"])
+        self.assertEqual(checks["tool_listed"]["status"], "confirmed")
+        self.assertEqual(checks["tool_called"]["status"], "failed")
 
     def test_negative_control_that_succeeds_is_a_failure(self):
         clients = fake_clients([response([message("ok")])])

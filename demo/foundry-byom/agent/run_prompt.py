@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import secrets
 import sys
+import time
 
 import byom_common as common
 
@@ -210,6 +211,7 @@ def execute(args, clients, prompt, tools, pairs):
             "expect_failure": args.expect_failure,
         },
         "request_header_echoed": None,
+        "last_request_at": None, "finished_at": None,
         "conversation_id": None, "conversation_deleted": None, "rounds": [], "function_results": [],
         "stopped": None, "error": None,
     }
@@ -221,14 +223,19 @@ def execute(args, clients, prompt, tools, pairs):
             conversation_id = chain_conversation = common.to_plain(openai.conversations.create()).get("id")
             result["conversation_id"] = conversation_id
         for round_number in range(1, args.max_rounds + 1):
+            result["last_request_at"] = requested_at = common.now_iso()
+            clock = time.monotonic()
             response = openai.responses.create(
                 **request_kwargs(args, payload, chain_conversation, previous_id, tools))
+            elapsed = time.monotonic() - clock
             data = common.to_plain(response)
             if literals:
                 result["request_header_echoed"] = merge_scan(result["request_header_echoed"],
                                                              common.scan_for_secrets(data, literals))
             summary = common.summarize_response(data)
             summary["chained_by"] = chain_label(chain_conversation, previous_id)
+            summary["requested_at"] = requested_at
+            summary["elapsed_s"] = round(elapsed, 1)
             result["rounds"].append(summary)
             previous_id = data.get("id")
             items = [item for item in data.get("output") or [] if isinstance(item, Mapping)]
@@ -253,6 +260,7 @@ def execute(args, clients, prompt, tools, pairs):
     finally:
         if conversation_id and args.delete_conversation:
             result["conversation_deleted"] = delete_conversation(openai, conversation_id)
+    result["finished_at"] = common.now_iso()
     counter = getattr(clients, "http", None)
     result["client_http"] = counter.summary() if counter else None
     return finish(args, result, answer)
