@@ -1,0 +1,141 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-19T14:26:32+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-7acb8605",
+    "nonce": "r-7acb8605",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-19T14:26:33+00:00",
+  "finished_at": "2026-10-19T14:26:43+00:00",
+  "conversation_id": "conv_0847c851…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_0847c851…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "agent": {
+        "name": "byom-demo-mcp-ablation-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_0847c851…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        },
+        {
+          "type": "mcp_call",
+          "server_label": "microsoft_learn",
+          "name": "microsoft_docs_search",
+          "arguments": {
+            "query": "Foundry Agent Service Bring Your Own Model"
+          },
+          "status": "completed",
+          "output_chars": 58340,
+          "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\nFoundry Agent Service allows you to c...(+58140 chars)",
+          "output_urls": [
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/gateway.png",
+            "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+            "https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/ai/azure-ai-projects/samples/agents",
+            "https://learn.microsoft.com/en-us/python/api/azure-ai-projects/azure.ai.projects.aiprojectclient",
+            "https://learn.microsoft.com/en-us/python/api/azure-ai-projects/azure.ai.projects.models.promptagentdefinition",
+            "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#create-a-model-connection",
+            "https://ai.azure.com",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-connection.png",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-other-model.png",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-authentication.png"
+          ]
+        }
+      ],
+      "final_answer": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 타사 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 에이전트가 해당 모델을 사용하도록 해주는 기능입니다. 이를 통해 기업 인프라 통제, 보안 정책 통합, 모델의 공개 노출 없이 에이전트 구축이 가능합니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-7acb8605",
+      "answer_chars": 272,
+      "answer_urls": [
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway"
+      ],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 15554,
+        "output_tokens": 123,
+        "total_tokens": 15677,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation",
+      "requested_at": "2026-10-19T14:26:33+00:00",
+      "elapsed_s": 10.4
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1
+  },
+  "final_answer": "Foundry Agent Service의 BYOM(Bring Your Own Model)은 Azure API Management나 타사 AI 게이트웨이 뒤에 호스팅된 모델을 연결하여 에이전트가 해당 모델을 사용하도록 해주는 기능입니다. 이를 통해 기업 인프라 통제, 보안 정책 통합, 모델의 공개 노출 없이 에이전트 구축이 가능합니다.\n\nURL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway\n\nr-7acb8605",
+  "final_answer_contains_nonce": true,
+  "item_sequence": [
+    "mcp_list_tools",
+    "mcp_call",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "mcp_list_tools",
+      "server_label": "microsoft_learn",
+      "tools": [
+        "microsoft_docs_search"
+      ]
+    },
+    {
+      "type": "mcp_call",
+      "server_label": "microsoft_learn",
+      "name": "microsoft_docs_search",
+      "arguments": {
+        "query": "Foundry Agent Service Bring Your Own Model"
+      },
+      "status": "completed",
+      "output_chars": 58340,
+      "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\nFoundry Agent Service allows you to c...(+58140 chars)",
+      "output_urls": [
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/gateway.png",
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+        "https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/ai/azure-ai-projects/samples/agents",
+        "https://learn.microsoft.com/en-us/python/api/azure-ai-projects/azure.ai.projects.aiprojectclient",
+        "https://learn.microsoft.com/en-us/python/api/azure-ai-projects/azure.ai.projects.models.promptagentdefinition",
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#create-a-model-connection",
+        "https://ai.azure.com",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-connection.png",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-other-model.png",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-authentication.png"
+      ]
+    }
+  ],
+  "ok": true
+}
