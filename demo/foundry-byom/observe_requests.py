@@ -4,8 +4,9 @@ Run it after a caller (for example a Foundry agent) has used the gateway. From A
 for every request: the route and query names, the request shape the policy traced (body field names, model, stream,
 token-limit field, message roles, tool names and count, the numeric and boolean body parameters such as temperature
 and max_completion_tokens; never message text, string values or tool schemas), which side produced the status code,
-the gateway and backend durations, whether a client credential survived to the backend call, and the gaps between
-requests (retries).
+the gateway and backend durations, the request and response sizes the gateway logged (numbers as logged; the log does
+not document their unit), whether a client credential survived to the backend call, and the gaps between requests
+(retries).
 Nothing is sent to the gateway or the web app. Calls of the verifier's smoke tool are left out unless
 --include-smoke is given. Times are UTC. Logs arrive a few minutes late, so a window that ends now can be incomplete.
 With --label the redacted result is saved under evidence/foundry-byom/gateway-requests-<label>.json.
@@ -63,13 +64,14 @@ def queries(start, end):
     """The three read-only log queries. Only validated datetimes are interpolated."""
     window = f"TimeGenerated between (datetime({kql_time(start)}) .. datetime({kql_time(end)}))"
     return {
-        "requests": (f"AppRequests | where {window} | extend p = parse_json(Properties) "
-                     "| project TimeGenerated, OperationId, Name, ResultCode, DurationMs, Success, Url, "
-                     "Subscription = tostring(p['Subscription Name']) "
+        "requests": (f"AppRequests | where {window} | extend p = parse_json(Properties), m = parse_json(Measurements) "
+                     "| project TimeGenerated, Id, OperationId, Name, ResultCode, DurationMs, Success, Url, "
+                     "Subscription = tostring(p['Subscription Name']), "
+                     "RequestSize = toreal(m['Request Size']), ResponseSize = toreal(m['Response Size']) "
                      f"| order by TimeGenerated asc | take {REQUEST_CAP}"),
-        "dependencies": (f"AppDependencies | where {window} | project TimeGenerated, OperationId, Name, ResultCode, "
-                         f"DurationMs, Success | order by TimeGenerated asc | take {DEPENDENCY_CAP}"),
-        "traces": (f"AppTraces | where {window} | project TimeGenerated, OperationId, Message "
+        "dependencies": (f"AppDependencies | where {window} | project TimeGenerated, Id, ParentId, OperationId, Name, "
+                         f"ResultCode, DurationMs, Success | order by TimeGenerated asc | take {DEPENDENCY_CAP}"),
+        "traces": (f"AppTraces | where {window} | project TimeGenerated, ParentId, OperationId, Message "
                    f"| order by TimeGenerated asc | take {TRACE_CAP}")}
 
 
@@ -100,6 +102,14 @@ def names(value):
 
 def scalar(value):
     return isinstance(value, (bool, int, float))
+
+
+def size(value):
+    """The `Request Size` / `Response Size` number the gateway logged, as a whole number; None when the row has none.
+
+    The unit is not documented by the log; the observer reports the number as it is.
+    """
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 else None
 
 
 def parameters(value):
@@ -174,39 +184,58 @@ def enclosing(started, spans):
     return None
 
 
+def request_key(row):
+    """What the rows under a gateway request point at: its span id, or its operation id when the log has no span id."""
+    return row.get("Id") or row["OperationId"]
+
+
+def owner_of(row, keys):
+    """The key of the gateway request a dependency or trace row hangs under; None when it hangs under something else.
+
+    The parent span id is exact. Only a row without one falls back to the operation id, because a caller (a Foundry
+    agent run) that sends several requests under one trace gives them all the same operation id.
+    """
+    parent = row.get("ParentId") or row["OperationId"]
+    return parent if parent in keys else None
+
+
 def build(requests, dependencies, traces):
-    """Join the gateway's request rows with their backend call and policy traces by operation id."""
+    """Join the gateway's request rows with their backend call and policy traces by the request's span id."""
+    keys = {request_key(row) for row in requests}
     shapes, flags, unavailable, other_traces = {}, {}, set(), 0
     for row in traces:
         record = parse_trace(row)
-        if record is not None:
-            (flags if record.get("kind") == FORWARDED_KIND else shapes)[row["OperationId"]] = record
-        elif row.get("Message") == SHAPE_UNAVAILABLE:
-            unavailable.add(row["OperationId"])
-        else:
+        owner = owner_of(row, keys)
+        if record is None and row.get("Message") != SHAPE_UNAVAILABLE:
             other_traces += 1
-    gateway_operations = {row["OperationId"] for row in requests}
+        elif owner is not None:
+            if record is None:
+                unavailable.add(owner)
+            else:
+                (flags if record.get("kind") == FORWARDED_KIND else shapes)[owner] = record
     calls, spans = {}, []
     for row in dependencies:
-        if row["OperationId"] in gateway_operations:
-            calls.setdefault(row["OperationId"], row)
+        owner = owner_of(row, keys)
+        if owner is not None:
+            calls.setdefault(owner, row)
         elif not BACKEND_CALL.match(str(row.get("Name"))):
             spans.append(row)
     entries = []
     for row in requests:
-        operation = row["OperationId"]
-        call, shape, forwarded = calls.get(operation), shapes.get(operation), flags.get(operation)
+        operation, key = row["OperationId"], request_key(row)
+        call, shape, forwarded = calls.get(key), shapes.get(key), flags.get(key)
         started = stamp(row["TimeGenerated"])
         entries.append({
             "at": started.strftime("%Y-%m-%dT%H:%M:%S.") + f"{started.microsecond // 1000:03d}Z",
             "operation": str(operation)[:8], "call": row["Name"], "url": url_shape(row.get("Url")),
             "subscription": row.get("Subscription") or None, "caller": classify(shape, forwarded, row),
             "status": str(row["ResultCode"]), "gatewayMs": round(row["DurationMs"], 1),
+            "requestSize": size(row.get("RequestSize")), "responseSize": size(row.get("ResponseSize")),
             "backend": None if call is None else {
                 "call": call["Name"], "status": str(call["ResultCode"]), "ms": round(call["DurationMs"], 1)},
             "gatewayOverheadMs": None if call is None else round(row["DurationMs"] - call["DurationMs"], 1),
             "answeredBy": answered_by(row, call),
-            "shape": {"unavailable": True} if shape is None and operation in unavailable else shape_of(shape),
+            "shape": {"unavailable": True} if shape is None and key in unavailable else shape_of(shape),
             "clientCredentialsForwarded": None if forwarded is None else [
                 name for name in CLIENT_CREDENTIAL_FLAGS if flag(forwarded.get(name))],
             "authorizationInjected": None if forwarded is None else flag(forwarded.get(INJECTED_FLAG)),
@@ -247,8 +276,10 @@ def describe(item):
              + (f"backend {backend['status']} in {backend['ms']} ms (gateway overhead {item['gatewayOverheadMs']} ms)"
                 if backend else "no backend call") + f"; answered by {item['answeredBy']}")
     query = item["url"]
+    sizes = ("" if item["requestSize"] is None or item["responseSize"] is None
+             else f"; request size {item['requestSize']}, response size {item['responseSize']}")
     second = (f"    caller {item['caller']}; subscription {item['subscription'] or 'none'}; query names "
-              f"{','.join(query['queryNames']) or 'none'}; api-version {query['apiVersion'] or 'none'}"
+              f"{','.join(query['queryNames']) or 'none'}; api-version {query['apiVersion'] or 'none'}{sizes}"
               + (f"; inside a {item['duringSpan']} span" if item["duringSpan"] else ""))
     lines = [first, second]
     shape = item["shape"]

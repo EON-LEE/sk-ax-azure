@@ -838,6 +838,50 @@ class ObserveTests(ClientCase):
         self.observe(tables, label="test")
         self.assertEqual(self.saved()["requests"][0]["answeredBy"], "gateway-translated")
 
+    def test_requests_sharing_one_trace_keep_their_own_shape_and_backend_call(self):
+        # A Foundry agent run that makes two model requests sends both under one trace (operation) id.
+        def under(row, **ids):
+            return row | ids
+
+        tables = {
+            "requests": [under(gateway_request("2026-10-19T11:45:10.000Z", 1254.1, "shared-op", "200"), Id="span-a"),
+                         under(gateway_request("2026-10-19T11:45:13.500Z", 5840.0, "shared-op", "200"), Id="span-b")],
+            "dependencies": [
+                under(backend_call("2026-10-19T11:45:10.002Z", 1252.2, "shared-op", "200"), Id="call-a", ParentId="span-a"),
+                under(backend_call("2026-10-19T11:45:13.504Z", 5835.3, "shared-op", "200"), Id="call-b", ParentId="span-b"),
+                {"TimeGenerated": "2026-10-19T11:45:09.950Z", "OperationId": "shared-op", "Id": "agent",
+                 "ParentId": "caller", "Name": "invoke_agent some-agent:2", "ResultCode": "0", "DurationMs": 9420.0,
+                 "Success": True}],
+            "traces": [under(row, ParentId="span-a") for row in policy_traces(
+                           "shared-op", "id-a", shape_message("id-a", message_count=2, roles="system,user"))]
+                      + [under(row, ParentId="span-b") for row in policy_traces(
+                           "shared-op", "id-b", shape_message("id-b", message_count=4,
+                                                              roles="system,user,assistant,tool"))]
+                      + [{"TimeGenerated": "2026-10-19T11:45:13Z", "OperationId": "shared-op", "ParentId": "elsewhere",
+                          "Message": shape_message("id-x", message_count=99)}]}
+        self.observe(tables, label="test")
+        report = self.saved()
+        first, second = report["requests"]
+        self.assertEqual([item["backend"]["ms"] for item in (first, second)], [1252.2, 5835.3])
+        self.assertEqual([item["gatewayOverheadMs"] for item in (first, second)], [1.9, 4.7])
+        self.assertEqual([item["shape"]["messages"] for item in (first, second)], [2, 4])
+        self.assertEqual([item["shape"]["roles"] for item in (first, second)],
+                         [["system", "user"], ["system", "user", "assistant", "tool"]])
+        self.assertEqual({item["operation"] for item in (first, second)}, {"shared-o"})
+        self.assertEqual((first["duringSpan"], second["duringSpan"]), ("invoke_agent", "invoke_agent"))
+        self.assertIs(report["summary"]["identicalShapes"], False)
+        self.assertEqual(report["summary"]["callerSideSpans"], {"invoke_agent": {"count": 1, "status": {"0": 1}}})
+
+    def test_a_caller_side_span_in_the_trace_of_a_request_is_not_its_backend_call(self):
+        span = {"TimeGenerated": "2026-10-19T11:45:12Z", "OperationId": "one-op", "Id": "agent", "ParentId": "caller",
+                "Name": "invoke_agent some-agent:1", "ResultCode": "0", "DurationMs": 90.0, "Success": True}
+        tables = {"requests": [gateway_request("2026-10-19T11:45:12Z", 50.0, "one-op", "200") | {"Id": "span-a"}],
+                  "dependencies": [span]}
+        self.observe(tables, label="test")
+        entry = self.saved()["requests"][0]
+        self.assertEqual((entry["backend"], entry["answeredBy"], entry["duringSpan"]), (None, "gateway", "invoke_agent"))
+        self.assertEqual(self.saved()["summary"]["callerSideSpans"], {"invoke_agent": {"count": 1, "status": {"0": 1}}})
+
     def test_smoke_tool_requests_are_left_out_unless_asked(self):
         smoke_by_id = policy_traces("op-smoke", "smoke-abc123-chat", shape_message("smoke-abc123-chat"))
         smoke_by_agent = policy_traces("op-agent", "plain-id", shape_message("plain-id",
@@ -955,6 +999,34 @@ class ObserveTests(ClientCase):
         for text in found.values():
             self.assertIn("TimeGenerated between (datetime(2026-10-19T11:44:30Z) .. datetime(2026-10-19T11:46:30Z))",
                           text)
+
+    def test_queries_project_the_ids_that_tie_rows_to_their_request(self):
+        found = observe_requests.queries(datetime(2026, 10, 19, 11, 44, 30, tzinfo=timezone.utc),
+                                         datetime(2026, 10, 19, 11, 46, 30, tzinfo=timezone.utc))
+        columns = {name: text.split("| project ", 1)[1].split(" | ", 1)[0].split(", ") for name, text in found.items()}
+        self.assertIn("Id", columns["requests"])
+        self.assertTrue({"Id", "ParentId"} <= set(columns["dependencies"]))
+        self.assertIn("ParentId", columns["traces"])
+
+    def test_the_request_query_projects_the_sizes_the_gateway_measured(self):
+        found = observe_requests.queries(datetime(2026, 10, 19, 11, 44, 30, tzinfo=timezone.utc),
+                                         datetime(2026, 10, 19, 11, 46, 30, tzinfo=timezone.utc))
+        self.assertIn("RequestSize = toreal(m['Request Size'])", found["requests"])
+        self.assertIn("ResponseSize = toreal(m['Response Size'])", found["requests"])
+
+    def test_request_and_response_sizes_are_reported_when_the_log_has_them(self):
+        sized = gateway_request("2026-10-19T11:45:12Z", 50.0, "op-a", "200") | {"RequestSize": 3984.0,
+                                                                                  "ResponseSize": 5651.0}
+        plain = gateway_request("2026-10-19T11:45:20Z", 50.0, "op-b", "200")
+        broken = gateway_request("2026-10-19T11:45:30Z", 50.0, "op-c", "200") | {"RequestSize": None,
+                                                                                   "ResponseSize": -1}
+        text = self.observe({"requests": [sized, plain, broken]}, label="test")
+        first, second, third = self.saved()["requests"]
+        self.assertEqual((first["requestSize"], first["responseSize"]), (3984, 5651))
+        self.assertEqual((second["requestSize"], second["responseSize"]), (None, None))
+        self.assertEqual((third["requestSize"], third["responseSize"]), (None, None))
+        self.assertEqual(text.count("request size 3984, response size 5651"), 1)
+        self.assertEqual(text.count("response size"), 1)
 
     def test_evidence_and_output_name_no_deployment(self):
         tables = foundry_tables()

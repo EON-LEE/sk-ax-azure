@@ -8,10 +8,10 @@
 | --- | --- |
 | 목적 | Foundry 에이전트가 APIM을 거쳐 A.X K2 모델 API를 호출하는 **외부 모델 연결(BYOM) 사전 검증**이다. Model Catalog 정식 등록이 아니다. |
 | 만든 것 | 리소스 그룹 1개 안에 APIM Standard v2 1개, Foundry 계정·프로젝트 1세트(모델 배포 없음), Application Insights와 Log Analytics, 모델 전용 API 2개, Foundry 연결 2개, 트레이싱 연결 2개. 리소스 그룹과 secret named value는 `byom.py`가 만들고 나머지는 Bicep으로 배포했다. |
-| 확인됨 | 게이트웨이 경유 NVFP4의 일반 응답, 스트리밍, 도구 호출, 도구 결과 후 응답이 모두 HTTP 200이다. 구독 키가 없거나 틀리면 401이다. 로그 상관 판정은 PASS다. Foundry(FP8 에이전트)가 게이트웨이로 보낸 요청 4건도 모두 200이고, 함수 도구와 MCP 도구가 요청에 실렸다(9.4절). |
-| 실패 | 에이전트 담당의 첫 Foundry 호출(NVFP4)이 503으로 끝났다. 게이트웨이가 받은 4건 모두 백엔드가 503을 돌려줬다. 원인은 판단하지 않았다(9.3절). |
-| 미확인 | 콘솔의 Active 표시, 에이전트 모델 선택 목록, NVFP4의 Foundry 경유 호출, 모델이 MCP 도구를 고르지 않은 이유. 4.3절에 정리했다. |
-| 비용 | APIM 가동 시간 × 0.96 USD/h(계산값). 2026-10-19 12:48 기준 2.65 h, 약 2.54 USD다. |
+| 확인됨 | 게이트웨이 경유 NVFP4의 일반 응답, 스트리밍, 도구 호출, 도구 결과 후 응답이 모두 HTTP 200이다. 구독 키가 없거나 틀리면 401이다. 로그 상관 판정은 PASS다. 11:40~13:28 창에서 에이전트 담당의 Foundry 호출로 게이트웨이가 받은 요청은 19건이다(스모크 제외). 503 4건(첫 NVFP4 호출)을 뺀 15건이 모두 200이고 응답은 모두 백엔드가 만들었다. 함수 도구와 MCP 도구가 요청에 실렸다(9.4절~9.6절). |
+| 실패 | (1) 에이전트 담당의 첫 Foundry 호출(NVFP4)이 503으로 끝났다. 게이트웨이가 받은 4건 모두 백엔드가 503을 돌려줬다(9.3절). (2) FP8 MCP `never` 변형(ablation) 호출이 Foundry에서 500 `model_error`로 끝났다. 게이트웨이는 요청 1건을 받았고 백엔드가 200을 돌려줬다(9.6절). 두 원인 모두 판단하지 않았다. |
+| 미확인 | 콘솔의 Active 표시, 에이전트 모델 선택 목록, 콘솔 트레이싱 화면, 두 실패의 원인, MCP 도구 선택이 호출마다 달랐던 이유(`never` v1은 고르지 않았고 v2는 골랐다). 4.3절에 정리했다. |
+| 비용 | APIM 가동 시간 × 0.96 USD/h(계산값). 2026-10-19 13:35 기준 3.42 h, 약 3.29 USD다. |
 
 ## 2. 범위와 읽는 법
 
@@ -65,13 +65,18 @@ flowchart LR
 | Foundry → 게이트웨이 도달 | Foundry 호출이 연결 `axk2-nvfp4`를 거쳐 게이트웨이에 도달했다. 요청은 chat completions 형식이고 본문의 `model`은 `ax-k2-nvfp4`였다 | `gateway-requests-foundry-first-call.json` |
 | Foundry 트레이싱 | 에이전트 스팬(`invoke_agent`) 4건이 게이트웨이와 같은 Log Analytics 작업 영역에 기록됐다. 게이트웨이 요청과는 다른 OperationId다 | `gateway-requests-foundry-first-call.json` |
 | Foundry(FP8 에이전트) → 게이트웨이 | 에이전트 담당의 호출 3묶음에서 게이트웨이가 `POST /fp8/v1/chat/completions` 4건을 받았고 모두 200이다. 응답은 모두 백엔드가 만들었다. `stream`은 `true`이고 본문에 `max_completion_tokens`와 `stream_options`가 있었다. 함수 도구 왕복은 2건이다 | `gateway-requests-foundry-fp8-bundles-1a-1b-mcp-never.json` |
-| Foundry 요청의 도구 필드 | 함수 도구 요청과 MCP 도구 요청 모두 `tools`, `parallel_tool_calls`, `tool_choice`(`"auto"`)가 실렸다. Foundry는 MCP 도구를 요청에 실었다(9.4절) | 위와 같음 |
+| Foundry 요청의 도구 필드 | 함수 도구 요청과 MCP 도구 요청 모두 `tools`, `parallel_tool_calls`, `tool_choice`(`"auto"`)가 실렸다. Foundry는 MCP 도구를 요청에 실었다(9.4절~9.6절) | 위와 같음 |
+| Foundry(NVFP4 에이전트) → 게이트웨이 | 첫 호출(503) 뒤 NVFP4 에이전트를 다시 호출했다. 게이트웨이가 받은 `POST /nvfp4/v1/chat/completions` 4건이 모두 200이다. 도구 없는 일반 요청 2건(12:46, 13:13)과 함수 도구 왕복 2건(12:47)이다(9.5절, 9.6절) | `gateway-requests-foundry-nvfp4-after-policy-update.json`, `gateway-requests-foundry-after-redeploy-nvfp4-and-mcp-never-v2.json` |
+| Foundry → MCP 도구 호출 | `never` v2(12:39, 13:14)는 Foundry 호출 1건 안에서 모델 요청이 2건 나갔다. 둘째 요청에 `assistant`와 `tool` 메시지가 있고 Foundry가 `execute_tool` 스팬을 남겼다. `always`(12:40)는 Foundry 호출 2건에 모델 요청이 1건씩 나갔다. 에이전트 담당은 응답에 `mcp_call`이 나왔다고 보고했다. `never` v1(12:30)은 요청 1건, `stop`, 도구 실행 스팬 없음이다(9.4절~9.6절) | `gateway-requests-foundry-mcp-never-v2-and-always.json`, `gateway-requests-foundry-after-redeploy-nvfp4-and-mcp-never-v2.json` |
+| 값 기록(정책 12:43 배포 뒤) | 배포 뒤 요청 7건에서 `max_completion_tokens`, `temperature`, `top_p`, `stream`, `stream_options`, 도구 개수, `tool_choice` 유무가 기록됐다(9.5절, 9.6절) | 9.5절·9.6절의 증거 파일 중 12:46 이후 창 3개 |
+| 요청·응답 크기 | 게이트웨이 로그의 `Request Size`·`Response Size`를 증거에 `requestSize`·`responseSize`로 남긴다. 12:39 이후 요청 11건이 대상이다. 단위는 문서로 확인하지 못했다(바이트로 추정한다) | 9.5절·9.6절의 증거 파일 중 12:38 이후 창 5개(요청이 있는 파일은 4개) |
 
 ### 4.2 실패
 
 | 항목 | 내용 |
 | --- | --- |
 | 첫 Foundry 호출 | 에이전트 담당이 11:45:07~11:45:23(KST 20:45)에 호출했고 약 16초 뒤 `model_error`로 실패했다. 게이트웨이는 같은 시간대에 `POST /nvfp4/v1/chat/completions` 4건을 받았고 4건 모두 503이었다. 4건 모두 백엔드 호출이 503을 반환했다. 게이트웨이가 만든 503이 아니다. 503의 원인은 판단하지 않는다. 상세는 9.3절이다 |
+| FP8 MCP `never` 변형(ablation) 호출 | 에이전트 담당이 13:16:27~13:16:31(KST 22:16)에 호출했고 약 2초 뒤 Foundry가 500 `model_error`("The model produced invalid content…")로 끝냈다(에이전트 담당 보고). 게이트웨이는 같은 시간대에 `POST /fp8/v1/chat/completions` 1건(13:16:30.985)을 받았고 백엔드가 200을 돌려줬다. 백엔드 5xx가 아니고 요청이 빠진 것도 아니다. ±30초 안에 다른 요청이 없어 Foundry의 재시도로 보이는 요청도 없다. Foundry의 `invoke_agent` 스팬은 `ResultCode` 500, `error.type` `unknown`이다. 원인은 판단하지 않는다. 상세는 9.6절이다 |
 
 ### 4.3 미확인
 
@@ -79,15 +84,15 @@ flowchart LR
 | --- | --- | --- |
 | 콘솔에서 연결이 Active로 보이는지 | ARM과 데이터 플레인에는 상태 필드가 없다(`error: null`). 콘솔에서 확인한다 | 에이전트 담당 |
 | 에이전트 모델 선택 목록에 `axk2-nvfp4/ax-k2-nvfp4`가 보이는지 | 콘솔 | 에이전트 담당 |
-| NVFP4의 Foundry 경유 호출 | 첫 호출이 503이었다(4.2절). 503이 풀린 뒤 에이전트를 다시 호출한다. FP8은 4.1절이다 | 에이전트 담당 |
-| 모델이 MCP 도구를 고르지 않은 이유 | MCP `never` 호출에서 도구가 요청에 실렸는데 모델이 도구 호출 없이 `stop`으로 끝냈다(9.4절). 프롬프트, 도구 설명, 모델 응답을 따로 본다 | 에이전트 담당 |
-| 503의 원인 | 백엔드 로그와 백엔드 응답 본문을 확인한다 | 웹앱 담당 |
-| 백엔드가 `stream_options`로 사용량 청크를 돌려주는지 | FP8 백엔드는 `max_completion_tokens`와 `stream_options`가 있는 요청 4건에 200으로 답했다(9.4절). 사용량 청크는 보지 않았다. NVFP4는 503 때문에 확인하지 못했다. GPU 호출이 생기므로 승인을 받는다 | 모델 API 담당 |
+| ablation 호출 500의 원인 | 게이트웨이는 요청 1건에 백엔드 200으로 답했다(4.2절). Foundry의 하위 `execute_tool` 스팬 이름이 `functions.microsoft_learn.microsoft_docs_search`로, `never` v2 호출의 `mcp_microsoft_learn.microsoft_docs_search`와 다르다(9.6절). 모델 응답의 도구 이름을 Foundry가 대응시키지 못했을 가능성이 있다(추정, 확인하지 않았다). 확인하려면 같은 요청으로 모델 API를 직접 호출해 응답 본문의 `tool_calls[].function.name`을 읽어야 한다. GPU 호출이므로 조정자 승인이 필요하다 | 모델 API 담당, 조정자 승인 |
+| 모델이 MCP 도구를 고르는 일이 호출마다 달랐던 이유 | `never` v1(12:30)은 도구가 요청에 실렸는데 모델이 도구 호출 없이 `stop`으로 끝냈다(9.4절). `never` v2(12:39, 13:14)와 `always`(12:40)는 모델이 도구를 골랐다(9.5절, 9.6절). 에이전트 버전 사이의 지시문·설정 차이는 이 문서에서 읽지 않았다. 차이의 원인은 판단하지 않는다 | 에이전트 담당 |
+| 503의 원인 | 백엔드 로그와 백엔드 응답 본문을 확인한다. 이후 NVFP4 호출 4건(12:46 이후)은 200이다(4.1절). 11:45와 무엇이 달랐는지는 판단하지 않는다 | 웹앱 담당 |
+| 백엔드가 `stream_options`로 사용량 청크를 돌려주는지 | FP8과 NVFP4 백엔드 모두 `max_completion_tokens`와 `stream_options`가 있는 Foundry 요청에 200으로 답했다(9.4절~9.6절). 사용량 청크 자체는 보지 않았다. 게이트웨이는 응답 본문을 기록하지 않는다. Foundry `chat` 스팬의 토큰 수가 백엔드 사용량에서 온 것인지는 확인하지 못했다. 확인하려면 모델 API를 직접 호출해야 하므로 승인을 받는다 | 모델 API 담당 |
 | `reasoning_content` 처리 | 도구 호출 응답을 에이전트 쪽에서 비교한다 | 에이전트 담당 |
-| 콘솔 트레이싱이 두 AppInsights 연결 중 어느 쪽을 쓰는지 | 콘솔 | 에이전트 담당 |
-| 트레이싱 Reader 역할이 필요한지 | 콘솔이 권한 오류를 보일 때만 필요하다. 추가하기 전에 조정자에게 알린다 | 인프라 담당 |
+| 콘솔 트레이싱 화면과 두 AppInsights 연결 중 어느 쪽을 쓰는지 | 에이전트 스팬은 Log Analytics에서 읽혔다(9.5절, 9.6절). 콘솔 화면에 보이는지, 두 연결 중 어느 쪽을 쓰는지는 콘솔에서 확인한다 | 에이전트 담당 |
+| 트레이싱 Reader 역할이 필요한지 | 콘솔이 권한 오류를 보일 때만 필요하다. 추가하기 전에 조정자에게 알린다. 운영자 계정(az CLI)은 읽기 전용 점검에서 Application Insights·Log Analytics 쿼리 권한과 Foundry 읽기 권한이 확인됐다(ARM 권한 조회, 리소스 그룹의 거부 할당 0건). 다른 계정으로 콘솔을 열면 그 계정을 따로 점검해야 한다. 역할은 만들지 않았다 | 인프라 담당 |
 | `isDefault`, `isSharedToAll`이 에이전트 모델 참조에 영향을 주는지 | 콘솔과 에이전트 호출 | 에이전트 담당 |
-| FP8의 chat·stream·tool(게이트웨이 경유) | 조정자 승인 후 같은 스모크 도구로 확인한다 | 인프라 담당 |
+| FP8의 chat·stream·tool(스모크 도구, 게이트웨이 경유) | 스모크 도구로는 시험하지 않았다. Foundry 경유 FP8 호출에서는 일반 요청, 스트리밍 요청(`stream`이 `true`), 함수 도구 왕복, MCP 도구 요청이 200이었다(9.4절~9.6절). FP8의 TTFT·청크 간격(무버퍼 판정)은 측정하지 않았다. 스모크 도구로 확인하려면 조정자 승인이 필요하다 | 인프라 담당 |
 | 구독 키를 다시 만든 뒤 연결에 저장된 키가 갱신되는지 | `deploy connections` 재실행으로 확인한다. 재발급이 필요할 때만 시험한다 | 인프라 담당 |
 | `limit-concurrency` 초과 시 응답 동작 | 측정하지 않았다 | 인프라 담당 |
 | BYOM 지역 제약 | 문서에 없다. Korea Central에서 연결 생성은 성공했다 | — |
@@ -121,6 +126,16 @@ flowchart LR
 | 지역 | 신규 리소스 전부 Korea Central | 계획 단계에서 UK South의 APIM v2 생성이 일시적으로 불가한 것을 확인했다. Korea Central은 `[문서]` Agent Service 지역이고 웹앱도 같은 지역에 있다 | 다른 지역은 지연·비용 영향을 평가하지 않았다 |
 | 공개 범위 | 백엔드 `/v1/*`는 공용 URL이며 백엔드 키가 필요하다 | 웹앱 IP 제한은 사이트 전체에 적용돼 웹 데모를 막는다. APIM v2의 아웃바운드 IP는 공유되고 바뀔 수 있다. 비공개 연결은 VNet과 웹앱 변경이 필요해 범위 밖이다 | 백엔드 키는 게이트웨이와 0600 파일에만 둔다. 데모가 끝나면 웹앱 담당이 키를 교체하거나 해시를 비활성화한다 |
 
+**공식 샘플과의 대응.** 조정자 지침(공식 샘플 `apim-connection-common.bicep` 기준)과 이 배포를 비교했다.
+
+| 항목 | 조정자 지침 | 이 배포 | 판정 |
+| --- | --- | --- | --- |
+| 연결 리소스 | `accounts/projects/connections@2025-04-01-preview`, 범주 `ApiManagement`, 인증 `ApiKey`, 키는 템플릿 안에서 `listSecrets`로 주입 | 같다(`connections.bicep`). 키는 출력·로그·파일에 남지 않는다 | 같음 |
+| 메타데이터 | `deploymentInPath: 'false'`, `inferenceAPIVersion`, `models`(JSON 문자열 배열, `format: 'OpenAI'`) | `deploymentInPath: 'false'`, `models`(`format: 'OpenAI'`). `inferenceAPIVersion`은 지정하지 않았다 | 다름. Foundry 요청에 `api-version`이 붙지 않는다(9.3절~9.6절 관측) |
+| 구독 범위 | 기본값 `master`(전체 API 접근)를 쓰지 않고 해당 API만 범위로 한 전용 구독 | 제품 `axk2-models`에만 범위를 둔 전용 구독 `foundry-byom`이다. 제품에는 모델 API 2개만 있다 | 충족 |
+| 정책 | 샘플의 `validate-azure-ad-token` + `authentication-managed-identity`는 Azure OpenAI 백엔드용이라 쓰지 않는다 | 쓰지 않았다. `Authorization: Bearer`(secret named value)를 주입하고 `api-key`를 지운다. 백엔드는 웹앱이다 | 충족 |
+| 스트리밍 | `forward-request buffer-response="false"`, 응답 본문 접근 없음, 타임아웃 120초 이상 | 타임아웃 230초, `buffer-response="false"`. 정책이 응답 본문에 접근하지 않는다. 요청 본문은 `preserveContent: true`로 읽는다. `set-variable`은 요청 ID 하나에만 쓴다 | 충족 |
+
 **범위 밖(조정자 지시나 승인 없이 하지 않는다):** `ModelGateway` 연결, 트레이싱 Reader 역할, FP8 chat·stream·tool 호출, 본문 로깅, 정책 예외, 다른 SKU, 웹앱·GPU 변경, 삭제(`destroy`).
 
 ## 7. 리소스와 비용
@@ -145,7 +160,7 @@ APIM은 요청 2026-10-19 10:09:35, 준비 10:11:48이다. 생성에 2분 13초�
 | --- | --- | --- |
 | APIM Standard v2 시간당 | 0.96 USD | 소매가 |
 | 하루 / 일주일 | 약 23.04 USD / 약 161.28 USD | 계산값 |
-| 누적 | `byom.py status`가 요청 시각부터 지금까지의 시간 × 0.96으로 계산한다. 예: 2026-10-19 12:18에 2.16 h, 약 2.07 USD | 계산값 |
+| 누적 | `byom.py status`가 요청 시각부터 지금까지의 시간 × 0.96으로 계산한다. 예: 2026-10-19 13:35에 3.42 h, 약 3.29 USD | 계산값 |
 | GPU | 추가 비용 없음. 이미 켜진 GPU를 그대로 쓴다. 이 작업은 GPU를 바꾸지 않는다 | — |
 
 Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하지 않았다.
@@ -168,7 +183,7 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
 
 백엔드는 `Authorization` Bearer와 `api-key` 중 하나만 맞아도 요청을 받는다. 그래서 백엔드 200만으로는 클라이언트 `api-key`가 제거됐다고 증명할 수 없다. 제거는 6번 트레이스로 확인한다.
 
-7번의 값 기록(`params`, `tool_count`, `has_tool_choice`)은 2026-10-19 12:43 배포부터 적용된다. 그 전에 온 요청의 트레이스에는 이 값이 없다. 배포 뒤 라이브 정책이 저장소의 `policies/model-api.xml`과 같다는 것을 ARM에서 읽어 확인했다. 클라이언트 자격 제거 4개와 `Authorization` 주입은 그대로다. 새 값이 실제 요청에서 기록되는지는 배포 뒤 요청이 오기 전까지 미확인이다.
+7번의 값 기록(`params`, `tool_count`, `has_tool_choice`)은 2026-10-19 12:43 배포부터 적용된다. 그 전에 온 요청의 트레이스에는 이 값이 없다. 배포 뒤 라이브 정책이 저장소의 `policies/model-api.xml`과 같다는 것을 ARM에서 읽어 확인했다. 클라이언트 자격 제거 4개와 `Authorization` 주입은 그대로다. 배포 뒤 요청 7건(12:46:45~13:16:30)에서 새 값이 모두 기록됐다(확인됨, 9.5절과 9.6절). 11:40~13:28 창의 Foundry 요청 19건 모두에서 클라이언트 자격 증명 전달은 0건이고 `Authorization` 주입은 19/19다.
 
 ## 9. 결과 상세
 
@@ -189,7 +204,7 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
 
 - 게이트웨이 요청 시간과 백엔드 호출 시간의 차이는 2.3~9.6 ms다.
 - 스모크 응답 본문의 `model` 값은 `axk2`다. 요청 값 `ax-k2-nvfp4`와 다르다.
-- FP8의 chat, stream, tool은 시험하지 않았다(미확인).
+- FP8의 chat, stream, tool은 스모크 도구로 시험하지 않았다(미확인). Foundry 경유 FP8 호출은 200이었다(9.4절~9.6절).
 
 ### 9.2 로그 상관 (V6)
 
@@ -198,7 +213,7 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
 - 스모크 POST 4건이 게이트웨이 요청, 트레이스, 백엔드 호출로 모두 이어졌고 백엔드 호출이 모두 성공했다.
 - 스모크 POST 4건은 `axk2-forwarded-headers` 트레이스를 배포하기 전에 실행했다. 이 트레이스의 증거는 이후 스모크 GET 2건과 에이전트 담당의 POST 4건이다.
 - 게이트웨이가 만든 401(키 없음·틀린 키)은 구독 정보와 트레이스가 로그에 없다. 스모크 창의 401 4건은 3.6 ms 이하로 끝났다. 사전 점검(10:13)에서 가장 먼저 보낸 401 2건은 각각 약 1.4 s였다(원인은 판단하지 않는다). 이 401에는 `x-request-id`가 돌아오지 않는다.
-- Foundry의 에이전트 스팬은 게이트웨이 요청과 다른 OperationId에 기록된다. Foundry에서 게이트웨이로 trace-id가 전달되지 않는다. 둘은 시각으로 맞춘다.
+- Foundry의 에이전트 스팬은 게이트웨이 요청과 다른 OperationId에 기록된다. 게이트웨이 요청에는 호출자 쪽 부모 스팬 ID(`ParentId`)가 있어 Foundry가 `traceparent`를 보내는 것으로 보인다. 그 부모 스팬은 이 작업 영역에 없다. 에이전트 스팬과 게이트웨이 요청은 시각으로 맞춘다. 같은 Foundry 호출 안의 모델 요청은 OperationId를 공유할 수 있다. 그래서 `observe_requests.py`는 요청의 `Id`와 백엔드 호출·트레이스의 `ParentId`로 요청을 묶는다.
 - 로그 수집은 최대 약 5분 늦는다. 로그 조회는 5분 이상 기다린 뒤에 한다.
 - `AppRequests.Url`에는 클라이언트 URL 전체가 있다. 증거에는 경로, 쿼리 이름, `api-version`만 남긴다.
 
@@ -225,27 +240,87 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
   - User-Agent는 비어 있고 `x-request-id`는 없다.
 - **정책 결과:** 클라이언트 자격 증명 전달 0건, `Authorization` 주입 4/4다.
 - 이 호출에는 도구가 없었다. 도구가 있는 요청의 형태는 9.4절이다.
-- 백엔드는 위 요청 형태(`stream_options`, `max_completion_tokens` 포함)를 받아야 한다. NVFP4가 받아들이는지는 503 때문에 확인하지 못했다. FP8은 같은 형태에 200으로 답했다(9.4절).
+- 백엔드는 위 요청 형태(`stream_options`, `max_completion_tokens` 포함)를 받아야 한다. NVFP4가 받아들이는지는 이 호출에서는 503 때문에 확인하지 못했다. FP8은 같은 형태에 200으로 답했다(9.4절). 이후 같은 본문 필드 7개를 가진 NVFP4 요청 2건(12:46, 13:13)도 200이었다(9.5절, 9.6절). 이 호출에서는 값을 기록하지 않았으므로 값이 같았는지는 확인하지 못했다.
 
 ### 9.4 에이전트 담당의 FP8 호출 3묶음 (200)
 
-증거: `gateway-requests-foundry-fp8-bundles-1a-1b-mcp-never.json`(창 12:27:30~12:31:30). 에이전트 담당이 FP8 에이전트로 호출한 묶음은 1a(도구 없음), 1b(함수 도구 왕복), MCP `never`(Learn MCP 도구)다. 게이트웨이가 받은 요청은 4건이고 모두 200이다. 이 요청은 정책의 값 기록을 배포하기 전에 왔다. 그래서 숫자·불리언 값과 도구 개수는 증거 파일에 없다.
+증거: `gateway-requests-foundry-fp8-bundles-1a-1b-mcp-never.json`(창 12:27:30~12:31:30). 에이전트 담당이 FP8 에이전트로 호출한 묶음은 1a(도구 없음), 1b(함수 도구 왕복), MCP `never` v1(Learn MCP 도구, 에이전트 버전 1)이다. 게이트웨이가 받은 요청은 4건이고 모두 200이다. 이 요청은 정책의 값 기록을 배포하기 전에 왔다. 그래서 숫자·불리언 값과 도구 개수는 증거 파일에 없다.
 
 | 묶음 | 도착 시각 | 상태 | 게이트웨이 총 소요 | 백엔드 호출 소요 | 메시지(역할) | 도구 이름 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1a | 12:28:14.812 | 200 | 3788.4 ms | 3780.5 ms | 2(system, user) | 없음 |
 | 1b 첫 요청 | 12:29:07.893 | 200 | 2489.8 ms | 2486.3 ms | 2(system, user) | `lookup_demo_stock` |
 | 1b 둘째 요청 | 12:29:11.045 | 200 | 1095.0 ms | 1091.5 ms | 5(system, user, assistant, assistant, tool) | `lookup_demo_stock` |
-| MCP `never` | 12:30:26.739 | 200 | 2287.4 ms | 2286.0 ms | 2(system, user) | `mcp___mcp_microsoft_learn___microsoft_docs_search` |
+| MCP `never` v1 | 12:30:26.739 | 200 | 2287.4 ms | 2286.0 ms | 2(system, user) | `mcp___mcp_microsoft_learn___microsoft_docs_search` |
 
 - 4건 모두 `POST /fp8/v1/chat/completions`이고 백엔드 호출은 `POST /v1/chat/completions`다. 구독은 `foundry-byom`이고 `api-version`이 없으며 User-Agent는 비어 있다. 응답은 모두 백엔드가 만들었다. 게이트웨이가 더한 시간은 1.3~7.9 ms다.
 - 요청의 `model`은 `ax-k2-fp8`, `stream`은 `true`다. `max_completion_tokens`가 있고 `max_tokens`는 없다.
 - 본문 최상위 필드: 1a는 `messages`, `stream`, `max_completion_tokens`, `stream_options`, `model`, `temperature`, `top_p`다. 1b와 MCP 요청은 여기에 `tools`, `parallel_tool_calls`, `tool_choice`가 더해진다. `tool_choice`는 모두 `"auto"`다.
 - MCP 요청에도 도구 정의가 실렸고 본문 모양이 1b와 같다(도구 이름만 다르다). Foundry는 MCP 도구를 요청에 실었다.
 - Foundry `chat` 스팬의 종료 사유(`gen_ai.response.finish_reasons`)와 토큰 수(입력, 출력)는 1a `stop`(80, 15), 1b 첫 요청 `tool_calls`(310, 96), 1b 둘째 요청 `stop`(390, 36), MCP `stop`(477, 88)이다. 이 값은 개인 디렉터리 출력에서 읽었고 증거 파일에는 없다.
-- MCP 호출은 요청 1건으로 끝났고 도구 실행 스팬이 없다(이 창의 스팬 이름은 `chat`과 `invoke_agent`뿐이다). 모델이 `tool_choice=auto`에서 도구 호출 없이 `stop`으로 끝냈다. 왜 도구를 고르지 않았는지는 판단하지 않는다.
+- MCP `never` v1 호출은 요청 1건으로 끝났고 도구 실행 스팬이 없다(이 창의 스팬 이름은 `chat`과 `invoke_agent`뿐이다). 모델이 `tool_choice=auto`에서 도구 호출 없이 `stop`으로 끝냈다. 왜 도구를 고르지 않았는지는 판단하지 않는다. 이후 `never` v2는 도구를 골랐다(9.5절).
 - 정책 결과: 클라이언트 자격 증명 전달 0건, `Authorization` 주입 4/4다.
-- NVFP4 첫 호출(9.3절)은 503이었고 FP8 호출은 200이다. 시각과 프로파일이 다르므로 차이의 원인은 판단하지 않는다.
+- NVFP4 첫 호출(9.3절)은 503이었고 FP8 호출은 200이다. 시각과 프로파일이 다르므로 차이의 원인은 판단하지 않는다. 이후 NVFP4 호출은 200이었다(9.5절, 9.6절).
+
+### 9.5 에이전트 담당의 후속 호출 (정책 값 기록 배포 12:43 전후)
+
+증거: `gateway-requests-foundry-mcp-never-v2-and-always.json`(창 12:38:30~12:41:00), `gateway-requests-foundry-web-iq-marker-window.json`(창 12:42:00~12:46:20), `gateway-requests-foundry-nvfp4-after-policy-update.json`(창 12:46:20~12:49:00). 에이전트 담당과 조정자가 알린 호출 시각은 MCP `never` v2 12:39:05, MCP `always` 12:40:04, Web IQ 표식 12:43:37, NVFP4 1a 12:46:42, NVFP4 1b 12:47:18이다. MCP `never` v2는 에이전트 버전 2, MCP `always`는 버전 3이고 둘 다 FP8 API(`/fp8/v1`)로 왔다. NVFP4 1a와 1b는 NVFP4 API(`/nvfp4/v1`)로 왔다.
+
+| 호출 | 도착 시각 | 상태 | 게이트웨이 총 소요 | 백엔드 호출 소요 | 메시지(역할) | 요청 / 응답 크기 | 값 기록 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| MCP `never` v2 첫 요청 | 12:39:09.759 | 200 | 1254.1 ms | 1252.2 ms | 2(system, user) | 3996 / 6198 | 배포 전 |
+| MCP `never` v2 둘째 요청 | 12:39:13.267 | 200 | 5840.0 ms | 5835.3 ms | 4(system, user, assistant, tool) | 48300 / 23410 | 배포 전 |
+| MCP `always` 첫 요청 | 12:40:07.925 | 200 | 1189.4 ms | 1188.1 ms | 2(system, user) | 3996 / 6198 | 배포 전 |
+| MCP `always` 둘째 요청 | 12:40:13.121 | 200 | 5487.4 ms | 5473.0 ms | 4(system, user, assistant, tool) | 48300 / 25034 | 배포 전 |
+| Web IQ 표식(12:43:37) | 요청 없음 | — | — | — | — | — | — |
+| NVFP4 1a | 12:46:45.221 | 200 | 2529.4 ms | 2264.4 ms | 2(system, user) | 2636 / 4688 | 배포 후 |
+| NVFP4 1b 첫 요청 | 12:47:21.971 | 200 | 979.2 ms | 977.7 ms | 2(system, user) | 3075 / 5003 | 배포 후 |
+| NVFP4 1b 둘째 요청 | 12:47:23.603 | 200 | 1204.8 ms | 950.2 ms | 4(system, user, assistant, tool) | 3408 / 8140 | 배포 후 |
+
+- 크기 열은 게이트웨이 로그의 `Request Size`와 `Response Size`다. 단위는 문서로 확인하지 못했다(바이트로 추정한다).
+- 요청 7건 모두 `POST`이고 쿼리와 User-Agent가 없으며 구독은 `foundry-byom`이다. `stream`은 `true`이고 `max_completion_tokens`가 있으며 `max_tokens`는 없다. 응답은 모두 백엔드가 만들었다. 클라이언트 자격 증명 전달은 0건이고 `Authorization` 주입은 7/7이다.
+- "값 기록"은 정책의 값 기록(8절)을 배포한 12:43:04의 전후를 뜻한다. 배포 전 요청은 증거 파일의 `parameters`, `toolCount`, `hasToolChoice`가 `null`이다. 이 요청에도 `tool_choice` 문자열(`"auto"`)과 도구 이름은 기록돼 있다.
+- **배포 뒤 첫 값(NVFP4):** 1a는 `max_completion_tokens` 256, `stream` `true`, `stream_options` `{"include_usage": true}`, `temperature` 1.0, `top_p` 1.0이다. `tools`와 `tool_choice`가 없다(`toolCount` 0, `hasToolChoice` `false`). 1b의 두 요청은 같은 값에 `tools` 1개(`lookup_demo_stock`), `tool_choice` `"auto"`, `parallel_tool_calls` `false`가 더해졌다(`toolCount` 1, `hasToolChoice` `true`). `max_completion_tokens`는 두 요청 모두 256이다.
+- **MCP `never` v2(12:39):** 게이트웨이 요청 2건이 Foundry 호출 1건 안에서 나갔다. 스팬은 `invoke_agent` 1건(9420.6 ms), `execute_tool mcp_microsoft_learn.microsoft_docs_search` 1건(7395.3 ms), `chat` 1건(2009.7 ms, 종료 사유 `stop`, 입력 10531·출력 95 토큰)이다. 둘째 요청에 `assistant`와 `tool` 메시지가 있다. 모델이 첫 응답에서 MCP 도구를 골랐고 Foundry가 도구 결과를 넣어 다시 요청한 것으로 보인다(추정, 응답 본문은 기록하지 않는다). `execute_tool` 스팬은 `invoke_agent` 스팬과 같은 시각에 시작한다. 스팬 시작·종료의 정의는 확인하지 못했다.
+- **MCP `always`(12:40):** Foundry 호출 2건에 게이트웨이 요청이 1건씩 나갔다. 호출 1(`invoke_agent` 1284.8 ms)에는 `chat` 스팬 1건(1270.1 ms, `tool_calls`, 입력 480·출력 41 토큰)이 있다. 호출 2(`invoke_agent` 8986.8 ms)에는 `execute_tool` 스팬 1건(5766.3 ms)과 `chat` 스팬 2건이 있다. `chat` 스팬 하나(12:40:09.651, 1018.6 ms, `tool_calls`, 입력 484 토큰)는 대응하는 게이트웨이 요청이 없다. 나머지 `chat` 스팬은 `stop`(2180.2 ms, 입력 10533·출력 102 토큰)이다. 대응이 없는 원인은 판단하지 않는다.
+- 에이전트 담당은 `never` v2와 `always` 호출의 응답에 `mcp_call`이 나왔다고 보고했다(조정자 전달). 두 호출 모두 요청에 도구가 실렸고 `tool_choice`가 `"auto"`였다(위 표).
+- Web IQ 표식 창(12:42:00~12:46:20)에는 게이트웨이 요청, 백엔드 호출, 트레이스, Foundry 스팬이 모두 0건이다. 에이전트 담당은 12:43:37의 Web IQ 호출을 Foundry 검증이 400으로 거절했다고 보고했다. 이 호출이 게이트웨이에 도달하지 않은 것과 맞는다.
+- **관찰 도구 수정:** `observe_requests.py`는 처음에 요청과 백엔드 호출·트레이스를 OperationId로 이었다. 같은 Foundry 호출 안의 모델 요청은 OperationId를 공유하므로 두 요청이 같은 요청 형태와 같은 백엔드 시간으로 나오는 오류가 있었다. 지금은 `Id`와 `ParentId`로 잇는다(9.2절). 위 표는 고친 도구의 출력이다. 9.3절과 9.4절의 증거는 같은 창을 고친 도구로 다시 읽어 비교했고 영향이 없었다(요약과 창이 같고, 새로 생긴 키는 `hasToolChoice` 하나이며 값은 `null`이다).
+
+### 9.6 에이전트 담당의 웹앱 재배포 뒤 호출 (13:00 이후)
+
+증거: `gateway-requests-foundry-after-redeploy-nvfp4-and-mcp-never-v2.json`(창 13:12:30~13:16:30), `gateway-requests-foundry-ablation-fp8-after-redeploy.json`(창 13:16:00~13:19:30). 웹앱 담당이 웹앱을 다시 배포했고 새 워커는 13:00:28에 시작했다(조정자 보고). 에이전트 담당이 알린 호출 시각은 ① NVFP4 1a 13:13:27~13:13:33, ② FP8 MCP `never` v2 13:14:41~13:14:54, ③ FP8 MCP `never` 변형(ablation) 13:16:27~13:16:31이다. ③은 v2 지시문을 쓰고 `temperature`를 지정하지 않은 별도 에이전트(버전 1)의 호출이라고 보고됐다.
+
+| 호출 | 도착 시각 | API | 상태 | 게이트웨이 총 소요 | 백엔드 호출 소요 | 요청 / 응답 크기 |
+| --- | --- | --- | --- | --- | --- | --- |
+| ① NVFP4 1a | 13:13:33.301 | NVFP4 | 200 | 694.9 ms | 693.5 ms | 2644 / 4901 |
+| ② `never` v2 첫 요청 | 13:14:45.580 | FP8 | 200 | 1294.4 ms | 1291.6 ms | 3996 / 6198 |
+| ② `never` v2 둘째 요청 | 13:14:49.604 | FP8 | 200 | 5635.7 ms | 5631.6 ms | 48300 / 24578 |
+| ③ ablation | 13:16:30.985 | FP8 | 200 | 1129.1 ms | 1127.9 ms | 3984 / 5651 |
+
+값 기록은 이 4건 모두 있다.
+
+| 요청 | `max_completion_tokens` | `temperature` | `top_p` | 메시지(역할) | 도구 | `tool_choice` |
+| --- | --- | --- | --- | --- | --- | --- |
+| ① | 256 | 1.0 | 1.0 | 2(system, user) | 없음 | 없음 |
+| ② 첫 요청 | 384 | 0.3 | 1.0 | 2(system, user) | 1개 | `"auto"` |
+| ② 둘째 요청 | 342 | 0.3 | 1.0 | 4(system, user, assistant, tool) | 1개 | `"auto"` |
+| ③ | 384 | 1.0 | 1.0 | 2(system, user) | 1개 | `"auto"` |
+
+- 4건 모두 `stream`이 `true`이고 `stream_options`가 `{"include_usage": true}`다. 쿼리와 User-Agent가 없다. 클라이언트 자격 증명 전달은 0건이고 `Authorization` 주입은 4/4다.
+- ①의 본문 필드는 9.3절과 같은 7개다. ②와 ③은 `tools`, `parallel_tool_calls`(`false`), `tool_choice`가 더해진 10개다. 도구는 `mcp___mcp_microsoft_learn___microsoft_docs_search` 1개다.
+- ②의 `temperature` 기록값은 `0.3000000119209289`다. 0.3을 32비트 부동소수점으로 나타낸 값(약 0.3000000119)과 맞는다.
+- **②의 `max_completion_tokens`:** 첫 모델 요청이 384이고 둘째가 342로 42 적다. 두 요청은 Foundry 호출 1건 안에서 나갔다. NVFP4 1b의 함수 도구 왕복은 Foundry 호출 2건이고 두 요청 모두 256이다(9.5절). 값이 달라지는 규칙은 확인하지 못했다.
+- **②와 ③의 차이:** `temperature`가 0.3과 1.0이다. 첫 요청의 크기가 3996과 3984이고 첫 응답의 크기가 6198과 5651이다. 이 차이와 ③의 오류의 관계는 판단하지 않는다.
+- **③의 결과를 나누면 다음과 같다.**
+  - 게이트웨이는 요청 1건(13:16:30.985)을 받았다. ±30초 안에 다른 요청이 없고 가장 가까운 앞선 요청은 약 101초 전이다. Foundry의 재시도로 보이는 요청이 없다.
+  - 백엔드는 200으로 응답했다(백엔드 호출 소요 1127.9 ms). 백엔드 5xx가 아니고 요청이 빠진 것도 아니다.
+  - Foundry의 `invoke_agent` 스팬(13:16:30.941, 1218.1 ms)은 `ResultCode` 500, `error.type` `unknown`이다. 에이전트 담당은 Foundry가 약 2초 뒤 500 `model_error`("The model produced invalid content…")로 끝냈다고 보고했다.
+  - 하위 `execute_tool functions.microsoft_learn.microsoft_docs_search` 스팬(1216.9 ms, `ResultCode` 0)이 있고 `chat` 스팬은 없다. ②의 도구 실행 스팬 이름은 `mcp_microsoft_learn.microsoft_docs_search`다. 요청에 실린 도구 이름은 둘 다 `mcp___mcp_microsoft_learn___microsoft_docs_search`다. ②의 도구 실행 스팬에는 `gen_ai.tool.call.result` 속성이 있고 ③의 도구 실행 스팬에는 없다(속성 이름만 확인했고 값은 읽지 않았다).
+  - 추정: 모델이 `functions.` 접두사가 붙은 도구 이름을 내보냈고 Foundry가 이를 요청의 도구와 맞추지 못했을 수 있다. 근거는 정황뿐이다(스팬 이름, 결과 속성 유무). 확인하려면 같은 요청으로 모델 API를 직접 호출해 응답의 `tool_calls[].function.name`을 읽어야 한다. GPU 호출이므로 조정자 승인이 필요하다.
+- **누적(11:40~13:28 창, 스모크 제외):** 게이트웨이가 받은 Foundry 요청은 19건이다. 상태는 200이 15건, 503이 4건이다. NVFP4가 8건(503 4건, 200 4건)이고 FP8이 11건(모두 200)이다. 응답은 19건 모두 백엔드가 만들었다. 클라이언트 자격 증명 전달은 0건이고 `Authorization` 주입은 19/19다. Foundry `invoke_agent` 스팬은 17건이고 `ResultCode` 0이 12건, 500이 5건(11:45의 4건과 ablation 1건)이다.
+- **게이트웨이가 더한 시간:** 게이트웨이 총 소요에서 백엔드 호출 소요를 뺀 값이다. 19건 중 17건이 14.4 ms 이하이고 최소는 1.2 ms다. 2건이 약 255~265 ms다(NVFP4 1a 12:46:45의 265.0 ms, NVFP4 1b 둘째 요청 12:47:23의 254.6 ms). 웹앱 재배포 뒤 4건은 1.2~4.1 ms다. 원인은 판단하지 않는다(단일 표본).
+- 스팬의 이름·시각·종료 사유·토큰 수와 속성 이름은 개인 디렉터리 출력에서 읽었다. 증거 파일에는 스팬 종류별 개수와 `ResultCode`만 있다.
 
 ## 10. Foundry 인계 정보 (에이전트 담당용)
 
@@ -259,7 +334,7 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
 | 연결 형태 | 범주 `ApiManagement`, 인증 `ApiKey`, `deploymentInPath=false`(Foundry가 `<target>/chat/completions`로 POST), 정적 모델 목록, 모델 형식 `OpenAI`, `inferenceAPIVersion` 미지정(요청에 `api-version`이 붙지 않는다) |
 | 구독 키 | 연결 안에 저장돼 있다. 에이전트 담당이 구독 키를 다룰 필요가 없다 |
 | 호출 방식 | `[문서]` 프롬프트 에이전트를 Responses API의 `agent_reference`로 호출한다. `azure-ai-projects` 2.0.0 이상이 필요하다 |
-| 트레이싱 | `AppInsights` 연결 2개(계정 수준, 프로젝트 수준). 같은 Application Insights를 가리킨다. 에이전트 스팬이 이 작업 영역에 들어온다(9.3절, 9.4절 호출에서 확인) |
+| 트레이싱 | `AppInsights` 연결 2개(계정 수준, 프로젝트 수준). 같은 Application Insights를 가리킨다. 에이전트 스팬이 이 작업 영역에 들어온다(9.3절~9.6절 호출에서 확인). 스팬 이름은 `invoke_agent <에이전트>:<버전>`, `chat <연결>/<모델>`, `execute_tool <도구>` 형태로 관찰했다 |
 | 사용 모델 표시 | 응답 본문의 `model`은 `axk2`다. 사용 모델을 보일 때는 연결 설정과 게이트웨이 요청 로그의 요청 `model` 값을 함께 쓴다 |
 
 ## 11. 알려진 한계
@@ -271,6 +346,10 @@ Basic v2(0.21 USD/h)는 `ApiManagement` 연결이 지원하지 않아 시도하�
 - 속도 제한은 구독당 60초에 30회다. 첫 Foundry 호출은 약 11.5초 동안 4건을 보냈다. 재시도가 반복되면 한도에 닿을 수 있다(측정하지 않았다).
 - `axk2-request-shape` 트레이스는 Foundry 요청 형태를 보려고 켜 두었다. 필드 이름, 역할, 도구 이름·개수, `tool_choice`와 숫자·불리언 값만 기록하고 메시지 내용과 도구 스키마는 기록하지 않는다(8절). 형태 확인이 끝나면 정책에서 제거해도 된다.
 - 게이트웨이가 만든 401의 본문은 OpenAI 오류 형식이 아니다(`message`, `statusCode`).
+- 게이트웨이가 더한 시간: 요청 19건 중 17건이 14.4 ms 이하였고 2건이 약 255~265 ms였다(9.6절). 원인은 판단하지 않는다(단일 표본).
+- 요청·응답 크기: 게이트웨이 로그의 `Request Size`와 `Response Size`를 증거의 `requestSize`와 `responseSize`에 기록한다. 단위는 문서로 확인하지 못했다(4.1절).
+- 스팬 수와 게이트웨이 요청 수가 다른 호출이 있다. `always` 호출 2는 `chat` 스팬이 2건이고 게이트웨이 요청이 1건이다. `never` v2는 `chat` 스팬이 1건이고 게이트웨이 요청이 2건이다. ablation은 `chat` 스팬이 없고 게이트웨이 요청이 1건이다(9.5절, 9.6절). 이 문서의 요청 수는 게이트웨이가 받은 건수다. 원인은 판단하지 않는다.
+- `max_completion_tokens`: 한 Foundry 호출 안의 두 모델 요청에서 384와 342로 달랐다(9.6절). 값이 정해지는 규칙은 확인하지 못했다.
 - 구독 키를 다시 만들면 연결에 저장된 키가 낡는다. `deploy connections` 재실행으로 갱신되는지는 미확인이다.
 - APIM Standard v2는 중지할 수 없다. 삭제할 때까지 과금된다.
 
@@ -322,7 +401,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 - 스모크 도구는 개인 디렉터리의 사본을 먼저 찾고, 없으면 `demo/tools/model_api_smoke.py`를 쓴다. `--smoke-tool`로 경로를 지정할 수 있다.
 - 백엔드를 배포하거나 활성화하기 전에는 `/v1/*`가 404다(fail-closed). 활성화한 뒤에만 `--go`를 실행한다.
 - 웹앱 재배포(재시작) 창에는 게이트웨이에서 웹앱으로 보내는 프로브와 스모크를 하지 않는다. 오탐이 난다.
-- `observe_requests.py`는 읽기 전용이다. `--since`는 `30m`, `2h` 또는 오프셋이 있는 ISO 시각을 받는다. 로그가 최대 약 5분 늦으므로 창이 끝난 뒤 5분 이상 기다린다.
+- `observe_requests.py`는 읽기 전용이다. `--since`는 `30m`, `2h` 또는 오프셋이 있는 ISO 시각을 받는다. 로그가 최대 약 5분 늦으므로 창이 끝난 뒤 5분 이상 기다린다. 요청의 `Id`와 백엔드 호출·트레이스의 `ParentId`로 요청을 묶는다. 로그에 `Request Size`와 `Response Size`가 있으면 `requestSize`와 `responseSize`로 기록한다(단위는 4.1절).
 - 값 기록을 배포한 뒤(8절)의 요청에는 `parameters`(숫자·불리언 값), `toolCount`, `hasToolChoice`가 증거에 들어간다. 배포 전 요청에서는 이 값이 `null`이다.
 
 **정책 변경**
@@ -335,7 +414,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 
 백엔드 키 교체는 웹앱 담당 소관이다. 교체한 뒤 `byom.py key`를 실행해 게이트웨이의 secret을 갱신한다.
 
-**단위 테스트**(오프라인, 네트워크 없음): `python -m unittest tests.test_foundry_byom`. 75개이며 Windows에서는 1개를 건너뛴다.
+**단위 테스트**(오프라인, 네트워크 없음): `python -m unittest tests.test_foundry_byom`. 80개이며 Windows에서는 1개를 건너뛴다.
 
 ## 13. 문제 대응
 
@@ -345,7 +424,8 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 | 유효한 구독 키인데 401 | 게이트웨이의 백엔드 키와 웹앱의 키가 어긋났을 가능성이 있다(조정자 지침) | 정지하고 웹앱 담당에게 알린다. 키를 교체한 뒤에는 `byom.py key`를 실행한다 |
 | 백엔드 404 | 활성화 전 `/v1/*`가 404였다(fail-closed) | 웹앱 담당에게 배포·해시 활성화 상태를 묻는다 |
 | 429 | 구독당 60초에 30회 제한이다(설정값) | 호출 수를 줄이거나 정책 한도를 조정한다(`deploy gateway`) |
-| 503 | 첫 Foundry 호출에서 백엔드가 503을 반환했다(9.3절) | 웹앱 담당과 모델 API 담당에게 알린다 |
+| 503 | 첫 Foundry 호출에서 백엔드가 503을 반환했다(9.3절). 이후 NVFP4 요청 4건은 200이었다(9.5절, 9.6절) | 웹앱 담당과 모델 API 담당에게 알린다 |
+| Foundry는 500 `model_error`, 게이트웨이 요청은 200 | ablation 호출에서 Foundry `invoke_agent` 스팬이 500이었고 게이트웨이 요청은 200이었다(9.6절). 게이트웨이는 본문을 기록하지 않는다(8절) | 모델 응답 본문을 확인해야 원인을 알 수 있다. 같은 요청으로 모델 API를 직접 호출하는 것은 GPU 호출이므로 조정자 승인을 받는다 |
 | 연결이 Inactive | `[문서]` 엔드포인트와 자격 증명을 점검한다 | `byom.py connections`로 ARM 값을 읽고 게이트웨이 `probe`로 엔드포인트를 확인한다. `ModelGateway` 대안은 조정자 승인 후에만 만든다 |
 
 ## 14. 삭제 절차
@@ -388,7 +468,7 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 | `tracing.bicep` | 트레이싱(AppInsights) 연결 2개 |
 | `byom.py` | 배포·검증·삭제 도구. 활성 계정을 확인하고, what-if에서 `Delete`가 있으면 중단한다 |
 | `verify_gateway.py` | 스모크 도구를 게이트웨이에 실행하고 로그와 상관한다 |
-| `observe_requests.py` | 시간 창 안의 게이트웨이 요청을 읽기 전용으로 관찰한다 |
+| `observe_requests.py` | 시간 창 안의 게이트웨이 요청을 읽기 전용으로 관찰한다. 요청을 `Id`와 `ParentId`로 묶고 요청·응답 크기를 기록한다 |
 | `../../tests/test_foundry_byom.py` | 오프라인 단위 테스트 |
 
 증거 파일은 `../../evidence/foundry-byom/`에 있다.
@@ -405,12 +485,17 @@ python3 demo/foundry-byom/byom.py status                                    # AP
 | `apim-smoke-correlation-post-go.json` | 11:45 | 로그 상관 판정 |
 | `gateway-requests-foundry-first-call.json` | 창 11:44:30~11:46:30 | 에이전트 담당의 첫 Foundry 호출이 게이트웨이에서 어떻게 보였는지 |
 | `gateway-requests-foundry-fp8-bundles-1a-1b-mcp-never.json` | 창 12:27:30~12:31:30, 저장 12:36 | 에이전트 담당의 FP8 호출 3묶음(9.4절) |
+| `gateway-requests-foundry-mcp-never-v2-and-always.json` | 창 12:38:30~12:41:00, 저장 13:30 | MCP `never` v2와 `always`(9.5절) |
+| `gateway-requests-foundry-web-iq-marker-window.json` | 창 12:42:00~12:46:20, 저장 13:30 | Web IQ 표식 창. 게이트웨이 요청 0건(9.5절) |
+| `gateway-requests-foundry-nvfp4-after-policy-update.json` | 창 12:46:20~12:49:00, 저장 13:30 | 값 기록 배포 뒤 NVFP4 1a·1b(9.5절) |
+| `gateway-requests-foundry-after-redeploy-nvfp4-and-mcp-never-v2.json` | 창 13:12:30~13:16:30, 저장 13:30 | 웹앱 재배포 뒤 NVFP4 1a와 MCP `never` v2(9.6절) |
+| `gateway-requests-foundry-ablation-fp8-after-redeploy.json` | 창 13:16:00~13:19:30, 저장 13:30 | ablation 호출(9.6절) |
 
 ## 17. 다음 단계
 
 | 담당 | 할 일 |
 | --- | --- |
-| 웹앱 담당, 모델 API 담당 | 503의 원인을 확인한다. NVFP4가 9.3절의 요청 형태를 받아들이는지 확인한다(FP8은 9.4절에서 200). 데모가 끝나면 백엔드 키를 교체하거나 해시를 비활성화한다 |
-| 에이전트 담당 | NVFP4 에이전트를 다시 호출한다(첫 호출은 503). MCP 호출에서 모델이 도구를 고르지 않은 이유를 본다(9.4절). 콘솔의 Active 표시, 모델 선택 목록, 트레이싱, 도구 실행 기록을 기록한다 |
-| 인프라 담당 | 연결·정책 문제(Active 아님, 401·404, 정책 변경 요청)에 대응한다. 호출 시각을 받으면 게이트웨이 요청을 읽기 전용으로 관찰한다. 값 기록(8절)이 실제 요청에서 남는지 확인한다 |
-| 조정자 | FP8 chat·stream·tool 호출, `ModelGateway` 연결, 트레이싱 Reader 역할, 삭제는 지시하거나 승인할 때만 진행한다 |
+| 웹앱 담당, 모델 API 담당 | 503의 원인을 확인한다. 이후 NVFP4 요청 4건은 200이었다(9.5절, 9.6절). 데모가 끝나면 백엔드 키를 교체하거나 해시를 비활성화한다 |
+| 에이전트 담당 | ablation 500의 원인(9.6절)은 모델 응답 본문이 있어야 확인할 수 있다. 콘솔의 Active 표시, 모델 선택 목록, 트레이싱, 도구 실행 기록을 기록한다. 12:43:37의 Web IQ 호출은 Foundry 검증에서 400으로 거절됐다고 보고됐다(9.5절). 거절 사유와 다음 시험은 에이전트 담당이 정한다. MCP `never` v1과 v2의 도구 선택 차이(9.4절, 9.5절)는 에이전트 버전의 설정을 비교해 기록한다 |
+| 인프라 담당 | 연결·정책 문제(Active 아님, 401·404, 정책 변경 요청)에 대응한다. 호출 시각을 받으면 게이트웨이 요청을 읽기 전용으로 관찰한다. 형태 확인이 끝나면 `axk2-request-shape` 트레이스를 정책에서 제거할지 조정자와 정한다(11절) |
+| 조정자 | ablation 500의 원인 확인용 모델 API 직접 호출(GPU 호출), FP8 chat·stream·tool 스모크, `ModelGateway` 연결, 트레이싱 Reader 역할, 삭제는 지시하거나 승인할 때만 진행한다 |
