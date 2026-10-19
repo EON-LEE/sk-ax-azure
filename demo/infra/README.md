@@ -150,6 +150,8 @@ python3 demo/target.py --directory "$D" model-key
 # Only after the deployment owner receives approval for this exact commit:
 python3 demo/target.py --directory "$D" deploy-revision \
   --commit <full-40-character-reviewed-commit> --allow-live-web-recycle
+# After disabled-code regression passes, activate in a separate explicit step:
+python3 demo/target.py --directory "$D" model-settings --allow-live-web-recycle
 ```
 
 The raw key exists only in `$D/model-api-backend.key` (0600). The digest is staged
@@ -195,8 +197,9 @@ restarts**, in one coordinated window. The API code deploys first with no digest
 configured, so the new routes are briefly disabled (404). Before activation,
 check health, status, capabilities and disabled routes, and require both existing
 model reverse links to recover with unchanged profile activation times and empty
-queues. Only then activate the credential, wait for both links and empty queues
-again, and run smoke. These health checks are not inference tests.
+queues. Only then run `model-settings` to activate the credential, wait for both links
+and empty queues again, and run smoke. `deploy-revision` never activates the key.
+These health checks are not inference tests.
 
 After deployment, run the **reviewed candidate's**
 `demo/tools/model_api_smoke.py` using its protected key-file argument, not a key

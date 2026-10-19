@@ -398,13 +398,31 @@ class Target:
             raise ValueError("Settings activation requires explicit --allow-live-web-recycle")
         settings_path = self.staged_model_settings()
         proof_path = self.directory / "candidate-proof.json"
-        if not proof_path.exists() or json.loads(proof_path.read_text()).get("state") != "deployed_links_recovered":
+        if not proof_path.exists():
             raise ValueError("A verified model API code deployment is required before key rotation activation")
-        baseline = self.request(self.url + "/api/models")
+        proof = json.loads(proof_path.read_text())
+        if proof.get("state") not in {"code_deployed_disabled", "deployed_links_recovered"}:
+            raise ValueError("A verified model API code deployment is required before key rotation activation")
+        rollback = self.directory / proof["rollback"]
+        baseline = json.loads((rollback / "models.json").read_text())
         self.wait_web_recovery(baseline)
         self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
                 "--settings", "@" + str(settings_path))
         recovered = self.wait_web_recovery(baseline)
+        self.request(self.url + "/healthz")
+        self.request(self.url + "/api/status")
+        if self.request(self.url + "/api/capabilities")["web_iq"]["state"] != "ready":
+            raise ValueError("Web IQ discovery regressed during settings activation")
+        for prefix in ("", "/models/nvfp4"):
+            try:
+                self.request(self.url + prefix + "/v1/models", anonymous=True)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 401:
+                    raise ValueError("Enabled model API must reject unauthenticated access with HTTP 401") from None
+            else:
+                raise ValueError("Enabled model API unexpectedly accepted an unauthenticated request")
+        proof.update(state="deployed_links_recovered", settings_recycle=recovered)
+        write_private(proof_path, proof)
         write_private(self.directory / "model-settings-proof.json", {
             "state": "activated_links_recovered", "models": recovered,
             "smoke": "not_run; separately verify the rotated consumer connection"})
@@ -413,7 +431,7 @@ class Target:
     def deploy_revision(self, revision, allow_live_web_recycle=False):
         if not allow_live_web_recycle:
             raise ValueError("Live web deployment requires explicit --allow-live-web-recycle")
-        settings_path = self.staged_model_settings()
+        self.staged_model_settings()
         archive = self.directory / "candidate-frontend.zip"
         expected = bundle_revision(revision, archive)
         manifest = self.directory / "frontend-expected.json"
@@ -444,8 +462,7 @@ class Target:
         write_private(self.directory / "candidate-proof.json", {
             "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
             "expected_files": len(expected), "state": "attempted", "rollback": rollback.name})
-        # Deploy disabled code first, then enable its credential. These are distinct
-        # App Service operations; they can cause more than one web process recycle.
+        # Credential activation is a separate, explicitly approved command.
         self.publish(archive, expected)
         first_recovery = self.wait_web_recovery(baseline)
         self.request(self.url + "/healthz")
@@ -465,18 +482,15 @@ class Target:
         write_private(self.directory / "code-deployment-regression.json", {
             "revision": revision, "health": True, "status": True, "web_iq_ready": True,
             "model_api_disabled": True, "models": first_recovery})
-        self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
-                "--settings", "@" + str(settings_path))
-        second_recovery = self.wait_web_recovery(baseline)
         shutil.copyfile(archive, previous_archive)
         write_private(manifest, expected)
         write_private(self.directory / "candidate-proof.json", {
             "revision": revision, "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-            "expected_files": len(expected), "state": "deployed_links_recovered",
+            "expected_files": len(expected), "state": "code_deployed_disabled",
             "rollback": rollback.name, "gpu_binding_unchanged": True,
-            "code_recycle": first_recovery, "settings_recycle": second_recovery,
+            "code_recycle": first_recovery,
             "model_api_smoke": "not_run; execute the candidate's reviewed smoke tool separately"})
-        print("Exact revision deployed; both original model links recovered. Smoke verification still required.")
+        print("Exact revision deployed disabled; regression passed. Explicit settings activation and smoke remain.")
 
     def wait_web_recovery(self, baseline):
         expected_ids = {"fp8", "nvfp4"}

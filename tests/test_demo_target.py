@@ -212,6 +212,37 @@ class TargetTests(unittest.TestCase):
                 instance.model_settings()
             az.assert_not_called()
 
+    def test_initial_settings_activation_is_separate_and_checks_auth(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            instance = object.__new__(target.Target)
+            instance.directory = Path(directory)
+            instance.url, instance.rg, instance.name = "https://target.invalid", "rg-target", "target"
+            instance.model_key()
+            rollback = instance.directory / "rollback-test"
+            rollback.mkdir()
+            target.write_private(rollback / "models.json", {"models": []})
+            target.write_private(instance.directory / "candidate-proof.json", {
+                "state": "code_deployed_disabled", "rollback": rollback.name})
+            rejected = []
+
+            def request(url, body=None, anonymous=False):
+                if url.endswith("/v1/models"):
+                    self.assertTrue(anonymous)
+                    rejected.append(url)
+                    raise target.urllib.error.HTTPError(url, 401, "unauthorized", {}, None)
+                return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
+
+            with patch.object(instance, "request", side_effect=request), \
+                    patch.object(instance, "wait_web_recovery", return_value={"healthy": True}) as recover, \
+                    patch.object(instance, "az") as azure, patch.object(instance, "power") as power:
+                instance.model_settings(True)
+                self.assertEqual(recover.call_count, 2)
+                azure.assert_called_once()
+                power.assert_not_called()
+                self.assertEqual(len(rejected), 2)
+                proof = json.loads((instance.directory / "candidate-proof.json").read_text())
+                self.assertEqual(proof["state"], "deployed_links_recovered")
+
     def test_revision_rollout_regression_precedes_key_activation(self):
         for closed in (True, False):
             with self.subTest(closed=closed), tempfile.TemporaryDirectory() as directory:
@@ -262,9 +293,9 @@ class TargetTests(unittest.TestCase):
                         patch.object(instance, "power") as power, contextlib.redirect_stdout(io.StringIO()):
                     if closed:
                         instance.deploy_revision("a" * 40, True)
-                        self.assertEqual(events, ["publish", *["disabled-check"] * 4, "activate"])
+                        self.assertEqual(events, ["publish", *["disabled-check"] * 4])
                         result = json.loads((instance.directory / "candidate-proof.json").read_text())
-                        self.assertEqual(result["state"], "deployed_links_recovered")
+                        self.assertEqual(result["state"], "code_deployed_disabled")
                         self.assertIn("not_run", result["model_api_smoke"])
                     else:
                         with self.assertRaisesRegex(ValueError, "unexpectedly accepted"):
