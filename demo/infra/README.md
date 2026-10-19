@@ -200,6 +200,12 @@ model reverse links to recover with unchanged profile activation times and empty
 queues. Only then run `model-settings` to activate the credential, wait for both links
 and empty queues again, and run smoke. `deploy-revision` never activates the key.
 These health checks are not inference tests.
+After either recycle, the runner enforces a minimum four-minute settling period
+and three consecutive complete checks at least 15 seconds apart, bounded to ten
+minutes. Each check includes both unchanged healthy profile bindings, empty
+queues, health/status, Web IQ discovery and the expected unauthenticated model
+API status (404 before activation, 401 afterward). An old worker responding
+before the settings recycle is not evidence that the new worker has recovered.
 
 After deployment, run the **reviewed candidate's**
 `demo/tools/model_api_smoke.py` using its protected key-file argument, not a key

@@ -209,7 +209,7 @@ class Target:
             raise RuntimeError("Terraform failed; inspect private terraform-" + args[0] + ".log")
         return run.stdout
 
-    def request(self, url, body=None, cloud=False, raw=False, anonymous=False):
+    def request(self, url, body=None, cloud=False, raw=False, anonymous=False, timeout=90):
         if cloud:
             if self.token is None:
                 self.token = self.az("account", "get-access-token",
@@ -225,7 +225,7 @@ class Target:
         request = urllib.request.Request(url, data=body if raw else
                                          json.dumps(body).encode() if body is not None else None,
                                          headers=headers)
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read()
             return json.loads(data) if data else {}
 
@@ -408,8 +408,8 @@ class Target:
         self.wait_web_recovery(baseline)
         self.az("webapp", "config", "appsettings", "set", "-g", self.rg, "-n", self.name,
                 "--settings", "@" + str(settings_path))
-        self.wait_model_auth()
-        recovered = self.wait_web_recovery(baseline)
+        recovered = self.wait_web_recovery(baseline, stable_observations=3,
+                                           minimum_seconds=240, model_api_status=401)
         self.request(self.url + "/healthz")
         self.request(self.url + "/api/status")
         if self.request(self.url + "/api/capabilities")["web_iq"]["state"] != "ready":
@@ -420,28 +420,6 @@ class Target:
             "state": "activated_links_recovered", "models": recovered,
             "smoke": "not_run; separately verify the rotated consumer connection"})
         print("Staged model API settings activated; original reverse links recovered.")
-
-    def wait_model_auth(self):
-        deadline = time.monotonic() + 300
-        while time.monotonic() < deadline:
-            statuses = []
-            for prefix in ("", "/models/nvfp4"):
-                try:
-                    self.request(self.url + prefix + "/v1/models", anonymous=True)
-                except urllib.error.HTTPError as exc:
-                    if exc.code not in {401, 404, 502, 503}:
-                        raise ValueError("Unexpected model API activation HTTP status: " + str(exc.code)) from None
-                    statuses.append(exc.code)
-                except (urllib.error.URLError, TimeoutError):
-                    statuses.append("transport_pending")
-                else:
-                    raise ValueError("Enabled model API unexpectedly accepted an unauthenticated request")
-            if statuses == [401, 401]:
-                return
-            write_private(self.directory / "model-auth-wait.json", {
-                "state": "waiting_for_settings_recycle", "http_statuses": statuses})
-            time.sleep(10)
-        raise TimeoutError("Saved model API settings did not become effective on both routes")
 
     def deploy_revision(self, revision, allow_live_web_recycle=False):
         if not allow_live_web_recycle:
@@ -479,7 +457,8 @@ class Target:
             "expected_files": len(expected), "state": "attempted", "rollback": rollback.name})
         # Credential activation is a separate, explicitly approved command.
         self.publish(archive, expected)
-        first_recovery = self.wait_web_recovery(baseline)
+        first_recovery = self.wait_web_recovery(baseline, stable_observations=3,
+                                                minimum_seconds=240, model_api_status=404)
         self.request(self.url + "/healthz")
         self.request(self.url + "/api/status")
         capabilities = self.request(self.url + "/api/capabilities")
@@ -507,15 +486,23 @@ class Target:
             "model_api_smoke": "not_run; execute the candidate's reviewed smoke tool separately"})
         print("Exact revision deployed disabled; regression passed. Explicit settings activation and smoke remain.")
 
-    def wait_web_recovery(self, baseline):
+    def wait_web_recovery(self, baseline, stable_observations=1, minimum_seconds=0, model_api_status=None):
         expected_ids = {"fp8", "nvfp4"}
         if {model["id"] for model in baseline["models"]} != expected_ids:
             raise ValueError("Both baseline profiles are required")
         original = {model["id"]: model["status"]["active_since"] for model in baseline["models"]}
-        deadline = time.monotonic() + 300
+        started = time.monotonic()
+        deadline = started + (600 if minimum_seconds else 300)
+        consecutive = 0
+
+        def probe(path, **kwargs):
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Web recovery observation deadline reached")
+            return self.request(self.url + path, timeout=min(20, max(1, deadline - time.monotonic())), **kwargs)
+
         while time.monotonic() < deadline:
             try:
-                models = self.request(self.url + "/api/models")
+                models = probe("/api/models")
                 if ({model["id"] for model in models["models"]} == expected_ids
                         and all(model["status"]["healthy"] and model["runtime"]["state"] == "verified"
                                 and model["status"]["queue"]["active"] == 0
@@ -523,15 +510,36 @@ class Target:
                                 for model in models["models"])):
                     if {m["id"]: m["status"]["active_since"] for m in models["models"]} != original:
                         raise ValueError("GPU profile binding changed during web-only deployment")
-                    return {"observed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            "profiles": [{"id": model["id"], "healthy": True,
-                                          "runtime_verified": True, "same_active_since": True,
-                                          "active_requests": 0, "waiting_requests": 0}
-                                         for model in models["models"]]}
+                    statuses = []
+                    ready = True
+                    if model_api_status is not None:
+                        probe("/healthz")
+                        probe("/api/status")
+                        ready = probe("/api/capabilities")["web_iq"]["state"] == "ready"
+                        for prefix in ("", "/models/nvfp4"):
+                            try:
+                                probe(prefix + "/v1/models", anonymous=True)
+                            except urllib.error.HTTPError as exc:
+                                statuses.append(exc.code)
+                            else:
+                                raise ValueError("Model API accepted an unauthenticated stability probe")
+                        ready = ready and statuses == [model_api_status, model_api_status]
+                    consecutive = consecutive + 1 if ready and time.monotonic() - started >= minimum_seconds else 0
+                    if consecutive >= stable_observations:
+                        return {"observed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "stable_observations": consecutive, "minimum_settle_seconds": minimum_seconds,
+                                "unauthenticated_statuses": statuses,
+                                "profiles": [{"id": model["id"], "healthy": True,
+                                              "runtime_verified": True, "same_active_since": True,
+                                              "active_requests": 0, "waiting_requests": 0}
+                                             for model in models["models"]]}
+                else:
+                    consecutive = 0
             except (urllib.error.URLError, TimeoutError) as exc:
+                consecutive = 0
                 write_private(self.directory / "web-recovery-wait.json", {
                     "state": "waiting_for_reverse_links", "transport_error": type(exc).__name__})
-            time.sleep(10)
+            time.sleep(min(15 if stable_observations > 1 else 10, max(0, deadline - time.monotonic())))
         else:
             raise TimeoutError("Web deployment completed but both reverse links have not recovered")
 

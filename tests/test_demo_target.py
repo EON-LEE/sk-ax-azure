@@ -223,13 +223,7 @@ class TargetTests(unittest.TestCase):
             target.write_private(rollback / "models.json", {"models": []})
             target.write_private(instance.directory / "candidate-proof.json", {
                 "state": "code_deployed_disabled", "rollback": rollback.name})
-            rejected = []
-
             def request(url, body=None, anonymous=False):
-                if url.endswith("/v1/models"):
-                    self.assertTrue(anonymous)
-                    rejected.append(url)
-                    raise target.urllib.error.HTTPError(url, 401, "unauthorized", {}, None)
                 return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
 
             with patch.object(instance, "request", side_effect=request), \
@@ -239,21 +233,36 @@ class TargetTests(unittest.TestCase):
                 self.assertEqual(recover.call_count, 2)
                 azure.assert_called_once()
                 power.assert_not_called()
-                self.assertEqual(len(rejected), 2)
+                self.assertEqual(recover.call_args.kwargs, {
+                    "stable_observations": 3, "minimum_seconds": 240, "model_api_status": 401})
                 proof = json.loads((instance.directory / "candidate-proof.json").read_text())
                 self.assertEqual(proof["state"], "deployed_links_recovered")
 
-    def test_auth_activation_waits_for_disabled_worker_to_recycle(self):
-        with tempfile.TemporaryDirectory() as directory:
-            instance = object.__new__(target.Target)
-            instance.directory, instance.url = Path(directory), "https://target.invalid"
-            failures = [target.urllib.error.HTTPError(instance.url, status, "status", {}, None)
-                        for status in (404, 404, 401, 401)]
-            with patch.object(instance, "request", side_effect=failures) as request, \
-                    patch.object(target.time, "sleep") as sleep:
-                instance.wait_model_auth()
-                self.assertEqual(request.call_count, 4)
-                sleep.assert_called_once_with(10)
+    def test_recycle_guard_requires_four_minutes_and_three_full_observations(self):
+        instance = object.__new__(target.Target)
+        instance.url = "https://target.invalid"
+        models = {"models": [
+            {"id": name, "status": {"active_since": 1, "healthy": True,
+                                   "queue": {"active": 0, "waiting": 0}},
+             "runtime": {"state": "verified"}} for name in ("fp8", "nvfp4")]}
+        clock = [0]
+
+        def request(url, body=None, anonymous=False, timeout=None):
+            if url.endswith("/v1/models"):
+                self.assertTrue(anonymous)
+                raise target.urllib.error.HTTPError(url, 404 if clock[0] < 240 else 401, "status", {}, None)
+            if url.endswith("/api/models"):
+                return models
+            return {"web_iq": {"state": "ready"}} if url.endswith("/api/capabilities") else {}
+
+        with patch.object(instance, "request", side_effect=request), \
+                patch.object(target.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(target.time, "sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
+            result = instance.wait_web_recovery(models, stable_observations=3,
+                                                minimum_seconds=240, model_api_status=401)
+        self.assertGreaterEqual(clock[0], 270)
+        self.assertEqual(result["stable_observations"], 3)
+        self.assertEqual(result["unauthenticated_statuses"], [401, 401])
 
     def test_revision_rollout_regression_precedes_key_activation(self):
         for closed in (True, False):
