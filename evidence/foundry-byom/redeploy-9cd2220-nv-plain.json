@@ -1,0 +1,262 @@
+{
+  "schema": "foundry-byom-evidence/1",
+  "label": "redeploy-9cd2220-nv-plain",
+  "generated_at": "2026-10-19T13:14:16+00:00",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "expected": {
+    "model_reference": "<conn-nvfp4>/ax-k2-nvfp4",
+    "scenario": "plain",
+    "agent": {
+      "name": "byom-demo-agent",
+      "version": "1"
+    }
+  },
+  "run": {
+    "schema": "foundry-byom-run/1",
+    "started_at": "2026-10-19T13:13:28+00:00",
+    "request": {
+      "scenario": "plain",
+      "agent_name": "byom-demo-agent",
+      "agent_version": "1",
+      "prompt": "한 문장으로 인사하고, 아래 확인 코드를 그대로 포함하세요. 확인 코드: r-169e84b4",
+      "nonce": "r-169e84b4",
+      "limits": {
+        "max_output_tokens": 256,
+        "max_tool_calls": 0,
+        "max_rounds": 4,
+        "timeout_s": 180
+      },
+      "use_conversation": true,
+      "approve_tools": [],
+      "request_header_names": [],
+      "expect_failure": false
+    },
+    "request_header_echoed": null,
+    "last_request_at": "2026-10-19T13:13:31+00:00",
+    "finished_at": "2026-10-19T13:13:33+00:00",
+    "conversation_id": "conv_0f8d5257…",
+    "conversation_deleted": null,
+    "rounds": [
+      {
+        "response_id": "resp_0f8d5257…",
+        "status": "completed",
+        "model": "<conn-nvfp4>/ax-k2-nvfp4",
+        "agent": {
+          "name": "byom-demo-agent",
+          "version": "1"
+        },
+        "conversation_id": "conv_0f8d5257…",
+        "output_item_types": [
+          "message"
+        ],
+        "reasoning_item_count": 0,
+        "tool_events": [],
+        "final_answer": "안녕하세요! 확인 코드: r-169e84b4",
+        "answer_chars": 24,
+        "answer_urls": [],
+        "think_tag": false,
+        "usage": {
+          "input_tokens": 81,
+          "output_tokens": 16,
+          "total_tokens": 97,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        },
+        "incomplete_reason": null,
+        "error": null,
+        "chained_by": "conversation",
+        "requested_at": "2026-10-19T13:13:31+00:00",
+        "elapsed_s": 1.7
+      }
+    ],
+    "function_results": [],
+    "stopped": "completed",
+    "error": null,
+    "client_http": {
+      "requests": 2,
+      "responses_posts": 1
+    },
+    "final_answer": "안녕하세요! 확인 코드: r-169e84b4",
+    "final_answer_contains_nonce": true,
+    "item_sequence": [
+      "message"
+    ],
+    "tool_events": [],
+    "ok": true
+  },
+  "server_records": {
+    "agent_version": {
+      "name": "byom-demo-agent",
+      "version": "1",
+      "definition": {
+        "model": "<conn-nvfp4>/ax-k2-nvfp4",
+        "instructions": "간결한 한국어로 답한다. 최신 정보나 확인이 필요한 사실은 제공된 도구를 먼저 호출하고, 도구 결과에 있는 내용만 근거로 답한다. 도구 결과에 근거가 없으면 모른다고 답한다.",
+        "tools": []
+      }
+    },
+    "response": {
+      "response_id": "resp_0f8d5257…",
+      "status": "completed",
+      "model": "<conn-nvfp4>/ax-k2-nvfp4",
+      "agent": {
+        "name": "byom-demo-agent",
+        "version": "1"
+      },
+      "conversation_id": "conv_0f8d5257…",
+      "output_item_types": [
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [],
+      "final_answer": "안녕하세요! 확인 코드: r-169e84b4",
+      "answer_chars": 24,
+      "answer_urls": [],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 81,
+        "output_tokens": 16,
+        "total_tokens": 97,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null
+    },
+    "conversation_items": [
+      {
+        "type": "message",
+        "role": "user",
+        "text": "한 문장으로 인사하고, 아래 확인 코드를 그대로 포함하세요. 확인 코드: r-169e84b4"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "text": "안녕하세요! 확인 코드: r-169e84b4"
+      }
+    ],
+    "secret_scan": null,
+    "errors": []
+  },
+  "observations": {
+    "agent_definition_model": "<conn-nvfp4>/ax-k2-nvfp4",
+    "response_model": "<conn-nvfp4>/ax-k2-nvfp4",
+    "final_answer": "안녕하세요! 확인 코드: r-169e84b4"
+  },
+  "checks": [
+    {
+      "id": "agent_definition_model_reference",
+      "status": "confirmed",
+      "detail": "agent definition model is <conn-nvfp4>/ax-k2-nvfp4"
+    },
+    {
+      "id": "response_agent_reference",
+      "status": "confirmed",
+      "detail": "response agent_reference is byom-demo-agent:1"
+    },
+    {
+      "id": "response_completed",
+      "status": "confirmed",
+      "detail": "status=completed"
+    },
+    {
+      "id": "tool_listed",
+      "status": "not_applicable",
+      "detail": "no MCP tool in this scenario"
+    },
+    {
+      "id": "tool_called",
+      "status": "not_applicable",
+      "detail": "no tool in this scenario"
+    },
+    {
+      "id": "tool_then_answer_order",
+      "status": "not_applicable",
+      "detail": "no tool in this scenario"
+    },
+    {
+      "id": "tool_result_used",
+      "status": "not_applicable",
+      "detail": "no tool in this scenario"
+    },
+    {
+      "id": "no_thinking_trace",
+      "status": "confirmed",
+      "detail": "no reasoning item, reasoning token or <think tag; output_tokens=16, answer_chars=24; compare them to spot hidden reasoning (server-side default needs the API owner's confirmation)"
+    },
+    {
+      "id": "usage_recorded",
+      "status": "confirmed",
+      "detail": "input_tokens=81, output_tokens=16"
+    },
+    {
+      "id": "nonce_echoed",
+      "status": "confirmed",
+      "detail": "final answer echoes the nonce"
+    },
+    {
+      "id": "negative_control_failed_as_expected",
+      "status": "not_applicable",
+      "detail": "not a negative control"
+    },
+    {
+      "id": "conversation_tool_history",
+      "status": "not_applicable",
+      "detail": "no tool in this scenario"
+    },
+    {
+      "id": "request_secret_not_in_server_records",
+      "status": "not_applicable",
+      "detail": "no request-time secret was used or given with --scan-env"
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "apim_gateway_log",
+      "description": "APIM log shows the Foundry call with the A.X K2 model name for this run",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "backend_hub_log",
+      "description": "Web app/hub record shows the A.X K2 runtime for the same time window",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_model_settings",
+      "description": "Foundry console shows the agent's model reference",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_conversation",
+      "description": "Foundry console shows the conversation",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_tool_history",
+      "description": "Foundry console shows the tool execution history",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "tracing_visible",
+      "description": "Traces for this run are visible (Application Insights connected)",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    }
+  ],
+  "summary": {
+    "confirmed": 6,
+    "failed": 0,
+    "unverified": 6,
+    "not_applicable": 7
+  }
+}
