@@ -1216,8 +1216,10 @@ encodability check to the demo chat's request validation.
     seconds (3 hours 4.9 seconds) apart; that may be chance and is not evidence
     of a periodic cause.
   - *Effect.* While the link is down, the model API answers 503
-    `backend_unavailable` at once with `Retry-After: 30` (8.6). No model API
-    call was made during the second loss. `GET {base}/health` shows readiness,
+    `backend_unavailable` at once with `Retry-After: 30` (8.6). That 503 was
+    seen in the first loss (Foundry repeated it four times for one NVFP4
+    call, 8.6). The core session sent no model call during the second loss
+    (its record: 0). `GET {base}/health` shows readiness,
     but it needs the key and the gateway does not expose it, so behind the
     gateway the state shows only as the 503 of a model call.
   - *Conclusion.* On this capacity a profile can be not ready for tens of
