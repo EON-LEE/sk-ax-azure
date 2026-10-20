@@ -1184,7 +1184,7 @@ means the model API sent an error chunk.
 demonstration. None ended in a Foundry 500 `model_error`. The first 12 calls
 of the series ran before the model API's log lines were saved, so it is not
 known whether the replacement acted in them. The log lines that were saved
-show 24 calls of the Microsoft Learn tool, and 5 of them had a near name: 45
+show 22 calls of the Microsoft Learn tool, and 5 of them had a near name: 45
 characters, not the 49 of the declared name, with one `mcp_` missing. The
 model API replaced each with the declared name, and all 5 calls completed. In
 their `tool_calls` entries the near names had one `mcp_` part (the declared
