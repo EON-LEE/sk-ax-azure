@@ -1,0 +1,32 @@
+{
+  "observedAt": "2026-10-20T07:13:39Z",
+  "window": {
+    "start": "2026-10-20T07:06:30Z",
+    "end": "2026-10-20T07:13:00Z"
+  },
+  "includeSmoke": false,
+  "capped": [],
+  "summary": {
+    "requests": 0,
+    "smokeLeftOut": 0,
+    "callers": {},
+    "status": {},
+    "answeredBy": {},
+    "gapsSecondsBetweenCallerRequests": [],
+    "identicalShapes": null,
+    "gatewayOverheadMs": null,
+    "tracedRequests": 0,
+    "clientCredentialsForwarded": 0,
+    "authorizationInjected": 0,
+    "callerSideSpans": {
+      "invoke_agent": {
+        "count": 1,
+        "status": {
+          "500": 1
+        }
+      }
+    },
+    "otherTraceRows": 0
+  },
+  "requests": []
+}

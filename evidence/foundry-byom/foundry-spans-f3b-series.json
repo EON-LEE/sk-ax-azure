@@ -1,0 +1,263 @@
+{
+  "observedAt": "2026-10-20T04:48:19Z",
+  "windows": [
+    {
+      "start": "2026-10-20T04:26:30Z",
+      "end": "2026-10-20T04:37:30Z"
+    }
+  ],
+  "source": "caller-side spans (AppDependencies); allow-listed fields only: no agent names, message text or tool arguments",
+  "counts": {
+    "chat": 10,
+    "execute_tool": 4,
+    "invoke_agent": 10
+  },
+  "leftOut": {
+    "otherTraces": 0,
+    "otherSpans": 0
+  },
+  "traces": [
+    {
+      "operation": "f5c490bc",
+      "spans": [
+        {
+          "at": "2026-10-20T04:27:09.503Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 2392.2
+        },
+        {
+          "at": "2026-10-20T04:27:09.503Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 2373.1,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 476,
+          "outputTokens": 88,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "190cea66",
+      "spans": [
+        {
+          "at": "2026-10-20T04:28:12.943Z",
+          "kind": "invoke_agent",
+          "resultCode": "500",
+          "durationMs": 1611.4
+        },
+        {
+          "at": "2026-10-20T04:28:12.944Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 1516.6,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": null,
+          "outputTokens": null,
+          "finishReasons": "[\"tool_calls\"]"
+        },
+        {
+          "at": "2026-10-20T04:28:14.460Z",
+          "kind": "execute_tool",
+          "resultCode": "0",
+          "durationMs": 92.8,
+          "tool": "functions.microsoft_learn.microsoft_docs_search",
+          "resultAttribute": false
+        }
+      ]
+    },
+    {
+      "operation": "8bfab591",
+      "spans": [
+        {
+          "at": "2026-10-20T04:29:15.821Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 2560.1
+        },
+        {
+          "at": "2026-10-20T04:29:15.821Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 2538.8,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 476,
+          "outputTokens": 103,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "3d648d70",
+      "spans": [
+        {
+          "at": "2026-10-20T04:30:19.394Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 8822.7
+        },
+        {
+          "at": "2026-10-20T04:30:19.394Z",
+          "kind": "execute_tool",
+          "resultCode": "0",
+          "durationMs": 6654.5,
+          "tool": "mcp_microsoft_learn.microsoft_docs_search",
+          "resultAttribute": true
+        },
+        {
+          "at": "2026-10-20T04:30:26.049Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 2154.2,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 11277,
+          "outputTokens": 101,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "c9a8de51",
+      "spans": [
+        {
+          "at": "2026-10-20T04:31:29.786Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 1945.7
+        },
+        {
+          "at": "2026-10-20T04:31:29.787Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 1924.3,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 476,
+          "outputTokens": 75,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "75417c13",
+      "spans": [
+        {
+          "at": "2026-10-20T04:32:32.822Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 8233.5
+        },
+        {
+          "at": "2026-10-20T04:32:32.823Z",
+          "kind": "execute_tool",
+          "resultCode": "0",
+          "durationMs": 6377.7,
+          "tool": "mcp_microsoft_learn.microsoft_docs_search",
+          "resultAttribute": true
+        },
+        {
+          "at": "2026-10-20T04:32:39.201Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 1835.2,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 10531,
+          "outputTokens": 87,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "5ed0544e",
+      "spans": [
+        {
+          "at": "2026-10-20T04:33:42.389Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 2359.3
+        },
+        {
+          "at": "2026-10-20T04:33:42.390Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 2342.7,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 476,
+          "outputTokens": 94,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "279ded6b",
+      "spans": [
+        {
+          "at": "2026-10-20T04:34:45.970Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 612.4
+        },
+        {
+          "at": "2026-10-20T04:34:45.970Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 593.0,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 478,
+          "outputTokens": 9,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "24712dd1",
+      "spans": [
+        {
+          "at": "2026-10-20T04:35:47.758Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 1998.0
+        },
+        {
+          "at": "2026-10-20T04:35:47.758Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 1980.8,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 476,
+          "outputTokens": 77,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "6c01deb4",
+      "spans": [
+        {
+          "at": "2026-10-20T04:36:50.628Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 5914.4
+        },
+        {
+          "at": "2026-10-20T04:36:50.629Z",
+          "kind": "execute_tool",
+          "resultCode": "0",
+          "durationMs": 3736.1,
+          "tool": "mcp_microsoft_learn.microsoft_docs_search",
+          "resultAttribute": true
+        },
+        {
+          "at": "2026-10-20T04:36:54.365Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 2161.3,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 11277,
+          "outputTokens": 100,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    }
+  ]
+}
