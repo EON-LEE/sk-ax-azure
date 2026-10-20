@@ -266,4 +266,40 @@ AXK2_SUB=<구독 ID> AXK2_FRONTEND_ONLY=1 bash demo/deploy.sh
 | 채팅이 "입력을 읽는 중…"에서 몇 분씩 멈춤 | NIAH 평가가 도는 중인지 `ctl.sh status`의 평가 상태 확인. 시연 중이면 `ctl.sh eval stop` |
 | 작업이 시작 몇 분 만에 실패하고 로그가 없음 | RunHistory `/details` API의 오류 확인(`ArgumentTooLong`이면 작업 명령·환경 변수가 너무 김) |
 | 사이트가 안 열림 | `az webapp log tail -g <RG> -n <앱 이름>` |
+| GPU 링크가 자꾸 끊김 | 같은 로그에서 `axk2.link link closed` 줄, 관리자 이벤트의 `link` 항목. 아래 "링크가 끊긴 이유 읽기" 참고 |
 | 비밀번호 분실 | 관리자 비밀번호로 `ctl.sh password demo`. 관리자 비밀번호까지 잃었으면 App Service 설정 `AXK2_ADMIN_PASSWORD_HASH`를 지우고 `deploy.sh`를 다시 실행 |
+
+### 링크가 끊긴 이유 읽기
+
+GPU 링크가 열리거나 닫힐 때마다 한 줄을 남깁니다(연결당 2줄). 같은 내용이 두 곳에 들어갑니다.
+
+- 컨테이너 로그(stderr, 로거 `axk2.link`): `az webapp log tail`로 봅니다. 줄 앞에 UTC 시각이 붙습니다. 이 로거만 설정하고 root 로거와 다른 모듈의 로그 수준은 바꾸지 않습니다.
+- 관리자 화면의 이벤트(`link`): 최근 100건, 건당 500자까지만 보관합니다. 닫힘 이벤트는 예전처럼 활성 작업일 때만 남고, 열림 이벤트는 등록된 작업이면 남습니다.
+
+```text
+link opened digest=1a2b3c4d previous=none
+link closed digest=1a2b3c4d code=1006 up=3020.0s since_status=20.0s lost_streams=1
+
+link opened digest=1a2b3c4d previous=replaced(4000) prev_up=3020.0s prev_since_status=45.0s
+link closed digest=1a2b3c4d code=1000 up=3020.0s since_status=45.0s lost_streams=0 closed_by=replaced
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `digest` | 작업 토큰 해시의 앞 8자. 관리자 화면의 작업 id(앞 10자)와 앞부분이 같습니다. FP8·NVFP4 앱이 이 로거를 함께 쓰므로 프로필 이름은 없고 `digest`로 구분합니다 |
+| `previous` | 열림 줄에만 있습니다. `none`은 새 연결, `replaced(4000)`은 같은 작업이 다시 연결해 이전 소켓을 4000으로 닫고 받아들인 것입니다. 이전 소켓의 지속 시간·마지막 status 경과가 `prev_up`, `prev_since_status`입니다 |
+| `code`, `reason` | 소켓이 끝날 때 받은 WebSocket 종료 코드와 사유. 코드가 없으면 `code=-`. 사유는 64자까지만, 따옴표·줄바꿈은 `?`로 바꿔 남깁니다 |
+| `up` | 연결 지속 시간 |
+| `since_status` | 마지막 status를 받은 뒤 지난 시간(`-`는 status를 한 번도 못 받음) |
+| `lost_streams` | 링크와 함께 끊긴 진행 중 스트림 수 |
+| `closed_by` | 웹앱이 먼저 닫았을 때만 있습니다. `replaced`(같은 작업의 재연결), `dropped`(슈퍼바이저가 작업을 정리), `shutdown`(웹앱 종료). 웹앱이 보낸 코드는 4000이지만 상대가 닫기 응답으로 다른 코드(예: 1000)를 보내면 그 값이 `code`에 찍힙니다 |
+| `error` | 연결 루프를 빠져나온 예외의 클래스 이름(메시지는 남기지 않음) |
+| `writer_error`, `close_1011` | 링크로 보내기에 실패한 예외의 클래스 이름과, 웹앱이 1011로 닫기를 시도한 결과(`yes` 또는 `failed`) |
+
+`closed_by`가 없으면 상대가 먼저 닫았거나 연결이 사라진 것이고 `code`는 상대가 보낸 값입니다
+(WebSocket 표준: 1000 정상, 1001 떠남, 1006 종료 프레임 없이 끊김). `code=1012`는 웹앱 서버가
+종료·재시작 중이었다는 뜻입니다.
+
+한계: 줄은 컨테이너 stdout/stderr 스트림(App Service 로그 보존 설정에 따름)과 메모리의 이벤트 목록에만
+남고 별도 저장소는 없습니다. 프로세스가 강제 종료되면(예: 메모리 부족) 닫힘 줄이 남지 않습니다.
+토큰이 맞지 않아 거절된 재연결(4403)은 기록하지 않습니다. 토큰·요청 본문·프롬프트·헤더·IP·전체 해시는 남기지 않습니다.
