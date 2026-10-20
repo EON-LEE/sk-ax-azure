@@ -1193,9 +1193,10 @@ encodability check to the demo chat's request validation.
   there were 6 incidents. Counted from the close to the first ready state, a
   profile was not ready for about 32 to 116 minutes. These are observed
   times, some estimated from the start-up phase, and not a guarantee. The
-  cause is not verified. Two of the incidents, both on 2026-10-19, are in a
-  redacted record, `demo/evidence/recurrent-link-loss-recovery-redacted.json`;
-  they are the first and second loss below. The raw data is not published.
+  likely cause is Spot eviction (see Cause below); it is not confirmed. Two of
+  the incidents, both on 2026-10-19, are in a redacted record,
+  `demo/evidence/recurrent-link-loss-recovery-redacted.json`; they are the
+  first and second loss below. The raw data is not published.
   - *Recovery times.* The observed times included about 32, 43, 56, 66 and
     67 minutes, and the longest was about 116 minutes (NVFP4). The 32-minute
     recovery (the 8th close) needed no action from the supervisor: AML re-ran
@@ -1222,7 +1223,14 @@ encodability check to the demo chat's request validation.
     were not checked. No link loss was observed on NVFP4, but its samples
     around the loss were up to 112 seconds apart, so a short reconnection
     cannot be excluded.
-  - *Cause: not verified.* The signs below are circumstantial. Run History
+  - *Cause: Spot eviction is likely; not confirmed.* Azure ML retired
+    low-priority VMs on 2026-03-31. A cluster that specifies
+    `tier: low_priority` still runs jobs, but Azure Batch now allocates its
+    nodes as Spot VMs, so Spot eviction behaviour applies. Nodes are evicted
+    only for capacity reasons (Microsoft Learn, "Manage and optimize Azure
+    Machine Learning costs", section "Use low-priority virtual machines"). The
+    demo's nodes come from such a cluster (section 2), so Spot eviction can
+    explain the closes. The signs that fit it are circumstantial. Run History
     shows a preemption warning on all 5 AML jobs that have ended. The warning
     has no time or code field, and a one-to-one match with the closes is not
     confirmed. In some cases AML ran the same job again on another node
@@ -1230,17 +1238,22 @@ encodability check to the demo chat's request validation.
     but Run History did not confirm it for the one job that was read: its
     attempt fields showed attempt 1, no retry or requeue property and no last
     start time. GPU telemetry stopped 5 to 21 seconds before the close (40
-    seconds for the last one). One
-    contradiction is unresolved: the Azure Monitor node-state metric and the
-    diagnostic settings show Preempted = 0 in every minute that was measured.
-    The Azure Activity Log for a ten-minute window around the second loss has
-    52 entries, all reads, and no Resource Health or Service Health event. The
-    Resource Health query was unavailable, so that source was not observed.
-    Node preemption or re-creation and a restart of the worker process alone
-    are unconfirmed. Load does not look like the cause: GPU utilisation was 0%
-    in the ten minutes before each of the first 7 closes (per-minute
-    snapshots, 800 device samples). A short request between snapshots is not
-    excluded.
+    seconds for the last one).
+  - *Cause: open points.* One contradiction is unresolved: the Azure Monitor
+    metric `Preempted Nodes` (1-minute grain) and the diagnostic settings show
+    0 in every minute that was measured. Microsoft Learn defines this metric
+    as the low-priority nodes that are taken away from the available node pool
+    (Azure Machine Learning monitoring data reference). That it does not count
+    nodes that Azure Batch evicts as Spot VMs is an inference; the
+    documentation does not confirm it. None of the time-stamped records
+    checked shows an eviction. The Azure Activity Log for a ten-minute window
+    around the second loss has 52 entries, all reads, and no Resource Health
+    or Service Health event. The Resource Health query was unavailable, so
+    that source was not observed. So an eviction or re-creation of a node is
+    unconfirmed, and so is a restart of the worker process alone. Load does
+    not look like the cause: GPU utilisation was 0% in the ten minutes before
+    each of the first 7 closes (per-minute snapshots, 800 device samples). A
+    short request between snapshots is not excluded.
   - *Timing pattern.* The first 7 closes all happened at a clock time whose
     minute ends in 7. The 8th did not, so this must not be used as a periodic
     rule. Why the first 7 shared it is unknown. The FP8 closes of the first
@@ -1279,6 +1292,14 @@ encodability check to the demo chat's request validation.
     30-second status freshness limit, a web app redeploy gap and the link's
     reconnect backoff. The timer would live in each profile's own job state.
     This is a design proposal; it was not implemented or verified.
+  - *Alternative: dedicated nodes.* The dedicated quota for the NDAMSv4 A100
+    family is 0 in the demo subscription (section 2), so dedicated nodes
+    need a quota increase first. Retail list prices for
+    `Standard_ND96amsr_A100_v4` in uksouth (Linux), in USD per node-hour:
+    dedicated 40.96, Spot 12.89 and the former low-priority meter 8.19 (also
+    listed in 8.4). No change was made. The automatic recovery path stays as
+    it is. Switching to dedicated nodes is a cost and quota decision for the
+    demo owner.
   - *Effect.* While the link is down, the model API answers 503
     `backend_unavailable` at once with `Retry-After: 30` (8.6). That 503 was
     seen in the first loss (Foundry sent four requests for one NVFP4 call and
@@ -1291,11 +1312,12 @@ encodability check to the demo chat's request validation.
   - *Conclusion.* On this capacity a profile can be not ready for tens of
     minutes (about 32 to 116 observed, not a guarantee). The VM quota for
     the A100 families is 0 (section 2), so the nodes come from Azure ML
-    low-priority (Spot) compute. Production needs on-demand or reserved
-    capacity, as the limit above says. No code was changed, no supervisor
-    rule was added and nothing was redeployed for this (the allowed web app
-    restarts are used up, 8.6), and the hub's reconnection behaviour is
-    unchanged.
+    low-priority (Spot) compute, and Spot eviction is the likely cause of
+    the closes (not confirmed, see Cause above). Production needs on-demand
+    or reserved capacity, as the limit above says. No code was changed, no
+    supervisor rule was added, the cluster was not switched to dedicated
+    nodes and nothing was redeployed for this (the allowed web app restarts
+    are used up, 8.6), and the hub's reconnection behaviour is unchanged.
 - Native DSA depends on an unmerged upstream PR carried as a hash-checked
   overlay. Re-validate (kernel tests plus the 2-layer comparison in
   `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
