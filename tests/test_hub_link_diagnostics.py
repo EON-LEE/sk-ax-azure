@@ -26,7 +26,7 @@ try:
     import app as frontend
     import hub as hub_module
     import test_demo_frontend as loopback
-    from store import hash_password, token_digest
+    from store import Store, hash_password, token_digest
 finally:
     del sys.path[:3]
 
@@ -412,6 +412,23 @@ class OutputTests(LinkCase):
                                          "link diagnostics failed: ValueError",
                                          "link diagnostics failed: TypeError"])
         self.assertEqual(self.events(), ["uks job-1: link closed"])  # on_close still ran, with the old text
+
+
+class RestartTests(LinkCase):
+    def link_events_on_disk(self):
+        """The link events a web app that starts now would restore from state.json."""
+        return [event["message"] for event in Store(self.store.root).data["events"] if event["kind"] == "link"]
+
+    async def test_link_events_reach_state_json_with_the_next_save_and_come_back_after_a_restart(self):
+        socket, task = await self.link()
+        socket.inbox.put_nowait(disconnect(1006))
+        await task
+        written = self.events()
+        self.assertEqual(len(written), 2)
+        self.assertIn(" link closed code=1006 ", written[1])
+        self.assertEqual(self.link_events_on_disk(), [])  # nothing has saved them yet: a kill now would lose them
+        self.store.save()  # the supervisor does this after every pass
+        self.assertEqual(self.link_events_on_disk(), written)
 
 
 class InstallTests(unittest.TestCase):
