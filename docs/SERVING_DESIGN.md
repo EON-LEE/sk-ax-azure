@@ -930,6 +930,17 @@ its default, and a number outside its allowed range is clamped.
 replaced, `tool_name_repairs` (lengths only, never the names: `emitted_len` of
 the name the model sent and `declared_len` of the declared name; 8 entries at
 most). Prompts, answers, headers, keys and caller addresses are never logged.
+Once the model API has started to read vLLM's answer, the line also has
+`tool_calls`: `count` (the tool calls in the answer), `names` (8 entries at
+most, one per call, each with `len`, `declared`, `repaired`, `mcp_parts` (how
+often `mcp_` occurs in the name), `functions_prefix` and `has_dot`, all for the
+name as the model wrote it, before any replacement), `finish_without_calls`
+(`finish_reason` is `tool_calls` but the answer holds no call) and
+`marker_in_text` (a `<tool_call>` or `</tool_call>` tag is left in the answer's
+text). It holds counts, lengths and flags only, and it only observes: the
+answer is the same with or without it. It does not check the arguments and it
+does not look at the reasoning text. A request that was refused, or that failed
+before any of vLLM's answer was read, has no `tool_calls` key.
 
 **Foundry's request.** Traces at the API Management gateway show what a Foundry
 agent sends: `POST {base}/chat/completions` with no query string (no
@@ -1158,6 +1169,11 @@ To tell the model's output from a fault of the model API, find the request's
 marked "by design" above. A `tool_name_repairs` key in the line means that the
 model API changed a tool name in that request, and that the name the model sent
 differed from the declared name; the line holds lengths only, never the names.
+In `tool_calls`, a name with `declared` false and `repaired` false reached
+the caller as the model wrote it. A `finish_without_calls` of true is a
+`finish_reason` of `tool_calls` with no tool call in the answer, and a
+`marker_in_text` of true is a tag left in the text; the model API reports both
+and does not change them.
 A `finish_reason` of `length`, or `completion_tokens` near the token cap, means
 an answer that was cut off. A `status` of 200 with a non-empty `error` (for
 example `upstream_error`, `backend_unavailable`, `timeout` or `internal_error`)
@@ -1215,6 +1231,8 @@ means the model API sent an error chunk.
   temperature 1.0 and in 0 of 100 at 0.3; whether such a name causes the error
   has not been checked.
 - What the tool-name replacement does with the real model and with Foundry: it
+  was tested only locally, with fakes.
+- What the `tool_calls` log key shows for the real model and for Foundry: it
   was tested only locally, with fakes.
 - Why Foundry's input count is 4 below vLLM's for the same request, and
   whether Foundry counts only the last model request of a turn. The figures
