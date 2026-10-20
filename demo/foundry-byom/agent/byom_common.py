@@ -38,9 +38,10 @@ CONNECTION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 LABEL_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 EVIDENCE_FILES = {"evidence": "{label}.json", "run": "{label}.run.json", "create": "{label}.create.json",
-                  "connections": "{label}.connections.json"}
-RESERVED_LABEL_SUFFIXES = (".run", ".create", ".connections")
+                  "connections": "{label}.connections.json", "series": "{label}.series.json"}
+RESERVED_LABEL_SUFFIXES = (".run", ".create", ".connections", ".series")
 MCP_LABEL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+VISIBLE_ASCII_RE = re.compile(r"[\x21-\x7e]+")
 TOOL_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 SCAN_MIN_LENGTH = 8
@@ -103,8 +104,14 @@ REDACT_ENTRY_RE = re.compile(r"(?P<literal>.+?)=(?P<alias><[a-z0-9][a-z0-9:_-]{0
 # Service IDs such as resp_<hex> or conv_<hex>. Public output keeps their first ID_KEEP characters only;
 # the full values stay in the private copy kept under BYOM_PRIVATE_DIR (outside the repository).
 SERVICE_ID_RE = re.compile(r"(?<![A-Za-z0-9])([a-z]{2,8})_(?=[A-Za-z0-9]*\d)([A-Za-z0-9]{12,})(?![A-Za-z0-9])")
-# Request correlation IDs in error bodies and headers (request_id: <hex>, x-request-id: <hex>) get the same treatment.
-REQUEST_ID_RE = re.compile(r"(request[ _-]?id['\"]?\s*[:=]\s*['\"]?)([0-9a-f]{16,})(?![0-9a-f])", re.I)
+# Correlation IDs in error bodies and headers (request_id, x-request-id, trace_id, correlation id: <hex>) and the
+# id of a JSON-RPC error body ("id": "<hex>") get the same treatment. Quotes may be backslash-escaped (JSON text).
+REQUEST_ID_RE = re.compile(
+    r"""(
+        (?:request|trace|correlation)[ _-]?id(?:\\?['"])?\s*[:=]\s*(?:\\?['"])?
+        |
+        \\?['"]id\\?['"]\s*:\s*\\?['"]
+    )([0-9a-f]{16,})(?![0-9a-f])""", re.I | re.X)
 ID_KEEP = 8
 PRIVATE_DIR_ENV = "BYOM_PRIVATE_DIR"
 
@@ -133,20 +140,42 @@ def run_stage(stage, function, *args, **kwargs):
         raise StageFailure(stage, exc) from exc
 
 
+def is_responses_post(request):
+    return request.method == "POST" and request.url.path.rstrip("/").endswith("/responses")
+
+
 class HttpRequestCounter:
-    """httpx request hook that counts what the OpenAI client really sent, so any retry shows up in the evidence."""
+    """httpx hooks that count what the OpenAI client really sent, so any retry shows up in the evidence.
+
+    The response hook records the HTTP status of every Responses POST that got an answer; a POST without
+    an answer (timeout, connection error) leaves no status, so fewer statuses than responses_posts shows it.
+    """
 
     def __init__(self):
         self.requests = 0
         self.responses_posts = 0
+        self.responses_statuses = []
 
     def __call__(self, request):
         self.requests += 1
-        if request.method == "POST" and request.url.path.rstrip("/").endswith("/responses"):
+        if is_responses_post(request):
             self.responses_posts += 1
 
+    def on_response(self, response):
+        if is_responses_post(response.request):
+            self.responses_statuses.append(response.status_code)
+
     def summary(self):
-        return {"requests": self.requests, "responses_posts": self.responses_posts}
+        summary = {"requests": self.requests, "responses_posts": self.responses_posts}
+        if self.responses_statuses:
+            summary["responses_statuses"] = list(self.responses_statuses)
+        return summary
+
+    def reset(self):
+        """Start a new count, so that a series of calls over one client reports its HTTP requests call by call."""
+        self.requests = 0
+        self.responses_posts = 0
+        self.responses_statuses = []
 
 
 @dataclasses.dataclass
@@ -218,7 +247,7 @@ def scan_for_secrets(value, literals):
 
 
 def shorten_ids(text):
-    """resp_0a1b2c3d4e5f... -> resp_0a1b2c3d…, request_id: <32 hex> -> request_id: <8 hex>…; the rest stays (idempotent)."""
+    """resp_0a1b2c3d4e5f... -> resp_0a1b2c3d…, request_id/trace_id: <32 hex> -> <8 hex>…; the rest stays (idempotent)."""
     text = SERVICE_ID_RE.sub(lambda match: f"{match[1]}_{match[2][:ID_KEEP]}…", text)
     return REQUEST_ID_RE.sub(lambda match: f"{match[1]}{match[2][:ID_KEEP]}…", text)
 
@@ -300,8 +329,102 @@ def urls_in(text, limit=10):
     return found[:limit]
 
 
-def now_iso():
-    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+# Public output names a host only when anyone may read it: an IP address, an internal or tenant-specific name, an
+# Azure resource host and a URL with user info all become MASKED_HOST. Tool output structure is described by key
+# names and counts, never by values.
+MASKED_HOST = "[masked-host]"
+URL_SCAN_LIMIT = 100
+HOST_LIMIT = 20
+PUBLIC_HOST_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})")
+NON_PUBLIC_HOST_RE = re.compile(
+    r"(?:^|\.)(?:sharepoint(?:-df)?\.com|onedrive\.com|1drv\.ms"
+    r"|local|localhost|localdomain|internal|intranet|corp|lan|home|invalid|test|example)$")
+SAFE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
+SHAPE_KEY_LIMIT = 12
+RESULT_LIST_KEYS = ("webResults", "newsResults", "financeResults", "placeResults", "imageResults", "videoResults",
+                    "sportsResults", "results")
+
+
+def public_host(url):
+    """Lower-case host of a URL when it may be named in public output; None otherwise."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = (parts.hostname or "").rstrip(".").lower()
+    except ValueError:
+        return None
+    if "@" in parts.netloc or not PUBLIC_HOST_RE.fullmatch(host) or NON_PUBLIC_HOST_RE.search(host):
+        return None
+    return None if PATTERNS["azure_host"].search(host) else host
+
+
+def url_hosts(urls):
+    """Distinct public hosts of the URLs in order (at most HOST_LIMIT), then MASKED_HOST once if any other host occurs."""
+    hosts, masked = [], False
+    for url in urls:
+        host = public_host(url)
+        if host is None:
+            masked = True
+        elif host not in hosts and len(hosts) < HOST_LIMIT:
+            hosts.append(host)
+    return hosts + [MASKED_HOST] if masked else hosts
+
+
+def output_text(output):
+    """A tool output as text: a string stays as it is, a structured value becomes JSON; None without output."""
+    if isinstance(output, str):
+        return output
+    if isinstance(output, (Mapping, list)):
+        return json.dumps(output, ensure_ascii=False, default=str)
+    return None
+
+
+def output_json(text):
+    """JSON value of a tool output text, looking through an MCP result wrapper (structuredContent or one text part).
+
+    None when the text is not JSON.
+    """
+    value = text
+    for _ in range(3):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, RecursionError):
+                return None
+        wrapped = value.get("structuredContent") if isinstance(value, Mapping) else None
+        if isinstance(wrapped, (Mapping, list)):
+            return wrapped
+        parts = value.get("content") if isinstance(value, Mapping) else value
+        only = parts[0] if isinstance(parts, list) and len(parts) == 1 else None
+        if not (isinstance(only, Mapping) and only.get("type") == "text" and isinstance(only.get("text"), str)):
+            return value
+        value = only["text"]
+    return None if isinstance(value, str) else value
+
+
+def output_shape(value):
+    """Content-free structure of a parsed tool output: its kind, top-level key names and list lengths."""
+    if isinstance(value, Mapping):
+        names = [key if isinstance(key, str) and SAFE_NAME_RE.fullmatch(key) else "[key]" for key in value]
+        lists = {name: len(item) for name, item in zip(names, value.values()) if isinstance(item, list)}
+        return {"kind": "object", "key_count": len(names), "keys": names[:SHAPE_KEY_LIMIT],
+                "lists": dict(list(lists.items())[:SHAPE_KEY_LIMIT])}
+    if isinstance(value, list):
+        return {"kind": "list", "length": len(value)}
+    return {"kind": "text" if value is None else "scalar"}
+
+
+def count_result_items(value):
+    """Entries of the recognised result lists of a parsed tool output; None when it has none."""
+    if isinstance(value, list):
+        return len(value)
+    if isinstance(value, Mapping):
+        counts = [len(value[key]) for key in RESULT_LIST_KEYS if isinstance(value.get(key), list)]
+        return sum(counts) if counts else None
+    return None
+
+
+def now_iso(timespec="seconds"):
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec=timespec)
 
 
 def dumps(payload, *, keep_ids=False):
@@ -321,7 +444,8 @@ def configure_output():
 
 def evidence_path(label, kind="evidence"):
     if not LABEL_RE.fullmatch(label or "") or label.endswith(RESERVED_LABEL_SUFFIXES):
-        raise ConfigError("label must match [a-z0-9][a-z0-9._-]{0,63} and must not end with .run, .create or .connections")
+        raise ConfigError("label must match [a-z0-9][a-z0-9._-]{0,63} and must not end with "
+                          ".run, .create, .connections or .series")
     return EVIDENCE_DIR / EVIDENCE_FILES[kind].format(label=label)
 
 
@@ -407,6 +531,11 @@ def status_code(exc):
     return value if isinstance(value, int) else None
 
 
+def short_request_id(value):
+    """The first ID_KEEP characters of a request correlation ID (a GUID keeps its first group); None without one."""
+    return value[:ID_KEEP] if isinstance(value, str) and value else None
+
+
 def describe_error(exc):
     """Summarize an SDK exception: the service message stays verbatim (redacted on output); headers and request bodies are never echoed."""
     inner = getattr(exc, "error", None)
@@ -420,6 +549,15 @@ def describe_error(exc):
         "code": code if isinstance(code, str) else None,
         "message": clip(message if isinstance(message, str) else str(exc), ERROR_MESSAGE_LIMIT),
     }
+    param = getattr(exc, "param", None)
+    if isinstance(param, str):
+        summary["param"] = clip(param, 100)
+    api_type = getattr(exc, "type", None)
+    if isinstance(api_type, str):
+        summary["api_type"] = clip(api_type, 100)
+    request_id = short_request_id(getattr(exc, "request_id", None))
+    if request_id:
+        summary["request_id"] = request_id
     target = getattr(inner, "target", None)
     if isinstance(target, str):
         summary["target"] = clip(target, 200)
@@ -493,7 +631,16 @@ def model_reference(connection, model, allow_placeholder=False):
     return f"{connection}/{model}"
 
 
+def require_visible_ascii(value, what):
+    # urlsplit silently drops CR, LF and TAB, so a value read from a CRLF file would pass the URL checks
+    # and then fail at the first request (or be stored in the agent definition) with the character intact.
+    if value and not VISIBLE_ASCII_RE.fullmatch(value):
+        raise ConfigError(f"{what} must be visible ASCII without spaces or control characters "
+                          "(a trailing carriage return from a CRLF file is a common cause)")
+
+
 def check_endpoint(value):
+    require_visible_ascii(value, "project endpoint")
     parts = urllib.parse.urlsplit(value or "")
     host = parts.hostname or ""
     if (parts.scheme != "https" or not host.endswith(ENDPOINT_HOST_SUFFIX) or parts.username
@@ -524,6 +671,7 @@ def mcp_tool_spec(args):
     url = args.mcp_url or preset["url"]
     if not url:
         raise ConfigError(f"--mcp-url is required for preset {args.mcp_preset!r}")
+    require_visible_ascii(url, "MCP server URL")
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise ConfigError("MCP server URL must be https without credentials, query or fragment")
@@ -640,8 +788,8 @@ def open_clients(args, with_openai=True):
     if with_openai:
         from openai import DefaultHttpxClient
         # max_retries=0: an SDK retry would be a hidden extra model call; the counter proves none happened.
-        openai = project.get_openai_client(
-            max_retries=0, http_client=DefaultHttpxClient(event_hooks={"request": [counter]}))
+        hooks = {"request": [counter], "response": [counter.on_response]}
+        openai = project.get_openai_client(max_retries=0, http_client=DefaultHttpxClient(event_hooks=hooks))
     return Clients(project=project, openai=openai, models=models, http=counter)
 
 
@@ -698,12 +846,19 @@ def summarize_item(item):
                        tools=[tool.get("name") for tool in item.get("tools") or [] if isinstance(tool, Mapping)])
     elif kind == "mcp_call":
         output = item.get("output")
+        text = output_text(output)
+        urls = urls_in(text, URL_SCAN_LIMIT) if text is not None else None
+        parsed = output_json(text) if text is not None else None
         summary.update(server_label=item.get("server_label"), name=item.get("name"),
                        arguments=parse_arguments(item.get("arguments")), status=item.get("status"),
                        error=shrink(item.get("error")),
                        output_chars=len(output) if isinstance(output, str) else None,
                        output_preview=clip(output, 200) if output is not None else None,
-                       output_urls=urls_in(output) if isinstance(output, str) else None)
+                       output_urls=urls_in(output) if isinstance(output, str) else None,
+                       output_url_count=len(urls) if urls is not None else None,
+                       output_hosts=url_hosts(urls) if urls is not None else None,
+                       output_shape=output_shape(parsed) if text is not None else None,
+                       result_items=count_result_items(parsed))
     elif kind == "mcp_approval_request":
         summary.update(id=item.get("id"), server_label=item.get("server_label"), name=item.get("name"),
                        arguments=parse_arguments(item.get("arguments")))
@@ -733,6 +888,11 @@ def answer_text(items):
                    if item.get("type") == "message" and item.get("role", "assistant") == "assistant")
 
 
+def sampling_value(value):
+    """temperature or top_p as the service echoed it; anything that is not a plain number is ignored."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def summarize_response(response):
     """Secret-free summary of a Responses API result (accepts SDK objects or dicts)."""
     data = to_plain(response)
@@ -747,6 +907,8 @@ def summarize_response(response):
         "response_id": data.get("id"),
         "status": data.get("status"),
         "model": data.get("model"),
+        "temperature": sampling_value(data.get("temperature")),
+        "top_p": sampling_value(data.get("top_p")),
         "agent": {key: reference[key] for key in ("name", "version") if reference.get(key) is not None} or None,
         "conversation_id": conversation_id if isinstance(conversation_id, str) else None,
         "output_item_types": [item.get("type") for item in items],
@@ -755,6 +917,7 @@ def summarize_response(response):
         "final_answer": clip(answer),
         "answer_chars": len(answer),
         "answer_urls": urls_in(answer),
+        "answer_hosts": url_hosts(urls_in(answer, URL_SCAN_LIMIT)),
         "think_tag": "<think" in answer.lower(),
         "usage": summarize_usage(data.get("usage")),
         "incomplete_reason": incomplete.get("reason") if isinstance(incomplete, Mapping) else None,

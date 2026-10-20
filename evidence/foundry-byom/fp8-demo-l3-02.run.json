@@ -1,0 +1,167 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T16:36:21.667+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Azure API Management를 AI 게이트웨이로 사용할 때 모델 API 요청을 인증하는 방법을 문서에서 찾아 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. [추적 ID: r-a96f2c41]",
+    "nonce": "r-a96f2c41",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-20T16:36:21.903+00:00",
+  "finished_at": "2026-10-20T16:36:31.444+00:00",
+  "conversation_id": "conv_0ee1094e…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_0ee1094e…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "agent": {
+        "name": "byom-demo-mcp-ablation-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_0ee1094e…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        },
+        {
+          "type": "mcp_call",
+          "server_label": "microsoft_learn",
+          "name": "microsoft_docs_search",
+          "arguments": {
+            "query": "Azure API Management AI gateway model API request authentication"
+          },
+          "status": "completed",
+          "output_chars": 47566,
+          "output_preview": "{\"results\":[{\"title\":\"Provide custom authentication to Foundry Models through a gateway\",\"content\":\"# Provide custom authentication to Foundry Models through a gateway\\n## Authenticate multiple client...(+47366 chars)",
+          "output_urls": [
+            "https://learn.microsoft.com/en-us/azure/api-management/api-management-subscriptions",
+            "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/generative-ai-gateway-multiple-models",
+            "https://learn.microsoft.com/azure/architecture/ai-ml/guide/generative-ai-gateway-custom-authentication#authenticate-multiple-client-applications-via-keys-to-access-a-shared-azure-openai-instance",
+            "https://learn.microsoft.com/azure/api-management/media/ai-gateway-overview/ai-gateway-architecture.png",
+            "https://learn.microsoft.com/azure/api-management/ai-gateway-overview#key-concepts",
+            "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/_images/azure-openai-gateway-identity-solution-combined.svg",
+            "https://<redacted:azure_host>/azure-openai-authentication.vsdx",
+            "https://learn.microsoft.com/azure/architecture/ai-ml/guide/generative-ai-gateway-custom-authentication#general-recommendations",
+            "https://learn.microsoft.com/azure/api-management/authentication-authorization-overview",
+            "https://learn.microsoft.com/azure/api-management/get-started-create-service-instance"
+          ],
+          "output_url_count": 41,
+          "output_hosts": [
+            "learn.microsoft.com",
+            "[masked-host]"
+          ],
+          "output_shape": {
+            "kind": "text"
+          }
+        }
+      ],
+      "final_answer": "Azure API Management를 AI 게이트웨이로 사용할 때 모델 API 요청 인증은 API 키(런타임 액세스 키)나 Microsoft Entra ID 액세스 토큰(OAuth 2.0)을 통해 게이트웨이 엔드포인트 수준에서 수행됩니다. 게이트웨이가 Azure OpenAI 등 백엔드로 요청을 라우팅할 때는 자체 관리 ID(System-Assigned 또는 User-Assigned Managed Identity)를 사용하여 백엔드 자격증명을 애플리케이션으로부터 분리합니다.\n\n근거 URL: https://learn.microsoft.com/azure/api-management/ai-gateway-overview",
+      "answer_chars": 345,
+      "answer_urls": [
+        "https://learn.microsoft.com/azure/api-management/ai-gateway-overview"
+      ],
+      "answer_hosts": [
+        "learn.microsoft.com"
+      ],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 10507,
+        "output_tokens": 139,
+        "total_tokens": 10646,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation",
+      "requested_at": "2026-10-20T16:36:21.903+00:00",
+      "responded_at": "2026-10-20T16:36:31.443+00:00",
+      "request_id": "7cd0ec6e",
+      "elapsed_s": 9.5
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1,
+    "responses_statuses": [
+      200
+    ]
+  },
+  "final_answer": "Azure API Management를 AI 게이트웨이로 사용할 때 모델 API 요청 인증은 API 키(런타임 액세스 키)나 Microsoft Entra ID 액세스 토큰(OAuth 2.0)을 통해 게이트웨이 엔드포인트 수준에서 수행됩니다. 게이트웨이가 Azure OpenAI 등 백엔드로 요청을 라우팅할 때는 자체 관리 ID(System-Assigned 또는 User-Assigned Managed Identity)를 사용하여 백엔드 자격증명을 애플리케이션으로부터 분리합니다.\n\n근거 URL: https://learn.microsoft.com/azure/api-management/ai-gateway-overview",
+  "final_answer_contains_nonce": false,
+  "item_sequence": [
+    "mcp_list_tools",
+    "mcp_call",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "mcp_list_tools",
+      "server_label": "microsoft_learn",
+      "tools": [
+        "microsoft_docs_search"
+      ]
+    },
+    {
+      "type": "mcp_call",
+      "server_label": "microsoft_learn",
+      "name": "microsoft_docs_search",
+      "arguments": {
+        "query": "Azure API Management AI gateway model API request authentication"
+      },
+      "status": "completed",
+      "output_chars": 47566,
+      "output_preview": "{\"results\":[{\"title\":\"Provide custom authentication to Foundry Models through a gateway\",\"content\":\"# Provide custom authentication to Foundry Models through a gateway\\n## Authenticate multiple client...(+47366 chars)",
+      "output_urls": [
+        "https://learn.microsoft.com/en-us/azure/api-management/api-management-subscriptions",
+        "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/generative-ai-gateway-multiple-models",
+        "https://learn.microsoft.com/azure/architecture/ai-ml/guide/generative-ai-gateway-custom-authentication#authenticate-multiple-client-applications-via-keys-to-access-a-shared-azure-openai-instance",
+        "https://learn.microsoft.com/azure/api-management/media/ai-gateway-overview/ai-gateway-architecture.png",
+        "https://learn.microsoft.com/azure/api-management/ai-gateway-overview#key-concepts",
+        "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/_images/azure-openai-gateway-identity-solution-combined.svg",
+        "https://<redacted:azure_host>/azure-openai-authentication.vsdx",
+        "https://learn.microsoft.com/azure/architecture/ai-ml/guide/generative-ai-gateway-custom-authentication#general-recommendations",
+        "https://learn.microsoft.com/azure/api-management/authentication-authorization-overview",
+        "https://learn.microsoft.com/azure/api-management/get-started-create-service-instance"
+      ],
+      "output_url_count": 41,
+      "output_hosts": [
+        "learn.microsoft.com",
+        "[masked-host]"
+      ],
+      "output_shape": {
+        "kind": "text"
+      }
+    }
+  ],
+  "ok": true
+}

@@ -1,0 +1,171 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T16:30:51.811+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Foundry Agent Service에 외부 모델을 연결하는 방식(Bring your own model)과 인증 방식을 문서에서 찾아 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. [추적 ID: r-8b24d6f0]",
+    "nonce": "r-8b24d6f0",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-20T16:30:52.090+00:00",
+  "finished_at": "2026-10-20T16:31:03.297+00:00",
+  "conversation_id": "conv_077cffdf…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_077cffdf…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "agent": {
+        "name": "byom-demo-mcp-ablation-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_077cffdf…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        },
+        {
+          "type": "mcp_call",
+          "server_label": "microsoft_learn",
+          "name": "microsoft_docs_search",
+          "arguments": {
+            "query": "Foundry Agent Service Bring your own model authentication"
+          },
+          "status": "completed",
+          "output_chars": 57952,
+          "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\n## Create a model connection\\n### **O...(+57752 chars)",
+          "output_urls": [
+            "https://ai.azure.com",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-connection.png",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-other-model.png",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-authentication.png",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-configuration.png",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-advanced.png",
+            "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#create-a-model-connection",
+            "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#verify-the-deployment",
+            "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-api-management-model.png",
+            "https://cognitiveservices.azure.com/"
+          ],
+          "output_url_count": 30,
+          "output_hosts": [
+            "ai.azure.com",
+            "learn.microsoft.com",
+            "cognitiveservices.azure.com",
+            "portal.azure.com"
+          ],
+          "output_shape": {
+            "kind": "text"
+          }
+        }
+      ],
+      "final_answer": "Foundry Agent Service는 'Other source' 연결 유형을 통해 외부(자체 호스팅, 비 Azure 등) 게이트웨이 기반의 Bring Your Own Model을 지원하며, 연결 마법사의 인증 페이지에서 **API Key** 또는 **OAuth 2.0** 방식을 선택하여 게이트웨이 인증을 구성할 수 있습니다.\n\n근거 URL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+      "answer_chars": 260,
+      "answer_urls": [
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway"
+      ],
+      "answer_hosts": [
+        "learn.microsoft.com"
+      ],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 15722,
+        "output_tokens": 120,
+        "total_tokens": 15842,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation",
+      "requested_at": "2026-10-20T16:30:52.090+00:00",
+      "responded_at": "2026-10-20T16:31:03.296+00:00",
+      "request_id": "fd174ca1",
+      "elapsed_s": 11.2
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1,
+    "responses_statuses": [
+      200
+    ]
+  },
+  "final_answer": "Foundry Agent Service는 'Other source' 연결 유형을 통해 외부(자체 호스팅, 비 Azure 등) 게이트웨이 기반의 Bring Your Own Model을 지원하며, 연결 마법사의 인증 페이지에서 **API Key** 또는 **OAuth 2.0** 방식을 선택하여 게이트웨이 인증을 구성할 수 있습니다.\n\n근거 URL: https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway",
+  "final_answer_contains_nonce": false,
+  "item_sequence": [
+    "mcp_list_tools",
+    "mcp_call",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "mcp_list_tools",
+      "server_label": "microsoft_learn",
+      "tools": [
+        "microsoft_docs_search"
+      ]
+    },
+    {
+      "type": "mcp_call",
+      "server_label": "microsoft_learn",
+      "name": "microsoft_docs_search",
+      "arguments": {
+        "query": "Foundry Agent Service Bring your own model authentication"
+      },
+      "status": "completed",
+      "output_chars": 57952,
+      "output_preview": "{\"results\":[{\"title\":\"Bring your own model to Foundry Agent Service (foundry-portal)\",\"content\":\"# Bring your own model to Foundry Agent Service (foundry-portal)\\n## Create a model connection\\n### **O...(+57752 chars)",
+      "output_urls": [
+        "https://ai.azure.com",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-connection.png",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-other-model.png",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-authentication.png",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-configuration.png",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-model-advanced.png",
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#create-a-model-connection",
+        "https://learn.microsoft.com/azure/foundry/agents/how-to/ai-gateway#verify-the-deployment",
+        "https://learn.microsoft.com/azure/foundry/agents/media/ai-gateway/add-api-management-model.png",
+        "https://cognitiveservices.azure.com/"
+      ],
+      "output_url_count": 30,
+      "output_hosts": [
+        "ai.azure.com",
+        "learn.microsoft.com",
+        "cognitiveservices.azure.com",
+        "portal.azure.com"
+      ],
+      "output_shape": {
+        "kind": "text"
+      }
+    }
+  ],
+  "ok": true
+}
