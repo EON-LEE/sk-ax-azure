@@ -33,6 +33,7 @@ TRACE_JSON = json.dumps({"error": {"message": TRACE, "type": "InternalServerErro
 LEAKS = (SECRET, "Traceback", "/srv/vllm", "engine.py", "CUDA", "192.0.2.7")
 LOG_KEYS = {"ts", "event", "request_id", "profile", "route", "stream", "status", "prompt_tokens", "completion_tokens",
             "ttft_ms", "queue_ms", "total_ms", "finish_reason", "error"}
+ANSWERED_KEYS = LOG_KEYS | {"tool_calls"}  # the line of a request whose answer from vLLM was read
 
 
 def held():
@@ -489,7 +490,7 @@ class LogTests(FailureCase):
         answer = await self.chat(ask, headers={"X-Request-Id": "trace-1"})
         self.assertEqual(answer.status, 200)
         (record,) = await self.logged(1)
-        self.assertEqual(set(record), LOG_KEYS)
+        self.assertEqual(set(record), ANSWERED_KEYS)
         facts = ("event", "request_id", "profile", "route", "stream", "status", "prompt_tokens", "completion_tokens",
                  "finish_reason", "error")
         self.assertEqual({key: record[key] for key in facts},
@@ -506,7 +507,7 @@ class LogTests(FailureCase):
         answer = await self.chat(STREAM_ASK)
         self.assertEqual(chat_tests.content_of(chat_tests.chunks(answer.text)[0]), "ab")
         (record,) = await self.logged(1)
-        self.assertEqual(set(record), LOG_KEYS)
+        self.assertEqual(set(record), ANSWERED_KEYS)
         self.assertEqual((record["stream"], record["status"], record["prompt_tokens"], record["completion_tokens"],
                           record["finish_reason"], record["error"]), (True, 200, 11, 3, "stop", None))
         self.assertIsInstance(record["ttft_ms"], int)
@@ -535,7 +536,7 @@ class LogTests(FailureCase):
         self.assertEqual((await self.chat(dict(ASK, **extras))).status, 200)
         (record,) = await self.logged(1)
         self.assertEqual(record["dropped_fields"], ["api_key", "metadata", "store", "user"])
-        self.assertEqual(set(record), LOG_KEYS | {"dropped_fields"})
+        self.assertEqual(set(record), ANSWERED_KEYS | {"dropped_fields"})
         self.assertFalse({"api_key", "metadata", "store", "user"} & set(self.upstream()))
         for value in (KEY, self.PROMPT, "visitor-1"):
             self.assertNotIn(value, sys.stdout.getvalue())
