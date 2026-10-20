@@ -137,6 +137,26 @@ def requested_tool(text, names):
     return None
 
 
+def parse_tool_arguments(raw):
+    """(arguments, problem) for the text a model sent as the arguments of a tool call. Blank text means no arguments,
+    as in model_api. Anything that is not a JSON object is a problem to report back to the model, not a reason to end
+    the turn."""
+    if not isinstance(raw, str) or not raw.strip():
+        return {}, None
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError):
+        return None, "not valid JSON"
+    if not isinstance(value, dict):
+        return None, "not a JSON object"
+    return value, None
+
+
+def unusable_arguments(raw, problem):
+    return (f"The tool was not run: its arguments were {problem} ({len(raw)} characters, starting "
+            f"{json.dumps(raw[:80], ensure_ascii=False)}). Call it again with a JSON object that matches its schema.")
+
+
 def restore_messages(history):
     result = []
     for row in history:
@@ -211,6 +231,7 @@ class AXClient(FunctionInvocationLayer, BaseChatClient):
         self.workspace, self.pdf_paths = workspace, pdf_paths
         self.policy = policy or turn_policy(user_text(body["messages"]), True)
         self.transcript = []
+        self.invalid_calls = {}
         self.executed = 0
         self.repair_attempts = 0
         self.started = time.monotonic()
@@ -329,6 +350,16 @@ class AXClient(FunctionInvocationLayer, BaseChatClient):
                 "output_tokens": usage["completion_tokens"] if counted else None,
                 "first_token_seconds": first_token, "seconds": elapsed,
                 "cached_tokens": cached if isinstance(cached, int) and not isinstance(cached, bool) else None})
+            self.invalid_calls = {}
+            for call in calls.values():
+                call["parsed"], problem = parse_tool_arguments(call["arguments"])
+                if problem:
+                    LOG.warning("Tool arguments are unusable: tool=%r problem=%s characters=%d",
+                                call["name"][:64], problem, len(call["arguments"]))
+                    self.invalid_calls[call["id"]] = unusable_arguments(call["arguments"], problem)
+                    call["parsed"] = {}
+                if problem or not call["arguments"].strip():
+                    call["arguments"] = "{}"  # the retained and replayed call must stay valid JSON
             record = {"role": "assistant", "content": answer}
             if thinking:
                 record["reasoning_content"] = thinking
@@ -346,9 +377,7 @@ class AXClient(FunctionInvocationLayer, BaseChatClient):
                         raise ValueError("A.X returned an unknown or malformed tool call")
                     if not self.policy["tools"] or call["name"] in self.policy["denied"] or (call["name"].startswith("web_iq_") and not self.policy["external"]):
                         raise ValueError("Tool invocation prohibited by the trusted current-turn policy")
-                    arguments = json.loads(call["arguments"])
-                    if not isinstance(arguments, dict):
-                        raise ValueError("Tool arguments must be a JSON object")
+                    arguments = call["parsed"]
                     if pending and (call["name"] != "read_pdf" or arguments.get("path") not in pending):
                         raise ValueError("첨부 PDF의 실제 판독이 아직 완료되지 않았습니다. 파일 형식이나 스캔 여부는 판단하지 않았습니다.")
                     contents.append(Content("function_call", call_id=call["id"],
@@ -417,6 +446,9 @@ class Actions(FunctionMiddleware):
         await self.emit("action", dict(action, state="pending"))
         started = time.monotonic()
         try:
+            problem = self.client.invalid_calls.pop(context.metadata.get("call_id"), None) if self.client else None
+            if problem:
+                raise ValueError(problem)  # the model reads this as the tool's error and may call again
             async with self.tool_gate:
                 await self.emit("action", dict(action, state="running"))
                 if self.client:

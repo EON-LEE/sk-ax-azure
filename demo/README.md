@@ -182,6 +182,13 @@ XLSX 수식은 실행·평가하지 않고 오류로 안내합니다.
 추론은 최대 5회, 도구 실행 24회, 턴 15분으로 제한합니다.
 취소 시 기존 relay의 cancel을 통해 vLLM 요청을 중단하며 GPU 작업 자체는 계속 실행됩니다.
 
+모델이 보낸 도구 호출의 인자가 비었거나 공백뿐이면 `{}`로 처리합니다(`model_api.py`가 빈 인자를 `{}`로
+바꾸는 규칙과 같고, 여기서는 공백뿐인 값도 포함합니다). 그 밖에 JSON 객체가 아닌 인자(깨진 JSON, 배열
+등)는 턴을 끝내지 않고 도구 오류 결과로 모델에 돌려줍니다. 오류 문장은 문제 종류, 인자 길이, 인자 앞
+80자까지의 인용을 담습니다. 이때 도구는 실행하지 않으며 `tool_invocations`에 세지 않지만 도구 호출 한도
+(24회)에는 들어갑니다. 강제된 도구 선택은 그대로여서 모델이 같은 도구를 다시 호출할 수 있습니다.
+다음 모델 호출에 다시 보내는 이력에서는 빈 인자와 깨진 인자를 `{}`로 바꿔 유효한 JSON을 유지합니다.
+
 **Web IQ:** [공식 문서](https://webiq.microsoft.ai/documentation/)는 enterprise limited access를
 설명합니다. `web_iq.py`는 공식 `mcp==1.30.0` SDK로 initialize → tools/list → tools/call을
 수행합니다. 기존 승인된 사용자 프로젝트의 직접 MCP 계약
@@ -231,7 +238,9 @@ passage 미지원 browse는 text를 사용합니다. 상한 초과 입력은 오
 이 기본값·상한 필드(`maxResults`, `maxResultsWeb`, `maxLength`, `contentFormat`, `safeSearch`,
 `liveCrawl`, `renderDynamicPages`)는 서버가 주입하고 전체 schema로 검증하지만, 입력 토큰을 줄이려고
 모델에게 보내는 도구 schema에서는 숨깁니다. 모델이 직접 보내도 검증 결과는 같습니다.
-`browse`는 공개 HTTP(S) 도메인만 허용하며 자격증명·query string·인증 URL·사설 DNS 주소를 거부합니다.
+`browse`는 공개 HTTP(S) 도메인만 허용하며 자격증명·query string(`?`)·인증 URL·사설 DNS 주소를 거부합니다.
+`#조각`만 안전 검사 전에 잘라 버리고 나머지 주소로 읽습니다. 이 제한(`?` 쿼리와 로그인·인증 경로
+불가, `#` 무시)은 모델이 피하도록 도구 설명에도 적습니다.
 공급자 indexed retrieval만 사용(`liveCrawl=none`, dynamic rendering 금지)하여
 실시간 크롤링·리디렉션을 통한 내부 URL 접근을 요청하지 않습니다. App Service는 대상 페이지를 fetch하지 않습니다.
 입력/결과/시간은 접이식 action 카드, 출처는 해당 카드의 링크로 확인합니다. 대체 검색은 없습니다.
