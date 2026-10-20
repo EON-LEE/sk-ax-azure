@@ -216,16 +216,27 @@ setting으로 전달합니다. 배포 bundle은 루트 입력 파일을 포함�
 이는 비공개 파일을 검색 자료로 보내는 동의가 아닙니다.
 같은 대화에서 첨부와 무관한 공개 검색을 하려면 검색어를 직접 입력하세요;
 자유롭게 검색어를 확장하려면 파일 없는 새 대화를 사용합니다. 자격증명 형태의 검색어도 거부합니다.
-요청 30초, 응답 192 KiB, 표시 citation 최대 12개이며 실제 공급자가 반환한 URL/원본 provenance만
-유지합니다. 성공한 실제 query가 있어야 `verified_search`가 true입니다.
+요청 30초, 응답 192 KiB, 표시 citation 최대 12개이며 실제 공급자가 반환한 URL과 제목만
+유지합니다(원본 행을 다시 복사하지 않습니다). 성공한 실제 query가 있어야 `verified_search`가 true입니다.
 실제 schema에서 광고한 경우 기본 검색을 최대 5개 결과,
 `contentFormat=passage`, `maxLength=1500`, `safeSearch=strict`로 제한합니다.
 passage 미지원 browse는 text를 사용합니다. 상한 초과 입력은 오류로 표시하며 조용히 무시하지 않습니다.
+이 기본값·상한 필드(`maxResults`, `maxResultsWeb`, `maxLength`, `contentFormat`, `safeSearch`,
+`liveCrawl`, `renderDynamicPages`)는 서버가 주입하고 전체 schema로 검증하지만, 입력 토큰을 줄이려고
+모델에게 보내는 도구 schema에서는 숨깁니다. 모델이 직접 보내도 검증 결과는 같습니다.
 `browse`는 공개 HTTP(S) 도메인만 허용하며 자격증명·query string·인증 URL·사설 DNS 주소를 거부합니다.
 공급자 indexed retrieval만 사용(`liveCrawl=none`, dynamic rendering 금지)하여
 실시간 크롤링·리디렉션을 통한 내부 URL 접근을 요청하지 않습니다. App Service는 대상 페이지를 fetch하지 않습니다.
 입력/결과/시간은 접이식 action 카드, 출처는 해당 카드의 링크로 확인합니다. 대체 검색은 없습니다.
-뉴스·주가·장소는 실제 반환 필드를 읽기 쉽게 표시하고 원본 JSON은 별도로 펼칩니다.
+뉴스·주가·장소는 실제 반환 필드를 읽기 쉽게 표시합니다. 카드의 '실제 반환 데이터'는 모델이 실제로 읽은
+검색 결과 JSON과 같은 내용입니다. 같은 자료를 모델이 여러 번 읽지 않도록 `items`(제목·URL·스니펫·출처·날짜 등)에
+담기는 web/news/videos/images/browse 응답은 원본 payload를 다시 넣지 않고 `provider_payload_chars`로 크기만 남깁니다.
+`items`로 담기지 않는 응답(금융·장소·스포츠·sonic·알 수 없는 형태·일반 텍스트 등)은 원본을 한 번만
+`provider_content`로 유지합니다.
+시스템 프롬프트에서는 바뀌지 않는 규칙을 앞에, 매번 바뀌는 UTC 시각을 맨 끝에(분 단위) 두어
+앞부분이 턴 사이에 같게 유지됩니다(vLLM prefix cache 적중 여부는 배포 후 측정 필요).
+응답의 `metrics` 이벤트에는 기존 필드에 더해 모델 호출별 `rounds`(입력/출력 토큰, 첫 토큰까지 시간,
+소요 시간, 공급자가 주면 `cached_tokens`)가 들어갑니다. 값이 없으면 `null`이며 추정하지 않습니다.
 이미지·동영상은 원본 출처 링크만 제공하며 자동 로드/임베드/재배포하지 않습니다(CSP 유지).
 금융 카드는 공급자의 종목·통화·가격·거래 시각·시간대·자료 출처를 표시하며
 거래소나 지연 여부가 응답에 없으면 미제공/미확인입니다. 조회 시각은 시세 기준 시각이 아닙니다.
