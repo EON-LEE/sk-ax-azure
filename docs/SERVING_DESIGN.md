@@ -1227,9 +1227,10 @@ encodability check to the demo chat's request validation.
     has no time or code field, and a one-to-one match with the closes is not
     confirmed. In some cases AML ran the same job again on another node
     without a submit from the supervisor. That matches an automatic requeue,
-    but Run History did not confirm it: the attempt fields showed attempt 1,
-    no retry or requeue property and no last start time. GPU telemetry stopped
-    5 to 21 seconds before the close (40 seconds for the last one). One
+    but Run History did not confirm it for the one job that was read: its
+    attempt fields showed attempt 1, no retry or requeue property and no last
+    start time. GPU telemetry stopped 5 to 21 seconds before the close (40
+    seconds for the last one). One
     contradiction is unresolved: the Azure Monitor node-state metric and the
     diagnostic settings show Preempted = 0 in every minute that was measured.
     The Azure Activity Log for a ten-minute window around the second loss has
