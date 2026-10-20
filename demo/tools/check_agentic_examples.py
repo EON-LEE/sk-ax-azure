@@ -22,6 +22,10 @@ preview), the total time is within --max-seconds and no HTTP 5xx came back. Cont
 rounded calculator result, files rewritten) are reported as flags and do not fail a run. Model-written code is
 parsed, never run.
 
+Evidence for a failure: an HTML file asked for in the preview route keeps the status and the length of the answer
+(preview_status, preview_bytes), and a web_iq_browse call that failed keeps url_shape, only whether its address had
+a query ('?') and a fragment ('#'). No address of a failed call is kept; web addresses in tool errors become <url>.
+
 Name lookup: the resolver of a PC can fail for seconds at a time. With --dns doh (the default) an https host name is
 looked up once through Google's DNS-over-HTTPS service, and every request of the run goes to that address; the TLS
 server name, the certificate check and the Host header stay those of the real name. The address is not printed or
@@ -486,6 +490,8 @@ def collect_files(server, prefix, auth, turn, broke):
                 lost(broke, "preview", shown)
                 entry["preview"] = None if shown.status is None else (
                     shown.status == 200 and bool(PREVIEW_TAG.search(shown.body.decode("utf-8", "replace"))))
+                entry["preview_status"] = shown.status
+                entry["preview_bytes"] = None if shown.status is None else len(shown.body)
     return files, texts
 
 
@@ -559,11 +565,23 @@ def outcome(turn, status, error):
     return "ended " + tidy((turn.end or {}).get("state") or "without end", 40)
 
 
+def url_shape(arguments):
+    """Whether the page address of a browse call had a query (a '?' before any '#') and a fragment (a '#'); None when
+    the call carried no address text. The address itself is never kept."""
+    url = arguments.get("url") if isinstance(arguments, dict) else None
+    if not isinstance(url, str):
+        return None
+    before, mark, _ = url.partition("#")
+    return {"query": "?" in before, "fragment": bool(mark)}
+
+
 def describe(rec, turn, files):
     actions = list(turn.actions.values())
     metrics = turn.metrics or {}
     rec["tools"] = [{"name": a.get("name"), "state": a.get("state"), "ms": a.get("milliseconds"),
-                     **({"error": tidy(failure_text(a), 100)} if a.get("state") in ("error", "cancelled") else {})}
+                     **({"error": tidy(failure_text(a), 100)} if a.get("state") in ("error", "cancelled") else {}),
+                     **({"url_shape": url_shape(a.get("arguments"))}
+                        if a.get("name") == "web_iq_browse" and a.get("state") == "error" else {})}
                     for a in actions]
     rec["first_tool"] = actions[0].get("name") if actions else None
     rec["web_iq_calls"] = sum(1 for a in actions if str(a.get("name")).startswith("web_iq_"))
@@ -577,10 +595,14 @@ def describe(rec, turn, files):
 
 
 def failure_text(action):
+    """What a failed tool said, without any web address in it: a tool error can quote the start of the arguments
+    the model sent, and the summary keeps no address of a rejected page."""
     result = action.get("result")
     if isinstance(result, dict):
-        return result.get("error") or result.get("message") or result.get("status") or dumps(result)
-    return result or action.get("state")
+        text = result.get("error") or result.get("message") or result.get("status") or dumps(result)
+    else:
+        text = result or action.get("state")
+    return text if text is None else URL.sub("<url>", str(text))
 
 
 # ------------------------------------------------------------------------------------------- checking
@@ -662,6 +684,14 @@ def artifact_problems(example, turn):
     return problems
 
 
+def preview_detail(entry):
+    """What the preview route answered, for the message of a preview that did not open."""
+    status = entry.get("preview_status")
+    if status is None:
+        return ""
+    return f" (HTTP {status}, {entry.get('preview_bytes')} B" + (", no content tag)" if status == 200 else ")")
+
+
 def file_problems(example, files):
     by_name = {f["name"]: f for f in files}
     problems = []
@@ -676,7 +706,7 @@ def file_problems(example, files):
         if "preview" in entry and entry["preview"] is None:
             problems.append(f"{example.preview} could not be opened in the preview (connection error)")
         elif not entry.get("preview") and entry.get("download", 0) is not None:  # None: the download message says why
-            problems.append(f"{example.preview} does not open in the preview")
+            problems.append(f"{example.preview} does not open in the preview{preview_detail(entry)}")
     return problems
 
 

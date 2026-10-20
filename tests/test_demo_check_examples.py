@@ -445,9 +445,13 @@ class IdealRunTests(DemoCase):
                            if c["name"] == "write_file"]
                 self.assertEqual([f["name"] for f in rec["files"]], written)
                 for entry in rec["files"]:
+                    html = entry["name"].endswith(".html")
                     self.assertEqual(entry["download"], 200)
                     self.assertGreater(entry["bytes"], 0)
-                    self.assertEqual(entry.get("preview"), True if entry["name"].endswith(".html") else None)
+                    self.assertEqual(entry.get("preview"), True if html else None)
+                    self.assertEqual("preview_status" in entry, html)
+                    self.assertEqual(entry.get("preview_status"), 200 if html else None)
+                    self.assertEqual(entry.get("preview_bytes"), entry["bytes"] if html else None)
                 self.assertEqual(rec.get("source_hosts"), HOSTS.get(rec["id"]))
                 count = len(script["rounds"])
                 self.assertEqual((rec["model_calls"], len(rec["rounds"])), (count, count))

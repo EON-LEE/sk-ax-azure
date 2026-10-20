@@ -150,6 +150,32 @@ class TextHelperTests(unittest.TestCase):
         self.assertEqual(text({"result": {"x": 1}}), '{"x": 1}')
         self.assertEqual(text({"result": "plain text"}), "plain text")
         self.assertEqual(text({"state": "cancelled"}), "cancelled")
+        self.assertIsNone(text({}))
+
+    def test_a_web_address_in_what_a_failed_tool_said_is_replaced(self):
+        text = check.failure_text
+        self.assertEqual(text({"result": {"error": "no https://a.example.org/x?y=1#z nor http://b.example.org"}}),
+                         "no <url> nor <url>")
+        self.assertEqual(text({"result": "see https://a.example.org/p now"}), "see <url> now")
+        self.assertEqual(text({"result": {"x": "https://a.example.org/q"}}), '{"x": "<url>"}')
+
+    def test_the_shape_of_a_page_address(self):
+        shape, base = check.url_shape, "https://docs.example.com/p"
+        self.assertEqual(shape({"url": base}), {"query": False, "fragment": False})
+        self.assertEqual(shape({"url": base + "?a=1"}), {"query": True, "fragment": False})
+        self.assertEqual(shape({"url": base + "#f"}), {"query": False, "fragment": True})
+        self.assertEqual(shape({"url": base + "?a=1#f"}), {"query": True, "fragment": True})
+        self.assertEqual(shape({"url": base + "#f?a=1"}), {"query": False, "fragment": True})
+        self.assertEqual(shape({"url": "#"}), {"query": False, "fragment": True})
+        for arguments in (None, "x", [], {}, {"url": None}, {"url": 3}, {"query": base}):
+            self.assertIsNone(shape(arguments), arguments)
+
+    def test_what_the_preview_answered(self):
+        detail = check.preview_detail
+        self.assertEqual(detail({}), "")
+        self.assertEqual(detail({"preview_status": None, "preview_bytes": None}), "")
+        self.assertEqual(detail({"preview_status": 400, "preview_bytes": 20}), " (HTTP 400, 20 B)")
+        self.assertEqual(detail({"preview_status": 200, "preview_bytes": 0}), " (HTTP 200, 0 B, no content tag)")
 
     def test_what_a_refusal_said(self):
         reply = check.Reply()

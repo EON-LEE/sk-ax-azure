@@ -947,6 +947,7 @@ class StepTests(LinkCase):
         first, second = outcome.runs()
         name = self.cause(first, "preview")
         self.assertEqual((first["files"][0]["download"], first["files"][0]["preview"]), (200, None))
+        self.assertEqual((first["files"][0]["preview_status"], first["files"][0]["preview_bytes"]), (None, None))
         self.assertEqual(first["failed"], {"connection": f"{name} at preview",
                                            "files": "briefing.html could not be opened in the preview "
                                                     "(connection error)"})

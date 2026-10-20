@@ -6,6 +6,7 @@ the rest of the plan is skipped.
 """
 from __future__ import annotations
 
+import json
 import socket
 import tempfile
 import unittest
@@ -282,7 +283,22 @@ class HttpFailureTests(FailureCase):
 
     def test_a_preview_that_does_not_open_fails_the_files_check(self):
         self.reply("/api/workspace/preview", 400, {"error": "preview"}, method="GET")
-        self.assertEqual(self.failed("ai-chip-news"), {"files": "briefing.html does not open in the preview"})
+        _, rec = self.one("ai-chip-news")
+        self.assertEqual(rec["failed"], {"files": "briefing.html does not open in the preview (HTTP 400, 20 B)"})
+        (entry,) = rec["files"]
+        self.assertEqual((entry["download"], entry["preview"], entry["preview_status"], entry["preview_bytes"]),
+                         (200, False, 400, 20))
+
+    def test_a_preview_without_any_content_tag_names_its_status_and_length(self):
+        for body in (b"", b"no markup here"):
+            self.reply("/api/workspace/preview", 200, body, method="GET")
+            with self.subTest(length=len(body)):
+                _, rec = self.one("ai-chip-news")
+                self.assertEqual(rec["failed"], {"files": "briefing.html does not open in the preview "
+                                                          f"(HTTP 200, {len(body)} B, no content tag)"})
+                (entry,) = rec["files"]
+                self.assertEqual((entry["preview"], entry["preview_status"], entry["preview_bytes"]),
+                                 (False, 200, len(body)))
 
     def test_a_file_that_cannot_be_downloaded_fails_the_files_check(self):
         self.reply("/api/workspace/download", 404, {"error": "not_found"}, method="GET")
@@ -310,6 +326,64 @@ class HttpFailureTests(FailureCase):
         outcome, rec = self.one("plan-fee")
         self.assertEqual(rec["failed"], {"completed": "http 503 workspace_capacity", "http_5xx": "1"})
         self.assertEqual((self.demo.closed, rec["http"]), ([], {"workspace": 503}))
+
+
+class FailureEvidenceTests(FailureCase):
+    """What the record keeps about a failed call: enough to tell the cause, never the address that was asked for."""
+    ASKED = "https://docs.example.com/rejected-page-7"
+    REFUSED = "Web IQ unavailable (unsafe_browse_url); no successful search result is available."
+    PIECES = ("rejected-page-7", "secret-param", "install-frag", "not-a-query")
+
+    def reject(self, arguments, error=None):
+        rounds = self.script("axk2-public-research")["rounds"]
+        rounds[1] = step(call("web_iq_browse", arguments, state="error", result={"error": error or self.REFUSED}))
+        return self.one("axk2-public-research")[1]
+
+    def test_a_rejected_browse_keeps_only_whether_its_address_had_a_query_or_fragment(self):
+        cases = {self.ASKED: (False, False),
+                 self.ASKED + "?secret-param=1": (True, False),
+                 self.ASKED + "#install-frag": (False, True),
+                 self.ASKED + "?secret-param=1#install-frag": (True, True),
+                 self.ASKED + "#install-frag?not-a-query": (False, True),
+                 self.ASKED + "?": (True, False)}
+        for url, (query, fragment) in cases.items():
+            with self.subTest(url=url):
+                rec = self.reject({"url": url})
+                self.assertEqual(rec["tools"][1], {"name": "web_iq_browse", "state": "error", "ms": 120,
+                                                   "error": self.REFUSED,
+                                                   "url_shape": {"query": query, "fragment": fragment}})
+                self.assertIn("tool_errors", rec["failed"])
+                text = json.dumps(rec, ensure_ascii=False)
+                for piece in self.PIECES:
+                    self.assertNotIn(piece, text)
+
+    def test_a_rejected_browse_without_an_address_has_no_shape(self):
+        for arguments in ({}, {"url": 5}, {"url": None}, {"query": self.ASKED + "?secret-param=1"}):
+            with self.subTest(arguments=arguments):
+                rec = self.reject(arguments)
+                self.assertIsNone(rec["tools"][1]["url_shape"])
+                text = json.dumps(rec, ensure_ascii=False)
+                for piece in self.PIECES:
+                    self.assertNotIn(piece, text)
+
+    def test_only_a_failed_browse_has_a_shape(self):
+        _, rec = self.one("axk2-public-research")
+        self.assertTrue(all("url_shape" not in tool for tool in rec["tools"]), rec["tools"])
+        rounds = self.script("ai-chip-news")["rounds"]
+        rounds[0] = step(call("web_iq_news", {"url": self.ASKED + "?secret-param=1"}, state="error",
+                              result={"error": "boom"}))
+        _, rec = self.one("ai-chip-news")
+        self.assertEqual(rec["tools"][0], {"name": "web_iq_news", "state": "error", "ms": 120, "error": "boom"})
+
+    def test_a_web_address_quoted_by_a_tool_error_is_not_kept(self):
+        quoted = "not valid JSON, starting " + json.dumps('{"url": "' + self.ASKED + '?secret-param=1')
+        rec = self.reject({"url": self.ASKED}, error=quoted)
+        self.assertEqual(rec["tools"][1]["error"], 'not valid JSON, starting "{\\"url\\": \\"<url>"')
+        self.assertEqual(rec["failed"]["tool_errors"],
+                         '1: web_iq_browse (not valid JSON, starting "{\\"url\\": \\"<url>")')
+        text = json.dumps(rec, ensure_ascii=False)
+        for piece in self.PIECES:
+            self.assertNotIn(piece, text)
 
 
 class StopRuleTests(FailureCase):
