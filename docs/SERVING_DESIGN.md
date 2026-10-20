@@ -1082,6 +1082,34 @@ no redeployment: 15 of 15 direct replays and 2 of 2 Foundry runs at that
 value were clean. Those counts are not statistical evidence that it prevents
 the error.
 
+**Replay of the captured request.** A successful Foundry run of the same agent
+as the failed run left a gateway trace, and the exact body of its first model
+request was taken from it (2,333 bytes). It has 482 prompt tokens at vLLM, the
+same count as the failed request; the reconstruction above had 472. The body
+was sent unchanged, directly to the FP8 route (not through API Management or
+Foundry), 100 times at temperature 1.0, and 100 more times with only the value
+of `temperature` changed to 0.3. The calls were sequential, at least 3 seconds
+apart, and none was retried. Every call returned HTTP 200, and no stream had
+an `error` chunk.
+
+| Temperature | Calls | Declared tool name | Name with one `mcp_` missing | Text only |
+| --- | --- | --- | --- | --- |
+| 1.0 | 100 | 91 | 3 | 6 |
+| 0.3 | 100 | 100 | 0 | 0 |
+
+The 3 near names had 45 characters, not the 49 of the declared name:
+`mcp___<label>___<tool>` in place of `mcp___mcp_<label>___<tool>`. The model
+API sent them as it received them; the tool-name replacement in the table of
+stream shapes below was added after this replay. The responses that did not
+carry the declared tool name were 9 of 100 at 1.0 (3 near names and 6 text
+only) and 0 of 100 at 0.3. The difference in near names alone, 3 against 0, is
+within what chance can produce; the difference in all responses without the
+declared name, 9 against 0, is unlikely to be chance. This shows that the model
+can return a name other than the declared one, here with one `mcp_` missing. It
+does not show whether such a name causes the Foundry `model_error`: the
+replayed body comes from a successful run and the body of the failed response
+was not kept, so any link between the two is a guess.
+
 **Stream shapes (offline analysis).** To see what the model API can add to a
 stream that Foundry might call invalid, 69 synthetic upstream streams were fed
 through the real relay code with a fake link. The bytes sent were compared with
@@ -1118,10 +1146,13 @@ and ignores comment lines; how Foundry's parser treats either is not known.
 To tell the model's output from a fault of the model API, find the request's
 `x-request-id` in the model API's log line. A `status` of 200 with an empty
 `error` means the stream was the model's own output, apart from the changes
-marked "by design" above. A `finish_reason` of `length`, or `completion_tokens`
-near the token cap, means an answer that was cut off. A `status` of 200 with a
-non-empty `error` (for example `upstream_error`, `backend_unavailable`,
-`timeout` or `internal_error`) means the model API sent an error chunk.
+marked "by design" above. A `tool_name_repairs` key in the line means that the
+model API changed a tool name in that request, and that the name the model sent
+differed from the declared name; the line holds lengths only, never the names.
+A `finish_reason` of `length`, or `completion_tokens` near the token cap, means
+an answer that was cut off. A `status` of 200 with a non-empty `error` (for
+example `upstream_error`, `backend_unavailable`, `timeout` or `internal_error`)
+means the model API sent an error chunk.
 
 **Known limits.**
 
@@ -1170,7 +1201,12 @@ non-empty `error` (for example `upstream_error`, `backend_unavailable`,
 
 - What caused the one Foundry `model_error`: the model's output, how Foundry
   read the stream, or a difference in the request. It was not reproduced in 44
-  direct replays or in 3 Foundry retests.
+  direct replays or in 3 Foundry retests. In replays of the captured request
+  the model returned a name with one `mcp_` missing in 3 of 100 calls at
+  temperature 1.0 and in 0 of 100 at 0.3; whether such a name causes the error
+  has not been checked.
+- What the tool-name replacement does with the real model and with Foundry: it
+  was tested only locally, with fakes.
 - Why the prompt sizes differ: 482 tokens in the failed request, 472 in the
   replay reconstruction and about 486 (an estimate) in the successful Foundry
   requests; and how Foundry counts input tokens for a turn with more than one
