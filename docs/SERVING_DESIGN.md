@@ -1013,9 +1013,11 @@ independent evidence that those turns used this model. Prompt tokens differ, by
 repeats. One reading is that Foundry's usage counts only the input of the last
 model request in a turn, while vLLM counts all of them, so that the difference
 is the input of the first request. The same difference in all three repeats
-fits that reading, but it is a guess and has not been checked: the counter was
-sampled every 12 seconds, which cannot separate the first request from the
-second.
+fits that reading, but it was not checked directly: the counter was sampled
+every 12 seconds, which cannot separate the first request from the second. A
+later measurement fits the reading too: the first model request of a
+successful run has 482 tokens at vLLM (see "Replay of the captured request"
+below), and 482 plus the 4 seen in the first turn is 486.
 
 **An unexplained Foundry `model_error`.** One run of an FP8 agent with an MCP
 tool (approval `never`) ended in a Foundry 500 `model_error` ("The model
@@ -1059,13 +1061,14 @@ activation state as before, and the queue was empty.
 
 The prompt sizes do not agree. The failed request had 482 tokens at vLLM. The
 reconstruction used in the replays had 472 in every call, so the replays are
-not token-identical to the failed request. For the three Foundry retests the
-counters suggest about 486 tokens for the first model request of a turn (see
-"Evidence that K2 answers"): about 14 more than the reconstruction and 4 more
-than the failed request. That figure is an estimate. It rests on a guess about
-how Foundry counts input. The first turn above also shows a difference of 4
-that is not explained, so the 4-token gap to the failed request may come from
-the counting and not from the requests.
+not token-identical to the failed request. The exact body of a successful
+run's first model request, taken later (see "Replay of the captured request"
+below), also has 482 tokens at vLLM, the same as the failed request. That
+replaces the earlier estimate of about 486 for the first request of the Foundry
+retests. The 486 in "Evidence that K2 answers" fits 482, measured for a
+successful run of the same agent, plus the difference of 4 that Foundry's input
+count showed in a turn with one request. This was not checked directly, and the
+cause of the difference of 4 is not known.
 
 What these results show: the error was not reproduced, and its cause is not
 known. The 44 direct replays (29 at temperature 1.0, 15 at 0.3) had no
@@ -1089,8 +1092,8 @@ same count as the failed request; the reconstruction above had 472. The body
 was sent unchanged, directly to the FP8 route (not through API Management or
 Foundry), 100 times at temperature 1.0, and 100 more times with only the value
 of `temperature` changed to 0.3. The calls were sequential, at least 3 seconds
-apart, and none was retried. Every call returned HTTP 200, and no stream had
-an `error` chunk.
+apart, and none was retried. The two series ran one after the other, not
+interleaved. Every call returned HTTP 200, and no stream had an `error` chunk.
 
 | Temperature | Calls | Declared tool name | Name with one `mcp_` missing | Text only |
 | --- | --- | --- | --- | --- |
@@ -1104,11 +1107,12 @@ stream shapes below was added after this replay. The responses that did not
 carry the declared tool name were 9 of 100 at 1.0 (3 near names and 6 text
 only) and 0 of 100 at 0.3. The difference in near names alone, 3 against 0, is
 within what chance can produce; the difference in all responses without the
-declared name, 9 against 0, is unlikely to be chance. This shows that the model
-can return a name other than the declared one, here with one `mcp_` missing. It
-does not show whether such a name causes the Foundry `model_error`: the
-replayed body comes from a successful run and the body of the failed response
-was not kept, so any link between the two is a guess.
+declared name, 9 against 0, is unlikely to be chance. Because the two series
+ran one after the other, a change between them cannot be ruled out. This shows
+that the model can return a name other than the declared one, here with one
+`mcp_` missing. It does not show whether such a name causes the Foundry
+`model_error`: the replayed body comes from a successful run and the body of
+the failed response was not kept, so any link between the two is a guess.
 
 **Stream shapes (offline analysis).** To see what the model API can add to a
 stream that Foundry might call invalid, 69 synthetic upstream streams were fed
@@ -1207,10 +1211,9 @@ means the model API sent an error chunk.
   has not been checked.
 - What the tool-name replacement does with the real model and with Foundry: it
   was tested only locally, with fakes.
-- Why the prompt sizes differ: 482 tokens in the failed request, 472 in the
-  replay reconstruction and about 486 (an estimate) in the successful Foundry
-  requests; and how Foundry counts input tokens for a turn with more than one
-  model request.
+- Why Foundry's input count is 4 below vLLM's for the same request, and
+  whether Foundry counts only the last model request of a turn. The figures
+  fit (482 + 4 = 486 in the retests) but were not checked directly.
 - How Foundry's parser treats an `error` chunk in a stream, and a tool call
   whose `arguments` are not valid JSON.
 - What the Foundry console shows for this connection: the model setting, the
@@ -1318,8 +1321,9 @@ encodability check to the demo chat's request validation.
   `fastsafetensors` loading) is out of scope for this proof.
 - The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
   registration. Its open items are listed at the end of 8.6: the cause of one
-  unexplained Foundry `model_error`, the prompt-size differences, how Foundry
-  handles a stream error chunk and malformed tool arguments, console
-  visibility and the Web IQ tool with a real key. Its latency and load are not
-  measured; do that with the customer's scenario once the connection is
-  complete.
+  unexplained Foundry `model_error`, what the tool-name replacement does with
+  the real model and with Foundry, why Foundry's input count is 4 below
+  vLLM's, how Foundry handles a stream error chunk and malformed tool
+  arguments, console visibility and the Web IQ tool with a real key. Its
+  latency and load are not measured; do that with the customer's scenario once
+  the connection is complete.
