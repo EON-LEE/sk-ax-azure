@@ -1,0 +1,203 @@
+{
+  "observedAt": "2026-10-20T04:08:18Z",
+  "window": {
+    "start": "2026-10-20T03:22:15Z",
+    "end": "2026-10-20T03:22:45Z"
+  },
+  "includeSmoke": false,
+  "capped": [],
+  "summary": {
+    "requests": 2,
+    "smokeLeftOut": 0,
+    "callers": {
+      "other": 2
+    },
+    "status": {
+      "200": 2
+    },
+    "answeredBy": {
+      "backend": 2
+    },
+    "gapsSecondsBetweenCallerRequests": [
+      3.54
+    ],
+    "identicalShapes": false,
+    "gatewayOverheadMs": {
+      "min": 1.8,
+      "max": 2.1
+    },
+    "tracedRequests": 2,
+    "clientCredentialsForwarded": 0,
+    "authorizationInjected": 2,
+    "callerSideSpans": {
+      "chat": {
+        "count": 1,
+        "status": {
+          "0": 1
+        }
+      },
+      "execute_tool": {
+        "count": 1,
+        "status": {
+          "0": 1
+        },
+        "tools": {
+          "mcp_microsoft_learn.microsoft_docs_search": 1
+        },
+        "resultKey": {
+          "present": 1,
+          "absent": 0
+        }
+      },
+      "invoke_agent": {
+        "count": 1,
+        "status": {
+          "0": 1
+        }
+      }
+    },
+    "otherTraceRows": 0
+  },
+  "requests": [
+    {
+      "at": "2026-10-20T03:22:24.750Z",
+      "operation": "1ef8ce02",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 1170.0,
+      "requestSize": 3984,
+      "responseSize": 5655,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 1168.2
+      },
+      "gatewayOverheadMs": 1.8,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 2,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 384,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 0.0
+    },
+    {
+      "at": "2026-10-20T03:22:28.286Z",
+      "operation": "1ef8ce02",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 2334.7,
+      "requestSize": 63963,
+      "responseSize": 22480,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 2332.6
+      },
+      "gatewayOverheadMs": 2.1,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 4,
+        "roles": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 344,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 3.54
+    }
+  ]
+}

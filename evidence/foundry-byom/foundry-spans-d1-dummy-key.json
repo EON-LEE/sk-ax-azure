@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-10-20T07:13:57Z",
+  "windows": [
+    {
+      "start": "2026-10-20T07:06:30Z",
+      "end": "2026-10-20T07:13:00Z"
+    }
+  ],
+  "source": "caller-side spans (AppDependencies); allow-listed fields only: no agent names, message text or tool arguments",
+  "counts": {
+    "invoke_agent": 1
+  },
+  "leftOut": {
+    "otherTraces": 0,
+    "otherSpans": 0
+  },
+  "traces": [
+    {
+      "operation": "6d559fb5",
+      "spans": [
+        {
+          "at": "2026-10-20T07:07:39.660Z",
+          "kind": "invoke_agent",
+          "resultCode": "500",
+          "durationMs": 0.6
+        }
+      ]
+    }
+  ]
+}

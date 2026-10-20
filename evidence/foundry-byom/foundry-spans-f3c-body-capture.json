@@ -1,0 +1,100 @@
+{
+  "observedAt": "2026-10-20T06:20:01Z",
+  "windows": [
+    {
+      "start": "2026-10-20T05:49:30Z",
+      "end": "2026-10-20T05:53:30Z"
+    }
+  ],
+  "source": "caller-side spans (AppDependencies); allow-listed fields only: no agent names, message text or tool arguments",
+  "counts": {
+    "chat": 3,
+    "execute_tool": 2,
+    "invoke_agent": 3
+  },
+  "leftOut": {
+    "otherTraces": 0,
+    "otherSpans": 0
+  },
+  "traces": [
+    {
+      "operation": "10b0e700",
+      "spans": [
+        {
+          "at": "2026-10-20T05:50:14.137Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 6102.7
+        },
+        {
+          "at": "2026-10-20T05:50:14.138Z",
+          "kind": "execute_tool",
+          "resultCode": "0",
+          "durationMs": 4297.5,
+          "tool": "mcp_microsoft_learn.microsoft_docs_search",
+          "resultAttribute": true
+        },
+        {
+          "at": "2026-10-20T05:50:18.435Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 1788.5,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 10531,
+          "outputTokens": 83,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "bd99deb7",
+      "spans": [
+        {
+          "at": "2026-10-20T05:51:30.204Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 3312.3
+        },
+        {
+          "at": "2026-10-20T05:51:30.204Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 3284.4,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 478,
+          "outputTokens": 140,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    },
+    {
+      "operation": "2bd5cbff",
+      "spans": [
+        {
+          "at": "2026-10-20T05:52:36.723Z",
+          "kind": "invoke_agent",
+          "resultCode": "0",
+          "durationMs": 6182.2
+        },
+        {
+          "at": "2026-10-20T05:52:36.723Z",
+          "kind": "execute_tool",
+          "resultCode": "0",
+          "durationMs": 3751.3,
+          "tool": "mcp_microsoft_learn.microsoft_docs_search",
+          "resultAttribute": true
+        },
+        {
+          "at": "2026-10-20T05:52:40.475Z",
+          "kind": "chat",
+          "resultCode": "0",
+          "durationMs": 2412.6,
+          "model": "axk2-fp8/ax-k2-fp8",
+          "inputTokens": 10531,
+          "outputTokens": 112,
+          "finishReasons": "[\"stop\"]"
+        }
+      ]
+    }
+  ]
+}
