@@ -13,8 +13,9 @@ do not open this API, and the key opens nothing under /api.
 The hub's relay answers the browser with custom SSE events, so this module talks to the link itself. vLLM's
 chunks pass through unchanged (minus reasoning and the usage chunk unless asked for), a non-stream answer is
 built from the same chunks, and the upstream request is built from an allow-list: a caller cannot set vLLM
-extensions such as chat_template_kwargs, guided_* or priority. Nothing in a request or response body, no header
-and no key is ever logged: one JSON line per request carries counts and timings only.
+extensions such as chat_template_kwargs, guided_* or priority. A tool name that differs from a declared one only
+by "mcp_" parts becomes the declared one. Nothing in a request or response body, no header and no key is ever
+logged: one JSON line per request carries counts and timings only.
 """
 import asyncio
 import collections
@@ -234,6 +235,10 @@ class Spec:
     include_usage: bool
     dropped: list
     model: str
+
+    @property
+    def tools(self):
+        return frozenset(tool["function"]["name"] for tool in self.body.get("tools", ()))
 
 
 def refuse_unsupported(payload):
@@ -479,12 +484,35 @@ def parse_json(raw):
 
 
 # --------------------------------------------------------------------------------------- the response
+def declared_name(name, declared):
+    """`name`, or the one declared tool name that equals it once "mcp_" is removed from both."""
+    if name in declared:
+        return name
+    key = name.replace("mcp_", "")
+    same = {tool for tool in declared if tool.replace("mcp_", "") == key}
+    return same.pop() if len(same) == 1 else name
+
+
 class Events:
     """Whole SSE events out of the link's text, plus what the log and the non-stream answer need."""
 
-    def __init__(self, ctx):
-        self.ctx = ctx
+    def __init__(self, ctx, tools=()):
+        self.ctx, self.tools = ctx, frozenset(tools)
         self.buffer, self.done, self.finish, self.usage = "", False, None, None
+
+    def rename(self, calls):
+        """True if a tool call's name was replaced by the declared name it differs from only by "mcp_" parts."""
+        # vLLM's hermes parser sends a tool name whole in one delta, so only whole names are compared, never pieces
+        renamed = False
+        for call in calls if self.tools and isinstance(calls, list) else ():
+            function = call.get("function") if isinstance(call, dict) else None
+            name = function.get("name") if isinstance(function, dict) else None
+            fixed = declared_name(name, self.tools) if isinstance(name, str) and name else name
+            if fixed != name:
+                function["name"] = fixed
+                self.ctx.repairs.append({"emitted_len": len(name), "declared_len": len(fixed)})
+                renamed = True
+        return renamed
 
     def feed(self, text, keep_usage):
         """[(bytes to send on or None, parsed chunk or None)] for every event completed by `text`."""
@@ -526,7 +554,7 @@ class Events:
             counted = lambda value: value if type(value) is int else None  # noqa: E731
             self.ctx.prompt_tokens = counted(usage.get("prompt_tokens"))
             self.ctx.completion_tokens = counted(usage.get("completion_tokens"))
-        trimmed, quiet = False, True
+        trimmed, renamed, quiet = False, False, True
         for choice in choices if isinstance(choices, list) else ():
             if not isinstance(choice, dict):
                 continue
@@ -536,6 +564,7 @@ class Events:
                     if key in delta:
                         del delta[key]
                         trimmed = True
+                renamed = self.rename(delta.get("tool_calls")) or renamed
                 if delta.get("content") or delta.get("tool_calls"):
                     self.ctx.token()
                 quiet = quiet and not delta
@@ -544,7 +573,7 @@ class Events:
                 quiet = False
         if isinstance(usage, dict) and not choices and not keep_usage:
             return None
-        if trimmed:
+        if trimmed or renamed:
             if quiet and not isinstance(usage, dict):
                 return None
             return ("data: " + json.dumps(chunk, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8")
@@ -618,6 +647,7 @@ class Context:
         self.route, self.stream, self.status, self.error = "other", None, None, None
         self.prompt_tokens = self.completion_tokens = self.finish_reason = self.queue = self.ttft = None
         self.dropped = []
+        self.repairs = collections.deque(maxlen=8)
         self.started, self.logged = time.monotonic(), False
 
     def token(self):
@@ -637,6 +667,8 @@ class Context:
                   "error": self.error}
         if self.dropped:
             record["dropped_fields"] = self.dropped
+        if self.repairs:
+            record["tool_name_repairs"] = list(self.repairs)
         try:
             LOG.info(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
         except Exception:
@@ -959,7 +991,7 @@ class ModelAPI:
 
     async def collect(self, job, request, ctx, spec, deadline):
         """A non-stream answer: the whole stream, merged into one chat.completion."""
-        events, synth = Events(ctx), Synth()
+        events, synth = Events(ctx, spec.tools), Synth()
         while True:
             message = await job.poll(deadline - time.monotonic(), request)
             if message is None:
@@ -981,7 +1013,7 @@ class ModelAPI:
 
     async def stream_events(self, job, ctx, spec, status, deadline):
         """The SSE body: vLLM's events as they come, [DONE] at the end, and an error event if it breaks."""
-        events, failure = Events(ctx), ""
+        events, failure = Events(ctx, spec.tools), ""
         try:
             while True:
                 left = deadline - time.monotonic()
