@@ -1152,9 +1152,9 @@ is an ordinary HTTP error, not a stream.
 | `reasoning_content` and an unpaired surrogate escape in the same chunk | An `internal_error` chunk, then `[DONE]` (limit 8) | Model API, a defect |
 
 The `mcp_` row is not part of the offline analysis above;
-`tests/test_demo_model_api_tool_names.py` covers it. Its effect with the real
-model and with Foundry is not verified: only local tests with fakes have been
-run.
+`tests/test_demo_model_api_tool_names.py` covers it, with fakes. What the
+replacement did in live calls is described under "The replacement in live
+traffic" below.
 
 The model API changes a tool name only in the `mcp_` case above. It never
 changes arguments, `finish_reason`, ids or indexes, and it does not validate or
@@ -1178,6 +1178,30 @@ A `finish_reason` of `length`, or `completion_tokens` near the token cap, means
 an answer that was cut off. A `status` of 200 with a non-empty `error` (for
 example `upstream_error`, `backend_unavailable`, `timeout` or `internal_error`)
 means the model API sent an error chunk.
+
+**The replacement in live traffic.** With the replacement in the model API,
+43 calls went through Foundry: 30 in a series, 3 further calls and 10 in a
+demonstration. None ended in a Foundry 500 `model_error`. The first 12 calls
+of the series ran before the model API's log lines were saved, so it is not
+known whether the replacement acted in them. The log lines that were saved
+show 24 calls of the Microsoft Learn tool, and 5 of them had a near name: 45
+characters, not the 49 of the declared name, with one `mcp_` missing. The
+model API replaced each with the declared name, and all 5 calls completed. In
+their `tool_calls` entries the near names had one `mcp_` part (the declared
+name has two), no dot and no `functions.` prefix. The name of the Web IQ
+tool, which also has two `mcp_` parts (22 characters in all), was never
+shortened in 7 calls. `finish_without_calls` and `marker_in_text` were never
+true in the log lines that were saved. Before the replacement, the same agent
+setup ended in a 500 `model_error` twice in about 15 calls.
+
+These counts support the guess in "An unexplained Foundry `model_error`" that
+the model wrote a tool name that did not match the declared one, and they
+agree with the replacement having prevented the 500. They are not statistical
+evidence of either. The sample is small, and the first 12 calls of the series
+were not observed. Each near name was replaced before it reached Foundry, so
+no call shows what Foundry does with an unreplaced one. The calls before the
+replacement are earlier history, not a control run with the replacement
+switched off.
 
 **Known limits.**
 
@@ -1229,11 +1253,17 @@ means the model API sent an error chunk.
   direct replays or in 3 Foundry retests. In replays of the captured request
   the model returned a name with one `mcp_` missing in 3 of 100 calls at
   temperature 1.0 and in 0 of 100 at 0.3; whether such a name causes the error
-  has not been checked.
-- What the tool-name replacement does with the real model and with Foundry: it
-  was tested only locally, with fakes.
-- What the `tool_calls` log key shows for the real model and for Foundry: it
-  was tested only locally, with fakes.
+  has not been checked. Live calls with the replacement in place support that
+  but do not check it (see "The replacement in live traffic").
+- Whether the tool-name replacement prevents the Foundry `model_error`. In the
+  live calls that were logged it replaced 5 near names, and none of 43 calls
+  through Foundry ended in the error, but the sample is small and the first 12
+  calls of the series of 30 were not observed (see "The replacement in live
+  traffic").
+- How often the real model ends an answer with `finish_reason` `tool_calls`
+  and no call, or leaves a tag in the text: `finish_without_calls` and
+  `marker_in_text` were never true in the log lines saved so far, a small
+  sample.
 - Why Foundry's input count is 4 below vLLM's for the same request, and
   whether Foundry counts only the last model request of a turn. The figures
   fit (482 + 4 = 486 in the retests) but were not checked directly.
@@ -1344,9 +1374,9 @@ encodability check to the demo chat's request validation.
   `fastsafetensors` loading) is out of scope for this proof.
 - The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
   registration. Its open items are listed at the end of 8.6: the cause of one
-  unexplained Foundry `model_error`, what the tool-name replacement does with
-  the real model and with Foundry, why Foundry's input count is 4 below
-  vLLM's, how Foundry handles a stream error chunk and malformed tool
-  arguments, console visibility and the Web IQ tool with a real key. Its
-  latency and load are not measured; do that with the customer's scenario once
-  the connection is complete.
+  unexplained Foundry `model_error` and whether the tool-name replacement
+  prevents it, why Foundry's input count is 4 below vLLM's, how Foundry
+  handles a stream error chunk and malformed tool arguments, console
+  visibility and the Web IQ tool with a real key. Its latency and load are
+  not measured; do that with the customer's scenario once the connection is
+  complete.
