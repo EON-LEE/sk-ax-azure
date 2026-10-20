@@ -17,7 +17,7 @@ from tests.test_demo_agent import ROOT, Workspace
 from tests.test_agent_turns import TextLink, run
 from tests.test_web_iq import VERTICALS, WebIQ
 from tests.test_web_iq_verticals import contracts
-from agent import LOG as AGENT_LOG, turn_policy
+from agent import LOG as AGENT_LOG, MODEL_CALLS, TOOL_ROUNDS, turn_policy
 
 sys.path[:0] = [str(ROOT / "demo" / "frontend"), str(ROOT / "demo" / "tools")]
 import agentic_examples as catalog
@@ -96,11 +96,11 @@ class CatalogTests(unittest.TestCase):
     def test_planned_calls_and_every_pattern(self):
         for example in EXAMPLES:
             with self.subTest(example=example.id):
-                self.assertTrue(1 <= example.calls <= 5)
+                self.assertTrue(1 <= example.calls <= MODEL_CALLS)
                 for _, pattern in (*example.args, *example.results, *example.contains):
                     re.compile(pattern)
-                # a turn has 5 model calls and the last one has no tools: a plan needs at most 4 tool rounds
-                self.assertLessEqual(len(example.tools), 4 * 4)
+                # the last model call of a turn has no tools: a plan needs at most TOOL_ROUNDS tool rounds
+                self.assertLessEqual(len(example.tools), TOOL_ROUNDS * 4)
                 self.assertTrue(example.tools or example.calls == 1)
 
     def test_tools_are_real_tool_names(self):
