@@ -1,0 +1,44 @@
+{
+  "schema": "foundry-byom-create/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-20T16:44:18+00:00",
+  "action": "created",
+  "agent": "d2-webiq-agent-fp8",
+  "version": "2",
+  "model_reference": "<conn-fp8>/ax-k2-fp8",
+  "definition": {
+    "model": "<conn-fp8>/ax-k2-fp8",
+    "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 web 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다. Web IQ 도구의 location 인자는 'lat:<위도>;long:<경도>' 형식(예: lat:37.5665;long:126.9780)으로만 넣고, 정확한 좌표가 없으면 location을 넣지 마라.",
+    "temperature": 0.3,
+    "tools": [
+      {
+        "type": "mcp",
+        "server_label": "web_iq",
+        "server_url": "https://api.microsoft.ai/v3/mcp",
+        "allowed_tools": [
+          "web"
+        ],
+        "require_approval": "never",
+        "project_connection_id": "d2-webiq"
+      }
+    ]
+  },
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "verification": {
+    "requested_model": "<conn-fp8>/ax-k2-fp8",
+    "agents_get": {
+      "version": "2",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "matches": true
+    },
+    "get_version": {
+      "version": "2",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "matches": true
+    },
+    "ok": true
+  }
+}

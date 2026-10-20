@@ -9,7 +9,7 @@ Foundry에서 만든 프롬프트 에이전트가 BYOM(Bring your own model) 연
 
 ## 현재 상태
 
-모델 API의 코드 시점은 두 가지다. e70debb는 수정 전이고 9cd2220은 재배포 뒤다. 호출마다 어느 시점의 결과인지는 DESIGN.md 3.4절에 있다.
+모델 API의 코드 시점은 여러 가지다. e70debb는 수정 전이고 9cd2220은 재배포 뒤다. 이후 재확인 30회는 도구 이름 보정이 든 다른 빌드에서 실행했다(커밋은 받지 못했다. 미확인). 시연 질문 세트와 v2 창은 웹앱 개정 a25e66c에서 실행했다. 호출마다 어느 시점의 결과인지는 DESIGN.md 3.4절에 있다.
 
 | 단계 | 상태 |
 |---|---|
@@ -18,11 +18,14 @@ Foundry에서 만든 프롬프트 에이전트가 BYOM(Bring your own model) 연
 | Phase 1a: 도구 없는 호출 | NVFP4 첫 시도는 모델 쪽 503으로 실패했다(GPU 링크 장애). 링크가 복구된 뒤 FP8와 NVFP4 모두 성공했다. |
 | Phase 1b: 함수 도구 | FP8와 NVFP4 모두 성공했다. 모델이 `function_call`을 내고 로컬 함수 결과를 받아 최종 답을 냈다. |
 | Phase 1c: Learn MCP | FP8에서 Foundry가 도구를 실행했다(`mcp_call`). `never`는 강화한 지시문으로 성공했고, `always`는 승인 흐름이 성공했다. ablation 에이전트(`temperature` 미지정)는 첫 호출이 500이었다. 재시험 3회와 재실행 3회(`run_series.py`, DESIGN.md의 ⓐ)는 성공했다. 이 에이전트의 호출은 첫 호출, 재시험 3회, 재실행 3회, ⓑ 5회(약한 지시문 에이전트와 번갈아 보낸 10회 중), 캡처 3회로 모두 15회다. 2회가 Foundry 500(`model_error`)이고 13회가 완료다(도구를 부른 11회, 안 부른 2회). 500의 원인은 모른다(U18). 같은 에이전트의 새 버전(`temperature` 0.3, 다른 변경 없음)은 3회 모두 완료했고 도구를 불렀다(온도 0.3 확인). 표본이 작아 이 설정이 500을 막는다는 증거는 아니다. |
-| Phase 1c: Web IQ MCP | 요청 단위 헤더는 400으로 거부됐다(`agent_reference`와 요청의 `tools`는 함께 쓸 수 없다). 키를 프로젝트 연결에 저장하는 방식은 사용자 승인을 기다린다. 실키는 쓰지 않았다. 더미 값으로 연결을 만들어 호출 1회를 연습했다(D-1). Foundry가 MCP 인증 실패를 요청 수준의 400(`tool_user_error`)으로 돌려줬고 APIM 요청은 0건이었다(인프라 담당 보고). 실키 호출(D-2)은 하지 않았다(DESIGN.md 4.6절). |
+| Phase 1c: Web IQ MCP | 요청 단위 헤더는 400으로 거부됐다(`agent_reference`와 요청의 `tools`는 함께 쓸 수 없다). 더미 값으로 연결을 만들어 호출 1회를 연습했다(D-1). Foundry가 MCP 인증 실패를 요청 수준의 400(`tool_user_error`)으로 돌려줬고 APIM 요청은 0건이었다(인프라 담당 보고). 키를 프로젝트 연결에 저장하는 옵션 D는 D-0의 승인을 받은 뒤 실키로 3회(D-2) 불렀고, 3회 모두 완료했으며 Foundry가 실행한 MCP 호출(`mcp_call`)이 `completed`였다. 연결은 인프라 담당이 만들었다. 이 작업은 키 값을 보지 못했고 어떤 파일에도 키가 없다. 연결에는 실제 키가 남아 있고 정리(D-6)는 하지 않았다(DESIGN.md 4.6절). 실키로 Web IQ를 부른 횟수는 모두 11회다(D-2 3회, 시연 세트 4회, v2 창 4회). |
+| Foundry 500 재확인 30회 | 도구 이름 보정이 든 모델 API 빌드에서 ablation 에이전트 버전 1(`temperature` 미지정)을 30회 완료했다. 30회 모두 HTTP 200이고 500과 `model_error`는 0회다. 시도는 32회이고 2회는 대화를 만드는 단계의 연결 오류였다(이 PC의 DNS 시간 초과로 추정). 주소를 고정한 뒤에는 연결 오류가 없었지만 고정의 효과는 구분하지 못했다(미확인). 같은 에이전트의 앞선 15회에서는 500이 2회였다. 모델 API 담당이 보고한 보정은 로그가 있는 18회 중 3회(도구 이름 45자→49자)였고 3회 모두 정상으로 끝났다. 이 결과는 "근접 이름이 500을 만든다"는 가설(U18)을 지지하는 증거다. 표본이 작고 앞선 2/15와 이번 0/30의 차이는 통계적으로 구분되지 않는다(Fisher 정확 검정 양측 p = 0.106). 500의 원인은 확정하지 못했다. |
+| 시연 질문 세트와 v2 창 | 질문 5개를 질문마다 2회씩 10회 실행했다. 9회는 완료했고 1회(W2의 호출 2)는 Web IQ의 거절로 Foundry가 HTTP 400 `tool_user_error`를 돌려줬다. 거절 원인이 `location` 인자의 형식이라는 설명은 추정이다. 이 400은 모델 API의 5xx가 아니라 도구 실행 오류와 맞는다(보고됨(모델 API 담당)). 에이전트 `d2-webiq-agent-fp8`의 버전 2(지침에 문장 하나를 더했다)로 W2를 3회, W1을 1회 실행했고 4회 모두 완료했다. 표본이 작아 그 문장이 차이를 만들었다는 근거는 없다. APIM과 스팬 집계는 보고됨(인프라 담당)이며 원본 기록은 이 저장소에 없다(DESIGN.md 3.4절, 3.5절). |
+| 입력 usage −4 | 호출별 대응 27회 모두에서 Foundry의 입력 usage가 마지막 라운드의 입력 토큰보다 4 적었고 출력 usage는 라운드별 출력 토큰의 합과 같았다(보고됨(모델 API 담당). 이 작업의 `usage`와 27/27 일치). 직접 시험에서는 API usage와 vLLM 계수의 증가분이 같았다. 4가 빠지는 곳은 Foundry의 보고 단계로 추정하며 계층은 확인하지 못했다(미확인). 근거는 DESIGN.md 3.4절의 "Foundry 입력 usage와 모델 API 입력 토큰의 대응(−4)" 행에 있다. |
 | 콘솔 확인 | 이 작업은 화면을 보지 못했고 캡처가 없다. 사용자가 포털에서 모델 배포가 보이고 플레이그라운드로 에이전트를 쓸 수 있음을 직접 확인했다고 전달했다. 그 화면이 BYOM 연결과 `byom-demo-*` 에이전트인지는 미확인이다(DESIGN.md U11). 로그인과 MFA는 사용자가 한다. |
 
 Foundry 에이전트가 BYOM 연결로 모델 API에 요청하고 답을 받는 것, 함수 도구 왕복, Foundry 쪽 MCP 도구 실행은 확인했다.
-사용 모델이 A.X K2라는 것은 아직 확정하지 않았다. 에이전트 정의와 응답의 `model` 필드는 모델 참조일 뿐이다. APIM 요청 본문의 모델 이름과 모델 런타임 출처가 같은 시간대로 맞아야 한다(DESIGN.md 7절). 인프라 담당이 읽은 APIM 요청 본문의 모델 이름은 재시험 6건, 재실행(ⓐ) 6건, ⓑ 13건, 온도 0.3 확인 6건 모두 `ax-k2-fp8`이었다. 캡처 3회는 요청 5건의 본문 모델 이름이 모두 `ax-k2-fp8`이었다(보고됨(인프라 담당), ID가 아니라 시각 순서와 간격으로 호출에 맞춤). 모델 API 담당이 보고한 vLLM 출력 토큰 증가분은 Foundry의 출력 usage와 같았다(18회 중 18회. 재시험 3회, 재실행 3회, ⓑ 완료 9회, 온도 0.3 확인 3회). 이것은 시간대 대조의 일부이며 요청 단위 대조는 아니다. 모델을 두 번 부른 12회는 입력 토큰 증가분의 합이 Foundry의 입력 usage보다 486개 많았다. 이 486은 482와 4의 합이다(관찰됨(산술 일치)). 482는 첫 요청의 프롬프트 토큰이다. 라운드를 나눠 읽은 7회는 첫 라운드가 482였고 둘째 라운드가 입력 usage보다 4 컸다. 재시험 3회의 482는 직접 측정한 값이 아니라 같은 에이전트이므로 맞는 수치로 쓴 것이다. 한 요청마다 4개가 달라지는 원인과, 입력 usage가 마지막 요청만 센 값이라는 해석은 확인하지 못했다(미확인). 근거는 DESIGN.md 3.4절의 "재시험의 vLLM 토큰 대조" 행에 있다.
+사용 모델이 A.X K2라는 것은 아직 확정하지 않았다. 에이전트 정의와 응답의 `model` 필드는 모델 참조일 뿐이다. APIM 요청 본문의 모델 이름과 모델 런타임 출처가 같은 시간대로 맞아야 한다(DESIGN.md 7절). 인프라 담당이 읽은 APIM 요청 본문의 모델 이름은 재시험 6건, 재실행(ⓐ) 6건, ⓑ 13건, 온도 0.3 확인 6건 모두 `ax-k2-fp8`이었다. 캡처 3회는 요청 5건의 본문 모델 이름이 모두 `ax-k2-fp8`이었다(보고됨(인프라 담당), ID가 아니라 시각 순서와 간격으로 호출에 맞춤). 모델 API 담당이 보고한 vLLM 출력 토큰 증가분은 Foundry의 출력 usage와 같았다(18회 중 18회. 재시험 3회, 재실행 3회, ⓑ 완료 9회, 온도 0.3 확인 3회). 이것은 시간대 대조의 일부이며 요청 단위 대조는 아니다. 모델을 두 번 부른 12회는 입력 토큰 증가분의 합이 Foundry의 입력 usage보다 486개 많았다. 이 486은 482와 4의 합이다(관찰됨(산술 일치)). 482는 첫 요청의 프롬프트 토큰이다. 라운드를 나눠 읽은 7회는 첫 라운드가 482였고 둘째 라운드가 입력 usage보다 4 컸다. 재시험 3회의 482는 직접 측정한 값이 아니라 같은 에이전트이므로 맞는 수치로 쓴 것이다. 한 요청마다 4개가 달라지는 원인과, 입력 usage가 마지막 요청만 센 값이라는 해석은 확인하지 못했다(미확인). 근거는 DESIGN.md 3.4절의 "재시험의 vLLM 토큰 대조" 행에 있다. 이후 호출별 대응 27회에서는 입력 usage가 모두 마지막 라운드의 입력 토큰보다 4 적었다(위 표의 "입력 usage −4" 행). 입력 usage가 마지막 라운드를 기준으로 보고되는 모양은 27회에서 일관됐다. 4가 빠지는 계층과 이유는 여전히 미확인이다. 시연 세트의 APIM 요청 19건과 v2 창의 요청 8건도 본문의 모델 이름이 모두 `ax-k2-fp8`이었다(보고됨(인프라 담당)).
 확인된 사실과 미확인 항목의 최신 목록은 DESIGN.md 3.4절에 있다.
 
 ## 구성
@@ -32,7 +35,7 @@ Foundry 에이전트가 BYOM 연결로 모델 API에 요청하고 답을 받는 
 | `inspect_connections.py` | 프로젝트 연결을 읽기 전용으로 조회하고 연결 계약과 비교한다. 자격 증명 값은 요청하지 않는다. | 읽기 |
 | `create_agent.py` | 프롬프트 에이전트 버전을 멱등하게 만들고 저장된 모델 참조를 읽어 비교한다. | 에이전트 버전 쓰기와 읽기 |
 | `run_prompt.py` | 에이전트를 Responses API로 한 번 호출하고 출력 항목, 도구 호출, 최종 답, usage를 요약한다. | 모델 호출 |
-| `run_series.py` | 에이전트 버전 호출 묶음을 한 번에 하나씩 순서대로 실행하고 호출마다 기록한다. 호출 전에 에이전트 버전을 읽어 점검하고, 첫 비정상 호출에서 멈추며, 재시도하지 않는다. `--continue-on-model-error`를 쓰면 `model_error`로 끝난 호출만 기록하고 계속한다. `--precheck-only`는 점검만 하고 끝낸다. | 읽기(호출 전 점검), 모델 호출 |
+| `run_series.py` | 에이전트 버전 호출 묶음을 한 번에 하나씩 순서대로 실행하고 호출마다 기록한다. 호출 전에 에이전트 버전을 읽어 점검하고, 첫 비정상 호출에서 멈추며, 재시도하지 않는다. `--continue-on-model-error`를 쓰면 `model_error`로 끝난 호출만 기록하고 계속한다. `--request-budget N`은 예상 모델 요청 수가 N을 넘기 전에 멈추는 클라이언트 쪽 상한이다. `--stop-on-mcp-error`는 완료한 호출 안에서 MCP 오류가 났을 때 기록하고 멈춘다. `--precheck-only`는 점검만 하고 끝낸다. | 읽기(호출 전 점검), 모델 호출 |
 | `collect_evidence.py` | 비밀을 제거한 증거 JSON을 만들고 점검 항목을 판정한다. | 읽기(`--offline`이면 없음) |
 | `byom_common.py` | 설정 검증, 비밀 제거, `az` 토큰 요청의 구독 지정, 클라이언트 생성, 증거 파일 쓰기 | 없음 |
 | `requirements.txt` | 필요한 패키지 | 없음 |
@@ -100,6 +103,8 @@ python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --repeat 5 --
 python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --repeat 5 --expect-calls 10 --label <label> --continue-on-model-error
 # 7-3. 모델을 호출하지 않고 에이전트 버전만 읽어 점검한다(읽기 전용, 파일을 쓰지 않는다)
 python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --label <label> --precheck-only
+# 7-4. 긴 묶음(한 묶음은 30호출까지, 호출 사이 30초 이상). 예상 모델 요청 수에 상한을 걸고, 완료한 호출에서 MCP 오류가 나면 멈춘다
+python run_series.py --call <mcp-agent>:1 --repeat 12 --expect-calls 12 --label <label> --min-gap-s 30 --request-budget 24 --stop-on-mcp-error
 ```
 
 4단계의 함수는 `run_prompt.py`가 로컬에서 실행한다. Foundry가 도구를 실행하는 경로는 5단계의 MCP다.
@@ -107,21 +112,25 @@ python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --label <labe
 `--temperature 0.3`은 예방 조치다. 이 설정이 Foundry의 500을 막는다는 증거는 없다(DESIGN.md U18).
 `--prompt-file`로 프롬프트를 파일에서 읽을 수 있다. `run_prompt.py`는 실행마다 대화를 하나 만들고 콘솔에서 볼 수 있도록 남긴다. 지우려면 `--delete-conversation`을 쓴다.
 Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 없다. 키를 프로젝트 연결에 저장하는 옵션 D만 남았고, 키가 Foundry에 저장되므로 사용자 승인 뒤에만 한다(DESIGN.md 4.5절, 4.6절). `run_prompt.py --mcp-request-header`는 옵션 B를 시험하려고 만든 실험 옵션이며 Foundry가 거부했다.
-옵션 D의 연습(D-1)은 더미 값으로 한 번 했다(DESIGN.md 3.4절, 4.6절). 연결 이름은 `create_agent.py --mcp-connection <연결 이름>`으로 넘기며 `project_connection_id`를 채운다. 키 값이 서버 기록에 남았는지는 `collect_evidence.py --scan-env <변수>`로 검사한다. 실키를 쓰는 호출은 하지 않았고 사용자 승인 뒤에만 한다.
+옵션 D의 연습(D-1)은 더미 값으로 한 번 했다(DESIGN.md 3.4절, 4.6절). 연결 이름은 `create_agent.py --mcp-connection <연결 이름>`으로 넘기며 `project_connection_id`를 채운다. 키 값이 서버 기록에 남았는지는 `collect_evidence.py --scan-env <변수>`로 검사한다. 실키를 쓰는 호출(D-2)은 D-0의 승인을 받은 뒤 3회 했다. 실키로 Web IQ를 부른 횟수는 시연 세트 4회와 v2 창 4회를 더해 모두 11회다. 실키를 담은 연결은 인프라 담당이 만들었고 이 작업은 키 값을 보지 못했다. 이 범위를 넘는 실키 호출은 별도의 실행 지시가 있을 때만 한다(DESIGN.md 4.6절).
 
 7단계의 `run_series.py`는 다음 규칙으로 호출한다.
 
-- `--call <이름>:<버전>`에는 버전을 반드시 적는다. 여러 번 적으면 적은 순서가 한 바퀴이고 `--repeat`만큼 되풀이한다. 한 묶음은 12호출까지다.
+- `--call <이름>:<버전>`에는 버전을 반드시 적는다. 여러 번 적으면 적은 순서가 한 바퀴이고 `--repeat`만큼 되풀이한다. 한 묶음은 30호출까지다.
 - `--expect-calls`는 실제 호출 수와 같아야 한다. `--dry-run`이나 `--precheck-only`가 아니면 필수다.
 - 모델을 호출하기 전에 일정에 든 에이전트 버전을 한 번씩 읽는다(GET). 이름이나 버전이 틀리면 모델 호출 없이 멈춘다.
 - `--precheck-only`는 이 읽기까지만 하고 끝난다. 프로젝트에는 연결하지만 모델 요청을 보내는 클라이언트는 만들지 않는다. 에이전트 정의 요약(`ok`, `agents`)만 출력하고 파일은 쓰지 않는다. `--dry-run`과 함께 쓰면 설정 오류(종료 코드 2)다. 점검이 실패하면 `stage`와 오류 요약을 출력하고 종료 코드 1이다.
 - 호출마다 새 대화를 쓴다. 호출 사이 간격은 앞 호출이 끝난 시각부터 센다(기본 60초, 최소 15초).
+- `--min-gap-s`는 한 번의 `run_series.py` 실행 안에서만 간격을 지킨다. 묶음 사이의 간격은 실행하는 쪽이 따로 둔다. 두 묶음 사이의 간격은 다음 묶음의 `calls[0].started_at`에서 앞 묶음의 `calls[-1].finished_at`을 뺀 값이다. 실제로 잰 간격은 DESIGN.md 8.3절에 있다.
+- 이 PC의 DNS 시간 초과로 30회 시험에서 연결 오류가 2회 났다(추정). 세 번째 묶음(`fp8-b-v1-30c`, 7회)부터 이후의 모든 실행은 클라이언트 프로세스 안에서 서버 주소(IP)를 고정했다. 이 조치는 `run_series.py`의 기능이 아니라 실행 환경에서 한 것이다. 고정에 쓴 도구는 이 저장소에 없고 고정한 주소는 어디에도 기록하지 않았다. 고정이 오류를 막았는지는 구분하지 못했다(미확인). 근거는 DESIGN.md 3.4절의 "30회 시험의 연결 오류 2회와 주소 고정" 행에 있다.
+- `--request-budget N`(N은 2 이상)은 예상 모델 요청 수의 상한이다. 완료한 호출마다 Responses POST 수(0이면 1로 센다)와 `mcp_call` 항목 수를 더해 쌓는다. 호출 하나가 요청을 2건까지 쓸 수 있으므로, 쌓은 값에 2를 더한 값이 N을 넘으면 다음 호출을 보내기 전에 멈춘다. 이때 `stopped_early`가 `true`이고 `stop_reason`에 이유가 남으며 종료 코드는 1이다. 이 값은 클라이언트 쪽 추정이다. APIM이 받은 요청 수는 인프라 담당이 센다.
+- `--stop-on-mcp-error`는 `completed`로 끝난 호출 안의 MCP 항목(`mcp_call` 또는 `mcp_list_tools`)에 오류가 있거나 상태가 `failed`이면 그 호출을 기록하고 멈춘다. 그 호출을 다시 보내지 않고 다음 호출도 보내지 않는다. 종료 코드는 1이다.
 - 확인 코드는 호출마다 무작위로 정한다. 이전 실행과 같은 프롬프트를 보내려면 `--nonce <코드>`로 하나를 지정한다. 이때는 모든 호출이 같은 확인 코드를 쓰므로 호출은 시각으로 구분한다.
 - 출력 상한은 호출마다 `--max-output-tokens`(기본 384, 1 이상)로 건다. SDK 재시도는 꺼져 있다.
 - `completed`가 아닌 호출이 처음 나오면 멈춘다(오류, 5xx, 시간 초과, `failed`, `incomplete`, 승인 필요). 그 호출을 다시 보내지 않고 다음 호출도 보내지 않는다. 모델이 MCP 도구를 부르지 않고 `completed`로 끝난 호출은 정상 결과이므로 멈추지 않는다.
 - `--continue-on-model-error`를 쓰면 `model_error`로 끝난 호출은 멈추지 않는다. 그 호출을 기록하고, 간격이 지난 뒤 다음 호출을 보낸다. 그 호출도 다시 보내지 않는다. `model_error`는 HTTP 500이거나 `failed` 응답이고 서비스 오류의 type 또는 code가 `model_error`인 경우다. 503 "model backend not ready"는 code가 `model_error`일 수 있으나 `model_error`로 세지 않으며, 이 옵션을 써도 멈춘다. 시간 초과, 429, `incomplete`, 승인 필요도 멈춘다.
 - 호출이 하나 끝날 때마다 시리즈 파일을 다시 쓴다. 중간에 멈추면 그때까지의 기록이 남는다.
-- 종료 코드는 모든 호출이 `completed`이면 0이다. 멈춘 경우에는 멈춘 호출의 `run_prompt.py` 종료 코드와 같다. 호출 전 점검이 실패하면 1이고, 설정 오류면 2다. `--continue-on-model-error`로 `model_error` 호출을 넘기고 끝까지 갔을 때도 0이므로 `summary`의 `model_error` 수를 함께 본다.
+- 종료 코드는 모든 호출이 `completed`이면 0이다. 멈춘 경우에는 멈춘 호출의 `run_prompt.py` 종료 코드와 같다. 호출 전 점검이 실패하면 1이고, 설정 오류면 2다. `--request-budget`이나 `--stop-on-mcp-error`로 멈춘 경우는 1이다. `--continue-on-model-error`로 `model_error` 호출을 넘기고 끝까지 갔을 때도 0이므로 `summary`의 `model_error` 수를 함께 본다.
 
 ## 실행 결과 읽는 법
 
@@ -131,7 +140,7 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 |---|---|
 | `stopped`, `ok` | 끝난 이유와 성공 판정. `stopped`가 `completed`면 성공이다. |
 | `request` | 호출 조건. 시나리오, 에이전트 이름, 확인 코드(`nonce`), 상한(`limits`: `max_output_tokens`, `max_tool_calls`, `max_rounds`, `timeout_s`), 승인한 도구 |
-| `started_at`, `last_request_at`, `finished_at` | 시작, 마지막 요청, 종료 시각. 클라이언트 시계 기준 UTC이고 밀리초 단위다(`YYYY-MM-DDTHH:MM:SS.mmm+00:00`, KST는 UTC+9). 인프라 담당이 APIM 기록과, 모델 API 담당이 모델 쪽 토큰 카운터와 시간대를 맞출 때 쓴다. |
+| `started_at`, `last_request_at`, `finished_at` | 시작, 마지막 요청, 종료 시각. 클라이언트 시계 기준 UTC이고 밀리초 단위다(`YYYY-MM-DDTHH:MM:SS.mmm+00:00`, KST는 UTC+9). 이 작업의 시계는 서버 시계보다 2초 이상 느리다(정확한 차이는 재지 않았다). 인프라 담당이 APIM 기록과, 모델 API 담당이 모델 쪽 토큰 카운터와 시간대를 맞출 때 쓴다. |
 | `rounds` | 응답마다 한 항목. 주요 키는 `response_id`, `request_id`(서비스가 돌려준 요청 ID의 앞 8자, 없으면 `null`), `status`, `model`, `output_item_types`, `usage`, `error`, `chained_by`, `requested_at`, `responded_at`, `elapsed_s`다. |
 | `item_sequence` | 출력 항목 종류의 순서. 도구 호출 흔적을 본다. |
 | `tool_events` | 도구 목록, 도구 호출, 승인 요청 항목의 요약 |
@@ -148,12 +157,12 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 
 ### 호출 묶음 결과(`<label>.series.json`)
 
-`run_series.py`는 호출마다 한 항목을 `calls`에 쌓는다. 프롬프트, 도구 입출력, 최종 답의 원문은 넣지 않고 길이와 항목 종류만 넣는다. 원문 요약은 호출마다 저장하는 `<label>-NN.run.json`에 있다.
+`run_series.py`는 호출마다 한 항목을 `calls`에 쌓는다. 프롬프트, 도구 입출력, 최종 답의 원문은 넣지 않고 길이, 항목 종류, 도구 출력의 모양(키 이름과 목록 길이), 공개 호스트 이름만 넣는다. 원문 요약은 호출마다 저장하는 `<label>-NN.run.json`에 있다.
 Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 쪽 토큰 카운터는 이 파일에 없다. 각 담당이 호출 시각과 확인 코드로 맞춘다.
 
 | 키 | 뜻 |
 |---|---|
-| `plan` | 일정. 호출 목록, 시나리오, 간격, 상한, `continue_on_model_error`, 중단 규칙(`stop_rule`) |
+| `plan` | 일정. 호출 목록, 시나리오, 간격, 상한, `continue_on_model_error`, `request_budget`, `stop_on_mcp_error`, 중단 규칙(`stop_rule`) |
 | `agents` | 호출 전에 읽은 에이전트 버전의 정의 요약. 모델 참조, `temperature`, 도구, 지시문 길이와 해시 앞 12자 |
 | `planned_calls`, `calls` | 계획한 호출 수와 실제로 실행한 호출의 기록. 중간에 멈추면 `calls`가 더 짧다. |
 | `summary` | 호출 수, 성공 수, MCP 도구를 부른 수, MCP 없이 끝난 수, `model_error` 수. `by_agent`는 에이전트 버전별 같은 집계 |
@@ -167,11 +176,13 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 | `started_at`, `first_request_at`, `finished_at`, `duration_ms` | 시작, 첫 요청, 종료 시각(UTC, 밀리초)과 소요 시간 |
 | `gap_before_s` | 앞 호출이 끝난 뒤 이 호출을 시작하기까지 잰 간격. 첫 호출은 `null` |
 | `ok`, `stopped`, `error`, `model_error` | 성공 여부, 끝난 이유, 오류 요약, `model_error` 여부. `error.type`은 예외 클래스 이름이고 서비스가 돌려준 오류 type은 `error.api_type`이다. `model_error`는 HTTP 500(또는 `failed` 응답)이고 `error.code`나 `error.api_type`이 `model_error`일 때만 `true`다. 503은 code가 `model_error`여도 `false`다. |
-| `item_sequence`, `mcp_called`, `mcp_calls` | 출력 항목 종류의 순서, MCP 도구를 불렀는지, 도구 호출마다 이름·상태·인자가 객체인지·질의 길이(`query_chars`)·출력 길이(`output_chars`). 질의 원문은 넣지 않는다. |
-| `answer_chars`, `final_answer_contains_nonce`, `think_tag` | 최종 답 길이, 확인 코드 포함 여부, `<think>` 태그 여부 |
+| `item_sequence`, `mcp_called`, `mcp_calls` | 출력 항목 종류의 순서, MCP 도구를 불렀는지, 도구 호출마다 이름·상태·인자가 객체인지·질의 길이(`query_chars`)·출력 길이(`output_chars`)·출력 안의 URL 수(`output_url_count`)·출력에 나온 공개 호스트 이름(`output_hosts`)·출력의 모양(`output_shape`. 키 이름과 목록 길이만 있고 값은 없다)·인식한 결과 목록의 항목 수(`result_items`. 인식한 목록이 없으면 키가 없다). 질의 원문과 출력 원문은 넣지 않는다. |
+| `answer_chars`, `answer_hosts`, `answer_hosts_not_in_tool_output`, `final_answer_contains_nonce`, `think_tag` | 최종 답 길이, 최종 답에 나온 공개 호스트 이름, 그중 MCP 출력에 없던 호스트 이름, 확인 코드 포함 여부, `<think>` 태그 여부 |
 | `response_model`, `response_temperature`, `response_top_p`, `response_id`, `conversation_id`, `usage`, `rounds` | 마지막 응답의 `model`(에이전트 참조), 응답 객체가 돌려준 `temperature`와 `top_p`(숫자가 아니면 `null`), ID, 대화 ID, 마지막 라운드의 usage, 라운드별 시각·요청 ID·`temperature`·`top_p`·usage. `temperature`와 `top_p`는 서비스가 응답에 되돌려 준 값이며 모델 API가 받은 요청 본문의 값이 아니다. |
-| `client_http` | 이 호출 하나에서 클라이언트가 보낸 HTTP 요청 수. `requests`는 대화 생성과 Responses POST를 합친 수이고 `responses_posts`는 Responses POST 수다. |
+| `client_http` | 이 호출 하나에서 클라이언트가 보낸 HTTP 요청 수. `requests`는 대화 생성과 Responses POST를 합친 수이고 `responses_posts`는 Responses POST 수다. `responses_statuses`는 답을 받은 Responses POST의 HTTP 상태 코드를 순서대로 담는다. 답을 받은 POST가 없으면 이 키가 없고, 상태 코드가 `responses_posts`보다 적으면 답을 받지 못한 POST가 있다는 뜻이다. |
 | `contaminated`, `contamination_note` | 다른 트래픽이 겹친 호출을 사람이 표시하는 칸. 스크립트는 `null`로 두고 `summary`는 이 표시를 반영하지 않는다. |
+
+공개 호스트 이름 칸(`output_hosts`, `answer_hosts`)에는 공개 호스트만 넣는다. 한 칸은 처음 100개 URL 안에서 찾은 호스트를 최대 20개까지 담는다. IP 주소, 내부 이름, 테넌트 전용 이름, Azure 리소스 호스트, 사용자 정보가 든 URL은 `[masked-host]`로 바꾼다. `fp8-demo-w2.series.json`과 `fp8-demo-v2-w2.series.json`에서는 Web IQ가 돌려준 Microsoft가 아닌 공개 호스트 이름을 `<third-party-public-host>`로 한 번 더 바꿨다(DESIGN.md 3.5절).
 
 ## 증거 파일
 
@@ -197,6 +208,12 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 - 캡처 3회의 증거는 `capture-ablation-fp8-b.series.json`과 `capture-ablation-fp8-b-{01,02,03}.run.json`이다. 인프라 담당이 APIM 기록을 켠 구간에 보냈다. 이 호출의 APIM 요청 5건과 Foundry span 8개는 인프라 담당이 읽었다(보고됨). 그 증거 파일은 인프라 담당의 PR #32가 추가하는 `gateway-requests-foundry-f3c-body-capture.json`과 `foundry-spans-f3c-body-capture.json`이다(PR #32가 병합돼야 이 저장소에 생긴다). 호출과의 대응은 ID가 아니라 시각 순서와 간격으로 맞춘 것이다. 요청 본문의 모델 이름은 5건 모두 `ax-k2-fp8`이었다(보고됨(인프라 담당)).
 - 온도 0.3 확인 3회의 증거는 `temp03-ablation-fp8-b.create.json`(새 에이전트 버전), `temp03-ablation-fp8-b.series.json`, `temp03-ablation-fp8-b-{01,02,03}.run.json`이다. 응답 객체의 `temperature`는 3회 모두 0.3000000119209289(0.3의 float32 값)이고 `top_p`는 1.0이다. APIM 요청 본문의 `temperature`도 0.3이었다(보고됨(인프라 담당)). Foundry span에는 `temperature` 속성이 없다(보고됨(인프라 담당)).
 - D-1(더미 키 연습)의 증거는 `d1-dummy-webiq.create.json`, `d1-dummy-webiq.series.json`, `d1-dummy-webiq-01.run.json`, `d1-dummy-webiq-01.json`이다. 호출 1회가 HTTP 400(`tool_user_error`)으로 끝났다. 더미 값은 어떤 파일에도 없다. 오류 본문의 요청 ID와 대화 ID는 앞 8자만 남겼다.
+- Foundry 500 재확인 30회의 증거는 묶음 세 개다. 묶음 1은 `fp8-b-v1-30.series.json`과 `fp8-b-v1-30-{01..13}.run.json`, 묶음 2는 `fp8-b-v1-30b.series.json`과 `fp8-b-v1-30b-{01..12}.run.json`, 묶음 3은 `fp8-b-v1-30c.series.json`과 `fp8-b-v1-30c-{01..07}.run.json`이다. 시도 32회 중 `30-13`과 `30b-12`는 연결 오류로 끝났고 대화 ID가 없다. 완료한 30회는 모두 HTTP 200이다. 모델 API, APIM, 스팬의 집계는 보고이며 원본 기록은 이 저장소에 없다(DESIGN.md 3.4절).
+- D-2(실키 3회)의 증거는 `d2-real-webiq.create.json`과 `d2-real-webiq.series.json`이다. 키 값은 어떤 파일에도 없다. 호출별 실행 기록에는 Web IQ가 돌려준 검색 결과 원문이 있어서 이 저장소에 두지 않았고 비공개 사본에만 있다.
+- 시연 세트의 증거는 `fp8-demo-{l1,l2,w1,w2,l3}.series.json`, `fp8-demo-l{1,2,3}-0{1,2}.run.json`, `fp8-demo-w2-02.run.json`이다. 이 실행 기록의 `request.prompt`에 질문이 들어 있다. 실패한 `fp8-demo-w2-02.run.json`에는 Foundry가 돌려준 오류 메시지(Web IQ의 거절)도 들어 있다. W1과 W2에서 성공한 호출의 실행 기록에는 검색 결과 원문이 있어서 이 저장소에 두지 않았고 비공개 사본에만 있다. 모델 API 담당과 인프라 담당의 집계는 보고이며 원본 기록은 이 저장소에 없다(DESIGN.md 3.4절, 3.5절).
+- v2 창의 증거는 `d2-webiq-v2.create.json`(에이전트 버전 2를 만든 기록), `fp8-demo-v2-w2.series.json`, `fp8-demo-v2-w1.series.json`이다. 성공한 호출의 실행 기록에는 검색 결과 원문이 있어서 이 저장소에 두지 않았고 비공개 사본에만 있다. 인프라 담당의 집계는 보고이며 원본 기록은 이 저장소에 없다(DESIGN.md 3.4절).
+- `webiq-tool-args-shape.json`은 실키 Web IQ 호출 11회에서 모델이 만든 도구 인자의 모양을 센 요약이다. `location` 인자의 종류(빈 문자열, `null`, 생략, 예시와 같은 좌표)와 API 옵션 값만 있고 질의 원문, 웹 내용, 답은 없다. 시연 W2 호출 2(실패)의 인자는 클라이언트에 보이지 않아서 이 파일에서는 `not_visible_to_client`다. 그 호출의 `location` 분류는 인프라 담당이 스팬에서 한 것이며 DESIGN.md 3.4절에 보고로 적었다.
+- `usage-vs-model-api.json`은 성공한 호출 27회에 대해 Foundry가 보고한 usage(`input_tokens`, `output_tokens`)와 모델 API 기록의 라운드별 토큰(`prompt_tokens`, `completion_tokens`)을 나란히 둔 비교다. 토큰 수만 있고 요청, 도구 인자, 결과, 답은 없다. 모델 API 쪽 값은 모델 API 담당이 비공개 서버 기록에서 읽어 보고한 것이며 원본은 이 저장소에 없다(보고됨(모델 API 담당)). 호출과 기록은 시각과 라운드 순서로 맞췄고 모호한 대응은 0건이다. Foundry 쪽 값은 해당 묶음 파일의 `calls[].usage`와 같다.
 - 기존 앱 경로(MAF `/api/agent`)의 Web IQ 성공은 이 데모의 증거가 아니다.
 
 ## 안전 규칙
@@ -204,8 +221,8 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 1. 비밀은 환경변수로만 받는다. 출력, 파일, 커밋에 쓰지 않는다(DESIGN.md 5.3절).
 2. 공개 저장소다. 배포별 이름, 호스트, GUID를 커밋하지 않는다. 연결 이름은 별칭을 쓴다.
 3. 모델 호출은 최소로 한다. 동시성 1, 출력 상한 설정, thinking 끔.
-4. 호출 예산은 `responses.create` 횟수가 아니라 APIM 요청 수로 센다. 모델 쪽 5xx는 Foundry가 다시 보낼 수 있다(추정). 1a 시도 1에서는 호출 1번이 APIM 요청 4건이 됐다. MCP `never`에서 도구를 부른 호출은 `responses.create` 1번에 APIM 요청이 2건이었다(인프라 담당 보고). 인프라 담당이 확인한 누적 요청은 재시험까지 25건이다. 재실행 3회(ⓐ)의 요청 6건과 ⓑ의 요청 13건은 응답 ID와 요청 ID로 호출마다 맞춰졌다(인프라 담당 보고). 그래서 확인된 누적은 44건이다. 캡처 3회는 요청 5건이었다(인프라 담당 보고, ID가 아니라 시각 순서와 간격으로 호출에 맞춤). 온도 0.3 확인 3회는 요청 6건이었고, D-1의 400 호출은 0건이었다(인프라 담당 보고). 인프라 담당이 센 이 작업의 누적은 캡처 5건을 포함해 55건이다. 상한은 64건이고 이 작업이 보낸 요청만 센다. 이 작업이 보내지 않은 게이트웨이 요청 15건은 누적에 넣지 않았다(DESIGN.md 3.4절, 8.3절).
-5. 호출은 순차로 하고(동시성 1) 호출 사이에 15초 이상 둔다. ablation 재시험은 45초 이상으로 정했고 실제 간격은 50초 이상이었다. 재실행 3회(ⓐ), ⓑ, 캡처, 온도 0.3 확인은 60초 이상으로 정했고 실제 간격은 60.0초였다.
+4. 호출 예산은 `responses.create` 횟수가 아니라 APIM 요청 수로 센다. 모델 쪽 5xx는 Foundry가 다시 보낼 수 있다(추정). 1a 시도 1에서는 호출 1번이 APIM 요청 4건이 됐다. MCP `never`에서 도구를 부른 호출은 `responses.create` 1번에 APIM 요청이 2건이었다(인프라 담당 보고). 인프라 담당이 확인한 누적 요청은 재시험까지 25건이다. 재실행 3회(ⓐ)의 요청 6건과 ⓑ의 요청 13건은 응답 ID와 요청 ID로 호출마다 맞춰졌다(인프라 담당 보고). 그래서 확인된 누적은 44건이다. 캡처 3회는 요청 5건이었다(인프라 담당 보고, ID가 아니라 시각 순서와 간격으로 호출에 맞춤). 온도 0.3 확인 3회는 요청 6건이었고, D-1의 400 호출은 0건이었다(인프라 담당 보고). 인프라 담당이 센 이 작업의 누적은 캡처 5건을 포함해 55건이다. 이후 누적은 30회 시험의 묶음 1 뒤 79건, 묶음 2 뒤 101건, 묶음 3 뒤 114건, D-2 뒤 120건, 시연 세트 뒤 139건, v2 창 뒤 147건이다(보고됨(인프라 담당)). 상한은 32건에서 56건과 64건을 거쳐 160건으로 다시 정해졌고 Foundry가 보낸 요청만 센다. 누적이 147건이면 남은 예산은 13건이다(계산). 이 작업이 보내지 않은 게이트웨이 요청 15건은 누적에 넣지 않았다(DESIGN.md 3.4절, 8.3절).
+5. 호출은 순차로 하고(동시성 1) 호출 사이에 15초 이상 둔다. ablation 재시험은 45초 이상으로 정했고 실제 간격은 50초 이상이었다. 재실행 3회(ⓐ), ⓑ, 캡처, 온도 0.3 확인은 60초 이상으로 정했고 실제 간격은 60.0초였다. D-2도 60초 이상으로 정했고 실제 간격은 60.0초였다. 30회 시험, 시연 세트, v2 창은 30초 이상으로 정했다. 한 번의 실행 안의 실제 간격은 클라이언트 시계로 30.0초였다(30회 시험은 앞선 호출이 있는 완료 27회, 시연 세트는 한 질문의 두 호출 사이, v2 창은 W2 3회 사이). 시연 세트에서 질문 사이는 46초 이상이었다. v2 창에서 W2 호출 3이 끝난 뒤 W1이 시작되기까지는 묶음이 달라 `--min-gap-s`가 적용되지 않았다. 그 구간은 클라이언트 시계로 29.3초였고 서버 시계로는 30초 이상이었다(보고됨(인프라 담당). DESIGN.md 8.3절).
 6. 첫 예상 밖 실패에서 멈추고 오류 원문을 보고한다. 이 스크립트는 자동 재시도를 하지 않는다. 승인받은 재시험이 아니면 실패한 호출을 다시 보내지 않는다.
 7. 허용되는 클라우드 변경은 기존 프로젝트 안의 에이전트 버전, 대화, 응답 생성뿐이다. 새 리소스, RBAC, APIM, 웹앱, GPU는 건드리지 않는다. 삭제는 지시가 있을 때만 한다.
 
@@ -226,7 +243,7 @@ python -m unittest discover -s tests -p "test_foundry_byom*.py"
 
 이 데모가 만든 클라우드 개체다. 삭제는 프로젝트 소유자와 합의한 뒤, 지시가 있을 때만 한다. 콘솔 시연에 쓸 수 있으므로 지금은 지우지 않는다.
 
-에이전트는 8개 이름, 11개 버전이다. `create_agent.py --delete <이름>`은 그 이름의 모든 버전을 지운다.
+에이전트는 9개 이름, 13개 버전이다. `create_agent.py --delete <이름>`은 그 이름의 모든 버전을 지운다.
 
 | 에이전트 이름 | 버전 | 용도 |
 |---|---|---|
@@ -238,8 +255,9 @@ python -m unittest discover -s tests -p "test_foundry_byom*.py"
 | `byom-demo-webiq-agent-fp8` | 1 | Web IQ 요청 단위 헤더 시험용(400으로 거부됨) |
 | `byom-demo-mcp-ablation-fp8` | 1, 2 | 강한 지시문, `never`. 1은 `temperature` 미지정(U18, U19), 2는 `temperature` 0.3(온도 0.3 확인) |
 | `dummy-d1-webiq-agent-fp8` | 1 | D-1 더미 키 연습용. FP8, `temperature` 0.3, Web IQ MCP, 더미 키를 담은 프로젝트 연결 사용 |
+| `d2-webiq-agent-fp8` | 1, 2 | 실키 Web IQ MCP. FP8, `temperature` 0.3, 프로젝트 연결 `d2-webiq` 사용. 1은 D-2와 시연 세트의 W 질문에 썼고 2는 1에 지침 문장 하나를 더한 버전이다(v2 창) |
 
-대화는 35개다. 증거 이름과 대화 ID 앞 8자는 다음과 같다. `run_prompt.py`는 실행마다 대화를 하나 만들기 때문에 호출이 늘면 대화도 늘어난다.
+대화는 82개다. 아래 표에는 먼저 만든 35개의 증거 이름과 대화 ID 앞 8자를 적었다. 나중에 만든 47개(30회 시험 30개, D-2 3개, 시연 세트 10개, v2 창 4개)는 묶음 파일의 `calls[].conversation_id`(앞 8자)에 있다. `run_prompt.py`는 실행마다 대화를 하나 만들기 때문에 호출이 늘면 대화도 늘어난다. `30-13`과 `30b-12`는 대화를 만드는 단계에서 연결 오류가 나서 대화 ID가 없다. 서버에 대화가 생겼는지는 확인하지 못했다(미확인). 인프라 담당은 두 호출의 구간에서 APIM 요청 0건과 Foundry 스팬 0건을 보고했다.
 
 | 증거 이름 | 대화 |
 |---|---|
@@ -280,6 +298,7 @@ python -m unittest discover -s tests -p "test_foundry_byom*.py"
 | `d1-dummy-webiq-01`(`dummy-d1-webiq-agent-fp8` 1. HTTP 400으로 실패) | `conv_003f50ba…` |
 
 - 더미 연결 `dummy-d1-webiq`는 인프라 담당이 만들었다. 삭제하지 않았고 인프라 담당의 정리 목록에 있다. D-1이 쓴 더미 값은 저장소 밖의 개인 파일에만 있다.
+- 연결 `d2-webiq`는 인프라 담당이 만들었고 실제 키를 담고 있다. 삭제하지 않았다. 연결 정리(D-6)는 하지 않았고 사용자의 결정을 기다린다(DESIGN.md 4.6절).
 - 사용자가 2026-10-20에 포털에서 직접 만든 항목은 이 목록에 없다. 모델 배포 2개(`gpt-5`, `text-embedding-3-large`)와 포털이 이름을 붙인 에이전트 1개다. 이 작업이 만든 것이 아니므로 정리 대상에 넣지 않는다(DESIGN.md U11).
 - 이 스크립트에는 대화 ID로 대화를 지우는 기능이 없다. `run_prompt.py --delete-conversation`은 그 실행이 만든 대화만 지운다. 이미 있는 대화를 지우려면 기능을 추가해야 하고 별도 승인이 필요하다(DESIGN.md 9.1절).
 - 응답 객체의 저장 여부와 삭제 동작은 확인하지 않았다.

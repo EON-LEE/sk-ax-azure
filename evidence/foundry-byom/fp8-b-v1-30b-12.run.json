@@ -1,0 +1,44 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T15:17:03.440+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-7acb8605",
+    "nonce": "r-7acb8605",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": null,
+  "finished_at": "2026-10-20T15:17:23.458+00:00",
+  "conversation_id": null,
+  "conversation_deleted": null,
+  "rounds": [],
+  "function_results": [],
+  "stopped": "error",
+  "error": {
+    "type": "APIConnectionError",
+    "status_code": null,
+    "code": null,
+    "message": "Connection error."
+  },
+  "client_http": {
+    "requests": 1,
+    "responses_posts": 0
+  },
+  "final_answer": null,
+  "final_answer_contains_nonce": false,
+  "item_sequence": [],
+  "tool_events": [],
+  "ok": false
+}
