@@ -434,6 +434,9 @@ def describe_error(exc):
     param = getattr(exc, "param", None)
     if isinstance(param, str):
         summary["param"] = clip(param, 100)
+    api_type = getattr(exc, "type", None)
+    if isinstance(api_type, str):
+        summary["api_type"] = clip(api_type, 100)
     request_id = short_request_id(getattr(exc, "request_id", None))
     if request_id:
         summary["request_id"] = request_id

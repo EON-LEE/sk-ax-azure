@@ -64,11 +64,12 @@ LONG_ID = "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071"
 
 
 class ApiError(Exception):
-    def __init__(self, status_code, message="request failed", code=None):
+    def __init__(self, status_code, message="request failed", code=None, api_type=None):
         super().__init__(message)
         self.status_code = status_code
         self.message = message
         self.code = code
+        self.type = api_type
 
 
 class Model:
@@ -820,6 +821,14 @@ class SummaryTests(ScriptCase):
         exc.param, exc.request_id = 5, ""
         self.assertNotIn("param", common.describe_error(exc))
         self.assertNotIn("request_id", common.describe_error(exc))
+
+    def test_describe_error_keeps_the_service_error_type_apart_from_the_exception_class(self):
+        summary = common.describe_error(ApiError(500, "invalid content", api_type="model_error"))
+        self.assertEqual((summary["type"], summary["status_code"], summary["api_type"]), ("ApiError", 500, "model_error"))
+        self.assertIsNone(summary["code"])
+        for value in (None, 5, ["model_error"]):
+            with self.subTest(value=value):
+                self.assertNotIn("api_type", common.describe_error(ApiError(500, "plain", api_type=value)))
 
     def test_short_request_id_keeps_only_the_first_characters(self):
         self.assertEqual(common.short_request_id("0a1b2c3d-1111-2222-3333-444444444444"), "0a1b2c3d")
@@ -2040,7 +2049,7 @@ class RunSeriesTests(ScriptCase):
         self.assertTrue(self.STAMP.fullmatch(series["generated_at"]))
         self.assertEqual(series["plan"], {
             "calls": [f"{self.ABLATION}:1"] * 3, "scenario": "mcp", "custom_prompt": False, "min_gap_s": 60.0,
-            "expect_calls": 3, "stop_rule": run_series.STOP_RULE,
+            "expect_calls": 3, "continue_on_model_error": False, "stop_rule": run_series.STOP_RULE,
             "limits": {"max_output_tokens": 384, "max_tool_calls": 0, "max_rounds": 4, "timeout_s": 180}})
         self.assertEqual(list(series["agents"]), [f"{self.ABLATION}:1"])
         self.assertEqual(series["summary"], {
@@ -2087,10 +2096,15 @@ class RunSeriesTests(ScriptCase):
         cases = (
             (ApiError(500, "model failed", code="model_error"), 1, "error", True,
              "call 2 did not complete: error (500 model_error)"),
+            (ApiError(500, "The model produced invalid content", api_type="model_error"), 1, "error", True,
+             "call 2 did not complete: error (500 model_error)"),
             (ApiError(503, "backend not ready", code="backend_unavailable"), 1, "error", False,
              "call 2 did not complete: error (503 backend_unavailable)"),
+            (ApiError(503, "backend not ready", code="model_error", api_type="server_error"), 1, "error", False,
+             "call 2 did not complete: error (503 model_error server_error)"),
             (TimeoutError("request timed out"), 1, "error", False, "call 2 did not complete: error"),
             (failed, 1, "failed", True, "call 2 did not complete: failed (model_error)"),
+            (response([], status="failed", error="boom"), 1, "failed", False, "call 2 did not complete: failed"),
             (incomplete, 3, "incomplete", False, "call 2 did not complete: incomplete"),
             (response([list_tools(), approval_request()]), 3, "approval_required:microsoft_docs_search", False,
              "call 2 did not complete: approval_required:microsoft_docs_search"),
@@ -2129,6 +2143,163 @@ class RunSeriesTests(ScriptCase):
         self.assertIsNone(series["calls"][0]["gap_before_s"])
         self.assertEqual(self.clock.sleeps, [])
         self.assertEqual(len(clients.openai.responses.calls), 1)
+
+    def test_model_error_means_a_500_or_a_failed_response_with_that_service_error(self):
+        cases = (
+            ({"status_code": 500, "code": None, "api_type": "model_error"}, True),
+            ({"status_code": 500, "code": "model_error", "api_type": "server_error"}, True),
+            ({"status_code": None, "code": "model_error"}, True),
+            ({"status_code": 503, "code": "model_error", "api_type": "server_error"}, False),
+            ({"status_code": 429, "code": "model_error"}, False),
+            ({"status_code": 500, "code": "backend_unavailable", "api_type": "server_error"}, False),
+            ({"status_code": 500, "code": None}, False),
+            ({"status_code": None, "code": "timeout"}, False),
+            ({}, False),
+            (None, False),
+            ("model_error", False),
+        )
+        for error, expected in cases:
+            with self.subTest(error=error):
+                self.assertIs(run_series.is_model_error(error), expected)
+
+    def test_error_summaries_keep_the_service_error_type_and_survive_a_plain_string(self):
+        error = {"type": "InternalServerError", "status_code": 500, "code": None, "api_type": "model_error",
+                 "request_id": "1eba5b6a", "message": "m", "details": [{"code": "x"}]}
+        self.assertEqual(run_series.brief_error(error), {"type": "InternalServerError", "status_code": 500,
+                                                         "api_type": "model_error", "request_id": "1eba5b6a",
+                                                         "message": "m"})
+        self.assertIsNone(run_series.brief_error(None))
+        self.assertEqual(run_series.brief_error("boom"), {"message": "boom"})
+        self.assertEqual(run_series.failure_labels(error), ["500", "model_error"])
+        self.assertEqual(run_series.failure_labels({"status_code": 503, "code": "model_error", "api_type": "server_error"}),
+                         ["503", "model_error", "server_error"])
+        self.assertEqual((run_series.failure_labels("boom"), run_series.failure_labels(None)), ([], []))
+
+    def test_a_model_error_is_recorded_and_the_series_goes_on_with_the_option(self):
+        failure = ApiError(500, "The model produced invalid content", api_type="model_error")
+        replies = [self.mcp_reply(1), failure, self.mcp_reply(3)]
+        clients, code, out, err = self.run_calls(self.argv("unit-go", "--continue-on-model-error"), replies)
+        series = json.loads(out)
+        calls = series["calls"]
+        self.assertEqual(code, 0)
+        self.assertEqual((series["stopped_early"], series["stop_reason"], series["error"]), (False, None, None))
+        self.assertEqual((len(clients.openai.responses.calls), clients.openai.conversations.created), (3, 3))
+        self.assertEqual([call["ok"] for call in calls], [True, False, True])
+        self.assertEqual([call["model_error"] for call in calls], [False, True, False])
+        self.assertEqual((calls[1]["stopped"], calls[1]["error"]["status_code"], calls[1]["error"]["api_type"]),
+                         ("error", 500, "model_error"))
+        self.assertEqual([call["gap_before_s"] for call in calls], [None, 60.0, 60.0])
+        self.assertEqual(self.clock.sleeps, [60.0, 60.0])
+        self.assertEqual(self.saved_names(), ["unit-go-01.run.json", "unit-go-02.run.json", "unit-go-03.run.json",
+                                              "unit-go.series.json"])
+        self.assertEqual(self.read_saved("unit-go.series.json"), series)
+        self.assertEqual((series["summary"]["calls"], series["summary"]["ok"], series["summary"]["model_error"]),
+                         (3, 2, 1))
+        self.assertEqual((series["plan"]["continue_on_model_error"], series["plan"]["stop_rule"]),
+                         (True, run_series.CONTINUE_RULE))
+        self.assertIn("call 2/3 byom-demo-mcp-ablation-fp8:1 ok=False", err)
+        self.assertIn("error=ApiError/500/model_error", err)
+        self.assertIn("call 3/3 byom-demo-mcp-ablation-fp8:1 ok=True", err)
+
+    def test_the_option_still_stops_at_every_failure_that_is_not_a_model_error(self):
+        incomplete = response([message("부분")], status="incomplete", incomplete_details={"reason": "max_output_tokens"})
+        cases = (
+            ApiError(503, "backend not ready", code="model_error", api_type="server_error"),
+            ApiError(429, "slow down", code="rate_limit_exceeded"),
+            ApiError(401, "unauthorized"),
+            TimeoutError("request timed out"),
+            incomplete,
+            response([list_tools(), approval_request()]),
+        )
+        for number, failure in enumerate(cases, start=1):
+            with self.subTest(number=number):
+                self.clock = FakeClock()
+                label = f"unit-opt-stop-{number}"
+                clients, code, out, err = self.run_calls(self.argv(label, "--continue-on-model-error"),
+                                                         [self.mcp_reply(1), failure, self.mcp_reply(3)])
+                series = json.loads(out)
+                self.assertNotEqual(code, 0)
+                self.assertTrue(series["stopped_early"])
+                self.assertTrue(series["stop_reason"].startswith("call 2 did not complete: "))
+                self.assertEqual([call["ok"] for call in series["calls"]], [True, False])
+                self.assertFalse(series["calls"][1]["model_error"])
+                self.assertEqual(len(clients.openai.responses.calls), 2)
+                self.assertEqual(self.clock.sleeps, [60.0])
+                self.assertNotIn("call 3/3", err)
+
+    def test_a_model_error_followed_by_another_failure_stops_at_that_failure(self):
+        replies = [ApiError(500, "invalid content", api_type="model_error"),
+                   ApiError(503, "backend not ready", code="backend_unavailable"), self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-two-fail", "--continue-on-model-error"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 2 did not complete: error (503 backend_unavailable)")
+        self.assertEqual([call["model_error"] for call in series["calls"]], [True, False])
+        self.assertEqual(series["summary"]["model_error"], 1)
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+        self.assertEqual(self.clock.sleeps, [60.0])
+
+    def test_a_model_error_stops_the_series_without_the_option(self):
+        replies = [self.mcp_reply(1), ApiError(500, "invalid content", api_type="model_error"), self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-no-opt"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 2 did not complete: error (500 model_error)")
+        self.assertEqual((len(series["calls"]), series["calls"][1]["model_error"]), (2, True))
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+
+    def test_dry_run_shows_whether_a_model_error_lets_the_series_go_on(self):
+        for extra, rule in (([], run_series.STOP_RULE), (["--continue-on-model-error"], run_series.CONTINUE_RULE)):
+            with self.subTest(extra=extra):
+                argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-rule", "--dry-run", *extra]
+                code, out, _ = self.run_script(run_series, argv, live=False)
+                plan = json.loads(out)["plan"]
+                self.assertEqual(code, 0)
+                self.assertEqual((plan["continue_on_model_error"], plan["stop_rule"]), (bool(extra), rule))
+        self.assertIn("no retry", run_series.CONTINUE_RULE)
+
+    def test_precheck_only_reads_the_agent_versions_and_sends_no_model_request(self):
+        clients = series_clients(self.clock, [self.mcp_reply(1)])
+        clients.project.agents.get_version = Mock(wraps=clients.project.agents.get_version)
+        argv = ["--call", f"{self.ABLATION}:1", "--call", f"{self.WEAK}:1", "--repeat", "2", "--label", "unit-pre",
+                "--precheck-only"]
+        code, out, err = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        result = json.loads(out)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual((result["action"], result["ok"]), ("precheck", True))
+        self.assertEqual(list(result["agents"]), [f"{self.ABLATION}:1", f"{self.WEAK}:1"])
+        self.assertEqual(result["agents"][f"{self.ABLATION}:1"]["model"], MODEL_REF)
+        self.assertEqual(clients.project.agents.get_version.call_count, 2)
+        self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(self.saved_names(), [])
+
+    def test_precheck_only_reports_a_missing_agent_version_and_exits_1(self):
+        clients = series_clients(self.clock, [self.mcp_reply(1)])
+        argv = ["--call", f"{self.ABLATION}:9", "--label", "unit-pre-missing", "--precheck-only"]
+        code, out, _ = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        result = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual((result["action"], result["ok"], result["stage"]), ("precheck", False, "agents.get_version"))
+        self.assertEqual(result["error"]["status_code"], 404)
+        self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+        self.assertEqual(self.saved_names(), [])
+
+    def test_precheck_only_cannot_be_combined_with_a_dry_run(self):
+        argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-pre-dry", "--precheck-only", "--dry-run"]
+        code, out, err = self.run_script(run_series, argv, live=False)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("--precheck-only", err)
+
+    def test_precheck_only_builds_no_openai_client(self):
+        for extra, with_openai in ((["--precheck-only"], False), (["--expect-calls", "1"], True)):
+            with self.subTest(extra=extra):
+                clients = series_clients(self.clock, [self.mcp_reply(1)])
+                argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-pre-client", *extra]
+                with patch.object(common, "open_clients", Mock(return_value=clients)) as opened:
+                    code, _, _ = self.run_script(run_series, argv, None, clock=self.clock, sleep=self.clock.sleep)
+                self.assertEqual(code, 0)
+                self.assertIs(opened.call_args.kwargs["with_openai"], with_openai)
 
     def test_a_completed_call_without_the_mcp_tool_is_a_result_and_not_a_stop(self):
         without_tool = response([message(self.answer(2))], "resp_2")

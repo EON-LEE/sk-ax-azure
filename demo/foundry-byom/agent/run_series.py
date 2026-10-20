@@ -2,9 +2,12 @@
 
 Each call is one run_prompt execution: one conversation, one Responses request per round, SDK retries off.
 The series stops at the first call that does not end "completed" (error, 5xx, timeout, failed, incomplete)
-and never retries it. A completed call in which the model did not use the MCP tool is a normal result.
+and never retries it. With --continue-on-model-error, a call that fails with a model_error is recorded and the
+next call follows after the gap; every other failure still stops the series. A completed call in which the model
+did not use the MCP tool is a normal result.
 Before the first model call, every agent version in the schedule is read once (GET), so a wrong name or
-version fails without any model traffic. --dry-run prints the schedule without SDK import, credentials or network use.
+version fails without any model traffic. --precheck-only stops after that read. --dry-run prints the schedule
+without SDK import, credentials or network use.
 """
 from __future__ import annotations
 
@@ -28,6 +31,9 @@ MAX_TIMEOUT_S = 600.0
 MAX_CALLS = 12
 STOP_RULE = ("stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete); "
              "no retry and no further call")
+CONTINUE_RULE = ("stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete) "
+                 "except a model_error, which is recorded and followed by the next call after the gap; "
+                 "no retry of any call and no further call after any other failure")
 NOTES = (
     "Timestamps are UTC with millisecond precision from the client clock; match them with vLLM, APIM and span "
     "clocks by time window.",
@@ -35,6 +41,8 @@ NOTES = (
     "creation plus Responses POSTs, responses_posts = Responses POSTs. The client is created with max_retries=0.",
     "Foundry spans (invoke_agent, chat, execute_tool) are not collected here; read them from the telemetry side "
     "by call window and nonce.",
+    "model_error is true when the call failed with HTTP 500 (or as a failed response) and the service error type "
+    "or code is model_error. A 503 'model backend not ready' can carry the same code; it is not counted.",
     "contaminated and contamination_note stay null until someone marks a call by hand because other traffic "
     "overlapped it; summary does not account for those marks.",
     "response_model echoes the agent reference; it does not show which model served the call.",
@@ -72,6 +80,12 @@ def build_parser():
     parser.add_argument("--max-tool-calls", type=int, default=0, help="tool-call cap per response; 0 omits it")
     parser.add_argument("--max-rounds", type=int, default=4, help="request rounds per call including follow-ups")
     parser.add_argument("--timeout", type=float, default=180, help=f"seconds per request (above 0, at most {MAX_TIMEOUT_S:g})")
+    parser.add_argument("--continue-on-model-error", action="store_true",
+                        help="record a call that ends with a model_error and go on with the next call; "
+                             "every other call that does not complete still stops the series")
+    parser.add_argument("--precheck-only", action="store_true",
+                        help="connect, read every agent version once (GET), print the definitions and exit; "
+                             "no model request is sent and no file is written")
     return parser
 
 
@@ -112,6 +126,8 @@ def build_schedule(args):
         raise common.ConfigError(f"--timeout must be above 0 and at most {MAX_TIMEOUT_S:g}")
     if args.nonce is not None and not run_prompt.NONCE_RE.fullmatch(args.nonce):
         raise common.ConfigError("--nonce must match [A-Za-z0-9._-]{1,40}")
+    if args.precheck_only and args.dry_run:
+        raise common.ConfigError("--precheck-only reads from the project and cannot be combined with --dry-run")
     common.evidence_path(args.label, "series")
     entries = []
     for index, (name, version) in enumerate(scheduled, start=1):
@@ -121,6 +137,10 @@ def build_schedule(args):
         prompt, _ = run_prompt.prepare(call)
         entries.append(Entry(index, name, version, call, prompt, run_label))
     return entries
+
+
+def stop_rule(args):
+    return CONTINUE_RULE if args.continue_on_model_error else STOP_RULE
 
 
 def describe_plan(args, entries):
@@ -136,7 +156,8 @@ def describe_plan(args, entries):
         "series_file": common.display_path(common.evidence_path(args.label, "series")),
         "planned_calls": len(entries),
         "min_gap_s": args.min_gap_s,
-        "stop_rule": STOP_RULE,
+        "continue_on_model_error": args.continue_on_model_error,
+        "stop_rule": stop_rule(args),
         "precheck": "GET agents.get_version once per distinct name:version, before the first model call",
         "calls": calls,
     }}
@@ -191,9 +212,32 @@ def mcp_view(event):
 def brief_error(error):
     if not error:
         return None
-    brief = {key: error[key] for key in ("type", "status_code", "code", "param", "request_id") if error.get(key) is not None}
+    if not isinstance(error, Mapping):
+        return {"message": common.clip(str(error), 300)}
+    keys = ("type", "status_code", "code", "api_type", "param", "request_id")
+    brief = {key: error[key] for key in keys if error.get(key) is not None}
     brief["message"] = common.clip(error.get("message"), 300)
     return brief
+
+
+def is_model_error(error):
+    """True for the service error model_error that arrived as HTTP 500 or as a failed response.
+
+    A 503 "model backend not ready" can carry the same code, but it is a backend outage and not a model_error.
+    """
+    if not isinstance(error, Mapping) or error.get("status_code") not in (None, 500):
+        return False
+    return "model_error" in (error.get("code"), error.get("api_type"))
+
+
+def failure_labels(error):
+    """status_code, code and api_type of an error in this order, each value once."""
+    labels = []
+    for key in ("status_code", "code", "api_type"):
+        value = error.get(key) if isinstance(error, Mapping) else None
+        if value is not None and str(value) not in labels:
+            labels.append(str(value))
+    return labels
 
 
 def round_view(item):
@@ -222,7 +266,7 @@ def call_record(entry, result, gap_s, duration_ms):
         "ok": result["ok"],
         "stopped": result["stopped"],
         "error": brief_error(error),
-        "model_error": bool(error) and error.get("code") == "model_error",
+        "model_error": is_model_error(error),
         "item_sequence": result["item_sequence"],
         "mcp_called": bool(mcp_calls),
         "mcp_calls": mcp_calls,
@@ -266,7 +310,8 @@ def new_series(args, entries):
             "expect_calls": args.expect_calls,
             "limits": {"max_output_tokens": args.max_output_tokens, "max_tool_calls": args.max_tool_calls,
                        "max_rounds": args.max_rounds, "timeout_s": args.timeout},
-            "stop_rule": STOP_RULE,
+            "continue_on_model_error": args.continue_on_model_error,
+            "stop_rule": stop_rule(args),
         },
         "auth": common.credential_info(args),
         "agents": {},
@@ -287,15 +332,15 @@ def save(series):
 
 
 def stop_reason(entry, result):
-    error = result["error"] or {}
-    detail = " ".join(str(error[key]) for key in ("status_code", "code") if error.get(key) is not None)
+    detail = " ".join(failure_labels(result["error"]))
     return f"call {entry.index} did not complete: {result['stopped']}" + (f" ({detail})" if detail else "")
 
 
 def progress(entry, total, record):
     usage = record["usage"] or {}
     error = record["error"] or {}
-    failure = "/".join(str(error[key]) for key in ("type", "status_code", "code") if error.get(key) is not None) or "-"
+    labels = ([str(error["type"])] if error.get("type") is not None else []) + failure_labels(error)
+    failure = "/".join(labels) or "-"
     print(f"call {entry.index}/{total} {entry.name}:{entry.version} ok={record['ok']} start={record['started_at']} "
           f"end={record['finished_at']} duration_ms={record['duration_ms']} "
           f"items={'>'.join(record['item_sequence']) or '-'} usage={usage.get('input_tokens')}/{usage.get('output_tokens')} "
@@ -329,7 +374,7 @@ def execute_series(args, clients, entries, clock=time.monotonic, sleep=time.slee
         series["calls"].append(record)
         common.write_json(common.evidence_path(entry.run_label, "run"), result)
         progress(entry, len(entries), record)
-        if not result["ok"]:
+        if not result["ok"] and not (args.continue_on_model_error and record["model_error"]):
             series["stopped_early"] = True
             series["stop_reason"] = stop_reason(entry, result)
             code = run_prompt.exit_code(entry.args, result)
@@ -337,6 +382,18 @@ def execute_series(args, clients, entries, clock=time.monotonic, sleep=time.slee
             break
         save(series)
     return series, code
+
+
+def precheck(clients, entries):
+    """GET every agent version of the schedule once and print the definitions; no model request, no file."""
+    try:
+        agents = inspect_agents(clients, entries)
+    except common.StageFailure as exc:
+        common.emit({"action": "precheck", "ok": False, "stage": exc.stage,
+                     "error": brief_error(common.describe_error(exc.original))})
+        return 1
+    common.emit({"action": "precheck", "ok": True, "agents": agents})
+    return 0
 
 
 def main(argv=None, clients=None, *, clock=time.monotonic, sleep=time.sleep):
@@ -348,15 +405,20 @@ def main(argv=None, clients=None, *, clock=time.monotonic, sleep=time.sleep):
             common.emit(describe_plan(args, entries))
             return 0
         common.require_live(args)
-        if args.expect_calls is None:
-            raise common.ConfigError("--expect-calls is required without --dry-run")
-        clients = common.connect(args, clients)
+        if args.precheck_only:
+            clients = common.connect(args, clients, with_openai=False)
+        else:
+            if args.expect_calls is None:
+                raise common.ConfigError("--expect-calls is required without --dry-run")
+            clients = common.connect(args, clients)
     except common.ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 - client construction failed before any request
         common.emit({"action": "error", "error": common.describe_error(exc)})
         return 1
+    if args.precheck_only:
+        return precheck(clients, entries)
     series, code = execute_series(args, clients, entries, clock, sleep)
     common.emit(series)
     print(f"saved {common.display_path(common.evidence_path(args.label, 'series'))}", file=sys.stderr)

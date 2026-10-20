@@ -32,7 +32,7 @@ Foundry 에이전트가 BYOM 연결로 모델 API에 요청하고 답을 받는 
 | `inspect_connections.py` | 프로젝트 연결을 읽기 전용으로 조회하고 연결 계약과 비교한다. 자격 증명 값은 요청하지 않는다. | 읽기 |
 | `create_agent.py` | 프롬프트 에이전트 버전을 멱등하게 만들고 저장된 모델 참조를 읽어 비교한다. | 에이전트 버전 쓰기와 읽기 |
 | `run_prompt.py` | 에이전트를 Responses API로 한 번 호출하고 출력 항목, 도구 호출, 최종 답, usage를 요약한다. | 모델 호출 |
-| `run_series.py` | 에이전트 버전 호출 묶음을 한 번에 하나씩 순서대로 실행하고 호출마다 기록한다. 호출 전에 에이전트 버전을 읽어 점검하고, 첫 비정상 호출에서 멈추며, 재시도하지 않는다. | 읽기(호출 전 점검), 모델 호출 |
+| `run_series.py` | 에이전트 버전 호출 묶음을 한 번에 하나씩 순서대로 실행하고 호출마다 기록한다. 호출 전에 에이전트 버전을 읽어 점검하고, 첫 비정상 호출에서 멈추며, 재시도하지 않는다. `--continue-on-model-error`를 쓰면 `model_error`로 끝난 호출만 기록하고 계속한다. `--precheck-only`는 점검만 하고 끝낸다. | 읽기(호출 전 점검), 모델 호출 |
 | `collect_evidence.py` | 비밀을 제거한 증거 JSON을 만들고 점검 항목을 판정한다. | 읽기(`--offline`이면 없음) |
 | `byom_common.py` | 설정 검증, 비밀 제거, `az` 토큰 요청의 구독 지정, 클라이언트 생성, 증거 파일 쓰기 | 없음 |
 | `requirements.txt` | 필요한 패키지 | 없음 |
@@ -95,6 +95,10 @@ python collect_evidence.py --label <label> --connection <conn-fp8> --model ax-k2
 python run_series.py --call <mcp-agent>:1 --repeat 3 --expect-calls 3 --label <label> --min-gap-s 60 --nonce <확인 코드>
 # 7-1. 두 에이전트 버전을 번갈아 보낸다(A, B, A, B, ...)
 python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --repeat 5 --expect-calls 10 --label <label>
+# 7-2. model_error로 끝난 호출은 기록하고 다음 호출을 보낸다(그 밖의 비정상 호출은 여전히 멈춘다)
+python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --repeat 5 --expect-calls 10 --label <label> --continue-on-model-error
+# 7-3. 모델을 호출하지 않고 에이전트 버전만 읽어 점검한다(읽기 전용, 파일을 쓰지 않는다)
+python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --label <label> --precheck-only
 ```
 
 4단계의 함수는 `run_prompt.py`가 로컬에서 실행한다. Foundry가 도구를 실행하는 경로는 5단계의 MCP다.
@@ -106,14 +110,16 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 7단계의 `run_series.py`는 다음 규칙으로 호출한다.
 
 - `--call <이름>:<버전>`에는 버전을 반드시 적는다. 여러 번 적으면 적은 순서가 한 바퀴이고 `--repeat`만큼 되풀이한다. 한 묶음은 12호출까지다.
-- `--expect-calls`는 실제 호출 수와 같아야 한다. `--dry-run`이 아니면 필수다.
+- `--expect-calls`는 실제 호출 수와 같아야 한다. `--dry-run`이나 `--precheck-only`가 아니면 필수다.
 - 모델을 호출하기 전에 일정에 든 에이전트 버전을 한 번씩 읽는다(GET). 이름이나 버전이 틀리면 모델 호출 없이 멈춘다.
+- `--precheck-only`는 이 읽기까지만 하고 끝난다. 프로젝트에는 연결하지만 모델 요청을 보내는 클라이언트는 만들지 않는다. 에이전트 정의 요약(`ok`, `agents`)만 출력하고 파일은 쓰지 않는다. `--dry-run`과 함께 쓰면 설정 오류(종료 코드 2)다. 점검이 실패하면 `stage`와 오류 요약을 출력하고 종료 코드 1이다.
 - 호출마다 새 대화를 쓴다. 호출 사이 간격은 앞 호출이 끝난 시각부터 센다(기본 60초, 최소 15초).
 - 확인 코드는 호출마다 무작위로 정한다. 이전 실행과 같은 프롬프트를 보내려면 `--nonce <코드>`로 하나를 지정한다. 이때는 모든 호출이 같은 확인 코드를 쓰므로 호출은 시각으로 구분한다.
 - 출력 상한은 호출마다 `--max-output-tokens`(기본 384, 1 이상)로 건다. SDK 재시도는 꺼져 있다.
 - `completed`가 아닌 호출이 처음 나오면 멈춘다(오류, 5xx, 시간 초과, `failed`, `incomplete`, 승인 필요). 그 호출을 다시 보내지 않고 다음 호출도 보내지 않는다. 모델이 MCP 도구를 부르지 않고 `completed`로 끝난 호출은 정상 결과이므로 멈추지 않는다.
+- `--continue-on-model-error`를 쓰면 `model_error`로 끝난 호출은 멈추지 않는다. 그 호출을 기록하고, 간격이 지난 뒤 다음 호출을 보낸다. 그 호출도 다시 보내지 않는다. `model_error`는 HTTP 500이거나 `failed` 응답이고 서비스 오류의 type 또는 code가 `model_error`인 경우다. 503 "model backend not ready"는 code가 `model_error`일 수 있으나 `model_error`로 세지 않으며, 이 옵션을 써도 멈춘다. 시간 초과, 429, `incomplete`, 승인 필요도 멈춘다.
 - 호출이 하나 끝날 때마다 시리즈 파일을 다시 쓴다. 중간에 멈추면 그때까지의 기록이 남는다.
-- 종료 코드는 모든 호출이 `completed`이면 0이다. 멈춘 경우에는 멈춘 호출의 `run_prompt.py` 종료 코드와 같다. 호출 전 점검이 실패하면 1이고, 설정 오류면 2다.
+- 종료 코드는 모든 호출이 `completed`이면 0이다. 멈춘 경우에는 멈춘 호출의 `run_prompt.py` 종료 코드와 같다. 호출 전 점검이 실패하면 1이고, 설정 오류면 2다. `--continue-on-model-error`로 `model_error` 호출을 넘기고 끝까지 갔을 때도 0이므로 `summary`의 `model_error` 수를 함께 본다.
 
 ## 실행 결과 읽는 법
 
@@ -130,7 +136,7 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 | `function_results` | 로컬에서 실행한 함수의 결과 |
 | `final_answer`, `final_answer_contains_nonce` | 최종 답과 확인 코드(`--nonce`) 포함 여부 |
 | `client_http` | 클라이언트가 실제로 보낸 HTTP 요청 수. `responses_posts`가 `responses.create` 호출 수보다 크면 SDK가 다시 보낸 것이다. SDK 자동 재시도는 꺼져 있다(`max_retries=0`). |
-| `error` | 실패한 호출의 상태 코드, Foundry 오류 코드, 메시지. 오류가 알려 준 `param`과 요청 ID(앞 8자)가 있으면 함께 적는다. |
+| `error` | 실패한 호출의 상태 코드, Foundry 오류 코드, 메시지. 서비스가 돌려준 오류 type은 `api_type`에 적고, `type`은 예외 클래스 이름이다. 오류가 알려 준 `param`과 요청 ID(앞 8자)가 있으면 함께 적는다. |
 | `conversation_id`, `conversation_deleted` | 이 호출이 만든 대화의 ID(증거 파일에는 앞 8자). `--delete-conversation`을 쓴 호출만 삭제 결과가 들어가고, 아니면 `null`이다. |
 | `request_header_echoed` | `--mcp-request-header`를 쓴 호출에서 헤더 값이 Foundry 응답에 다시 나타났는지 검사한 결과. 쓰지 않았으면 `null`이다. 값이 나타나면 Foundry에 저장된 것으로 보고 그 값을 교체한다. |
 
@@ -145,7 +151,7 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 
 | 키 | 뜻 |
 |---|---|
-| `plan` | 일정. 호출 목록, 시나리오, 간격, 상한, 중단 규칙 |
+| `plan` | 일정. 호출 목록, 시나리오, 간격, 상한, `continue_on_model_error`, 중단 규칙(`stop_rule`) |
 | `agents` | 호출 전에 읽은 에이전트 버전의 정의 요약. 모델 참조, `temperature`, 도구, 지시문 길이와 해시 앞 12자 |
 | `planned_calls`, `calls` | 계획한 호출 수와 실제로 실행한 호출의 기록. 중간에 멈추면 `calls`가 더 짧다. |
 | `summary` | 호출 수, 성공 수, MCP 도구를 부른 수, MCP 없이 끝난 수, `model_error` 수. `by_agent`는 에이전트 버전별 같은 집계 |
@@ -158,7 +164,7 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 | `index`, `agent`, `version`, `nonce` | 호출 번호, 에이전트 이름과 버전, 확인 코드 |
 | `started_at`, `first_request_at`, `finished_at`, `duration_ms` | 시작, 첫 요청, 종료 시각(UTC, 밀리초)과 소요 시간 |
 | `gap_before_s` | 앞 호출이 끝난 뒤 이 호출을 시작하기까지 잰 간격. 첫 호출은 `null` |
-| `ok`, `stopped`, `error`, `model_error` | 성공 여부, 끝난 이유, 오류 요약, 오류 코드가 `model_error`인지 |
+| `ok`, `stopped`, `error`, `model_error` | 성공 여부, 끝난 이유, 오류 요약, `model_error` 여부. `error.type`은 예외 클래스 이름이고 서비스가 돌려준 오류 type은 `error.api_type`이다. `model_error`는 HTTP 500(또는 `failed` 응답)이고 `error.code`나 `error.api_type`이 `model_error`일 때만 `true`다. 503은 code가 `model_error`여도 `false`다. |
 | `item_sequence`, `mcp_called`, `mcp_calls` | 출력 항목 종류의 순서, MCP 도구를 불렀는지, 도구 호출마다 이름·상태·인자가 객체인지·질의 길이(`query_chars`)·출력 길이(`output_chars`). 질의 원문은 넣지 않는다. |
 | `answer_chars`, `final_answer_contains_nonce`, `think_tag` | 최종 답 길이, 확인 코드 포함 여부, `<think>` 태그 여부 |
 | `response_model`, `response_id`, `conversation_id`, `usage`, `rounds` | 마지막 응답의 `model`(에이전트 참조)과 ID, 대화 ID, 마지막 라운드의 usage, 라운드별 시각·요청 ID·usage |
