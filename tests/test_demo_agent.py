@@ -60,6 +60,17 @@ class FilesTests(unittest.TestCase):
         self.assertIn("@media (min-width: 1200px) { .suggestions { grid-template-columns: repeat(4, minmax(0, 1fr)); } }", css)
         self.assertNotIn("repeat(auto-fit", css.split(".suggestions {", 1)[1].split("}", 1)[0])
 
+    def test_reasoning_starts_off_in_both_tabs_and_stays_the_users_choice(self):
+        js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()
+        start = js.split("const session = mode => ({", 1)[1].split("});", 1)[0]
+        self.assertEqual(start.count("thinking:"), 1)
+        self.assertIn("thinking: false,", start)
+        self.assertIn('tools: mode === "chat",', start)
+        # the box is read for every turn and kept for each tab, so a user who turns it on keeps it on
+        self.assertEqual(js.count("const thinking = ui.thinking.checked;"), 2)
+        self.assertEqual(js.count("state.thinking = ui.thinking.checked;"), 1)
+        self.assertEqual(js.count("ui.thinking.checked = state.thinking;"), 2)  # at load and on a tab switch
+
     def test_desktop_shared_width_native_typography_and_visible_download(self):
         css = (ROOT / "demo" / "frontend" / "static" / "chat.css").read_text()
         js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text()

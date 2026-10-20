@@ -42,7 +42,7 @@
   const profilePrefix = model => model === "fp8" ? "" : "/models/nvfp4";
   const session = mode => ({ mode, model: "fp8", prefix: "", history: [], busy: false, controller: null,
     attachments: [], power: "unknown", epoch: 0, workspace: null, workspacePromise: null, uploading: false,
-    draft: "", scroll: 0, tools: mode === "chat", thinking: mode === "chat", previous: null });
+    draft: "", scroll: 0, tools: mode === "chat", thinking: false, previous: null });
   const sessions = { chat: session("chat"), compare: session("compare") };
   let state = sessions.compare;
   let models = [];
