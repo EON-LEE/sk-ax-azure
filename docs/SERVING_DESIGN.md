@@ -191,7 +191,7 @@ BF16 KV-cache default. Every difference from that reference:
 
 | Area | Reference (one B300/H100-class node) | This A100 deployment | Effect |
 | --- | --- | --- | --- |
-| Weights, config, tokenizer, chat template, model code | Checkpoint 2287ca45, SKT fork `axk2.py` | Same files, unmodified (native mode) | None |
+| Weights, config, tokenizer, chat template, model code | Checkpoint 4237c6a6, SKT fork `axk2.py` | Same files, unmodified (native mode) | None |
 | Linear and MoE matmuls | FP8 x FP8 on FP8 tensor cores (block-scaled W8A8) | FP8 weights expanded in-kernel, BF16 activations (Marlin W8A16); A100 has no FP8 tensor cores | Same weight memory; activations are not quantized; slower when compute-bound; not bit-identical |
 | Indexer scores | DeepGEMM FP8 MQA logits | Triton kernel on the same FP8-quantized q/k, BF16 dot, FP32 accumulation (PR #38476) | Same inputs and rule, different kernel |
 | Top-k selection | `persistent_topk` | Same kernel | None |
@@ -208,6 +208,19 @@ BF16 KV-cache default. Every difference from that reference:
 | 4-bit weights | `skt/A.X-K2-NVFP4` on 4 x B200: routed experts W4A4 on FP4 tensor cores | Not used by this two-node deployment. The checkpoint does run on A100, on one node, after a backported upstream vLLM change; its experts then run W4A16 (8.4) | The one-node NVFP4 option halves the GPUs at about the same short-input speed; 8.4 lists its limits |
 | Quality evidence | SKT's published evaluations | Functional probes, needles to 253K tokens, tool calls, 2-layer log-probability comparison | Benchmark parity not measured |
 | Speed | Tech report Fig. 7: one B200 node, concurrency 32, 1K output | Same benchmark on 16 A100s: 0.43-0.51x of the B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K (native) | About a quarter of B200 throughput per GPU at short inputs; less at long inputs. The one-node NVFP4 option reaches about half per GPU (8.4) |
+
+**Checkpoint revision.** The Hub history of `skt/A.X-K2` was rewritten:
+revision 2287ca45 returned 404 on 2026-10-20 and is not among the 17 commits
+of `main`. The demo job now pins 4237c6a6. The three staging records of
+2287ca45 list 355 files and 694,408,282,999 bytes, and 4237c6a6 has the same
+totals under the `stage_weights.py` file filter. The nine shard sha256 values
+recorded for 2287ca45 (shards 00001-00007, 00345 and 00346) all match as
+well. The latest head, d0805cfd (2026-10-20), differs from 4237c6a6 only in
+`README.md` and `generation_config.json`, where the default temperature
+changes from 0.6 to 0.9, so the demo stays on 4237c6a6 to keep its serving
+defaults. The experiment job templates, `aml/src/hub_probe.py` and the
+evidence files still name 2287ca45, the revision they measured; run them
+again with 4237c6a6.
 
 The `persistent_topk` fix #49139 is missing from every vLLM 0.23 build,
 including SKT's own fork, so it is not an A100-specific gap.

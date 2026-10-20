@@ -158,7 +158,7 @@ and authentication do not transfer with Git.
 
 ## Pinned upstream sources
 
-- [Model](https://huggingface.co/skt/A.X-K2/tree/2287ca456927eed33b899c404c0b2ffaf17aa09f)
+- [Model](https://huggingface.co/skt/A.X-K2/tree/4237c6a60cec6ae449854870d01a42665a1166aa)
 - [Transformers](https://github.com/huggingface/transformers/tree/7fb5bcd1d4b8a5c225a2c33429b2e9e023dd61ae)
 - [SKT vLLM](https://github.com/SKT-AI/vllm/tree/023bc76025459d6356c5885f271b9b95c50f93b6)
 
