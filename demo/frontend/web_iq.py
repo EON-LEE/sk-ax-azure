@@ -21,6 +21,19 @@ LOG = logging.getLogger(__name__)
 MAX_RESPONSE = 192 * 1024
 VERTICALS = {"autosuggest", "browse", "finance", "images", "news", "places",
              "sonic", "sports", "videos", "web"}
+# Optional provider properties the app always pins to a bounded default (see WebIQ.options); the model
+# does not need to see them, and supplying them anyway is still validated against the full schema.
+HIDDEN_PROPERTIES = ("maxResults", "maxResultsWeb", "maxLength", "contentFormat",
+                     "safeSearch", "liveCrawl", "renderDynamicPages")
+SNIPPET_FIELDS = ("content", "snippet", "passage", "text", "description", "summary", "abstract",
+                  "excerpt", "caption")
+DATE_FIELDS = ("publishedAt", "datePublished", "lastUpdatedAt", "crawledAt")
+# Documented Web IQ result lists whose displayable fields result_items() carries in full.
+ITEMIZED_KEYS = {"webResults", "newsResults", "imageResults", "videoResults"}
+# Top-level response fields that never hold search content; instrumentation* is ignored as well.
+ENVELOPE_KEYS = {"traceId", "riskLevel", "querySignals", "liveCrawlSucceeded", "retryAfter",
+                 "isAdult", "language", "crawledAt", "lastUpdatedAt"}
+META_KEYS = ("riskLevel", "traceId", "liveCrawlSucceeded", "retryAfter")
 
 
 class PublicSearchPermission:
@@ -96,7 +109,7 @@ def public_url(value):
 
 
 def citations(value):
-    """Preserve only URLs actually returned by the provider, with their original provenance."""
+    """Preserve only URLs actually returned by the provider; URL and title only, no copied source rows."""
     found, seen, visits = [], set(), 0
 
     def visit(node, depth=0):
@@ -109,8 +122,7 @@ def citations(value):
                         if k in node and public_url(node[k])), None)
             if url and url not in seen:
                 seen.add(url)
-                found.append({"url": url, "title": str(node.get("title", node.get("name", url)))[:240],
-                              "provenance": node})
+                found.append({"url": url, "title": str(node.get("title", node.get("name", url)))[:240]})
             for child in node.values():
                 visit(child, depth + 1)
         elif isinstance(node, list):
@@ -141,10 +153,14 @@ def result_items(sources):
                 url = next((public_url(row.get(k)) for k in ("hostPageUrl", "businessUrl", "url") if public_url(row.get(k))), None)
                 if url:
                     item["url"] = url
-                item["snippet"] = str(row.get("content", row.get("description", row.get("caption", ""))))[:1500]
-                for field in ("publishedAt", "datePublished", "lastUpdatedAt", "crawledAt", "location", "games"):
+                item["snippet"] = next((str(row[k])[:1500] for k in SNIPPET_FIELDS if row.get(k)), "")
+                for field in (*DATE_FIELDS, "location", "games"):
                     if field in row:
                         item[field] = row[field]
+                for field in ("source", "publishedBy", "length", "viewCount"):
+                    value = scalar(row.get(field))
+                    if value not in (None, ""):
+                        item[field] = value
                 if key == "financeResults":
                     instrument = row.get("data", {}).get("instrument", {})
                     item["quote"] = {field: instrument.get(field) for field in (
@@ -153,11 +169,84 @@ def result_items(sources):
                     item["quote"]["delay_status"] = "unknown unless explicitly returned by provider"
                 if key in {"imageResults", "videoResults"}:
                     item["media_notice"] = "Source link only; search results do not grant redistribution or embedding rights."
-                items.append(item)
+                if item not in items:
+                    items.append(item)
         if source.get("url") and source.get("content") and public_url(source["url"]):
-            items.append({"kind": "page", "url": source["url"], "title": str(source.get("title", ""))[:240],
-                          "snippet": str(source["content"])[:1500]})
+            page = {"kind": "page", "url": source["url"], "title": str(source.get("title", ""))[:240],
+                    "snippet": str(source["content"])[:1500]}
+            page.update({field: source[field] for field in DATE_FIELDS if field in source})
+            if page not in items:
+                items.append(page)
     return items[:20]
+
+
+def scalar(value):
+    if isinstance(value, str):
+        return value[:240]
+    return value if isinstance(value, (int, float)) else None
+
+
+def unique_sources(result):
+    """Parsed JSON values (structuredContent plus text fallbacks that differ from it), plain text, other blocks.
+
+    Web IQ returns the same payload as structuredContent and as a JSON text block; counting both would
+    list every result twice."""
+    values = [result.structuredContent] if result.structuredContent is not None else []
+    plain, other = [], []
+    for block in result.content:
+        if block.type != "text":
+            other.append(block.model_dump(mode="json", exclude_none=True))
+            continue
+        try:
+            value = json.loads(block.text)
+        except ValueError:
+            plain.append(block.text)
+            continue
+        if value not in values:
+            values.append(value)
+    return values, plain, other
+
+
+def fully_itemized(values, plain, other, items):
+    """True when `items` already carry every displayable field of a documented web/news/video/image/browse response.
+
+    Anything else (finance, places, sports, sonic, suggestions, unknown shapes, plain text) keeps one raw copy."""
+    if plain or other or not items or any(item["kind"] not in ITEMIZED_KEYS | {"page"} for item in items):
+        return False
+    for source in values:
+        if not isinstance(source, dict):
+            return False
+        page = bool(source.get("url") and source.get("content") and public_url(source["url"]))
+        for key, value in source.items():
+            if (key in ITEMIZED_KEYS or key in ENVELOPE_KEYS or key.startswith("instrumentation")
+                    or (page and key in {"url", "title", "content"})):
+                continue
+            if (isinstance(value, (dict, list)) and value) or (isinstance(value, str) and len(value) > 400):
+                return False
+    return True
+
+
+def provider_meta(values):
+    meta = {}
+    for source in values:
+        if not isinstance(source, dict):
+            continue
+        for key in META_KEYS:
+            value = scalar(source.get(key))
+            if value not in (None, ""):
+                meta.setdefault(key, value)
+        signals = source.get("querySignals")
+        if isinstance(signals, dict):
+            flags = {k: scalar(v) for k, v in signals.items() if scalar(v) is not None}
+            if flags:
+                meta.setdefault("querySignals", flags)
+    return meta
+
+
+def raw_content(values, plain, other):
+    """One raw copy of what the provider returned (the MCP content/structuredContent duplicates are folded)."""
+    raw = [*values, *plain, *other]
+    return raw[0] if len(raw) == 1 else raw
 
 
 class LimitedStream(httpx.AsyncByteStream):
@@ -174,6 +263,18 @@ class LimitedStream(httpx.AsyncByteStream):
 
     async def aclose(self):
         await self.inner.aclose()
+
+
+class WebIQTool(FunctionTool):
+    """MAF tool that validates against the full discovered schema but shows the model a smaller one."""
+    def __init__(self, *, model_schema, **kwargs):
+        super().__init__(**kwargs)
+        self.model_schema = model_schema
+
+    def to_json_schema_spec(self):
+        spec = super().to_json_schema_spec()
+        spec["function"]["parameters"] = self.model_schema
+        return spec
 
 
 async def limit_response(response):
@@ -380,23 +481,26 @@ class WebIQ:
                 encoded = json.dumps(payload, ensure_ascii=False)
                 if len(encoded.encode()) > MAX_RESPONSE:
                     raise WebIQProblem("provider_response_limit")
-                sources = [result.structuredContent] if result.structuredContent is not None else []
-                texts = [c.text for c in result.content if c.type == "text"]
-                for text in texts:
-                    try:
-                        sources.append(json.loads(text))
-                    except ValueError:
-                        pass  # Plain text remains in provider_content; no invented citation structure.
-                if not texts and result.structuredContent is None:
+                values, plain, other = unique_sources(result)
+                if not values and not plain:
                     raise WebIQProblem("provider_returned_no_search_content")
-                items = result_items(sources)
-                output = json.dumps({"provider": "Microsoft Web IQ", "vertical": name, "public_query": query,
-                                     "retrieved_at": datetime.now(timezone.utc).isoformat(),
-                                     "items": items,
-                                     "result_status": "results" if items else "no_displayable_results",
-                                     "provider_content": payload, "citations": citations(sources),
-                                     "limitations": "Provider-returned provenance only. Retrieval time is NOT quote/publication time; market coverage, exchange, currency and delay must be verified from actual data."},
-                                    ensure_ascii=False)
+                items = result_items(values)
+                body = {"provider": "Microsoft Web IQ", "vertical": name, "public_query": query,
+                        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                        "items": items,
+                        "result_status": "results" if items else "no_displayable_results"}
+                if fully_itemized(values, plain, other, items):
+                    # items already carry every displayable field; the raw payload would only repeat them.
+                    meta = provider_meta(values)
+                    if meta:
+                        body["provider_meta"] = meta
+                    body["provider_payload_chars"] = len(encoded)
+                else:
+                    body["provider_content"] = raw_content(values, plain, other)
+                body["citations"] = citations(values)
+                body["limitations"] = ("Provider-returned fields only. Retrieval time is NOT quote/publication time; "
+                                       "market coverage, exchange, currency and delay must be verified from actual data.")
+                output = json.dumps(body, ensure_ascii=False)
                 if len(output.encode()) > MAX_RESPONSE:
                     raise WebIQProblem("provider_response_limit")
                 self.verified_search = True
@@ -450,7 +554,11 @@ class WebIQ:
             if "responseFilter" in exposed["properties"]:
                 exposed["properties"]["responseFilter"]["items"] = {
                     "type": "string", "enum": ["webResults", "newsResults", "financeResults"]}
-            result.append(FunctionTool(name="web_iq_" + (name if name in VERTICALS else "search"),
-                                       description=description + " Public queries only. Never transmit uploaded content or credentials.",
-                                       func=bind(name, field), input_model=exposed))
+            shown = copy.deepcopy(exposed)
+            for key in HIDDEN_PROPERTIES:
+                if key not in shown.get("required", []):
+                    shown["properties"].pop(key, None)
+            result.append(WebIQTool(name="web_iq_" + (name if name in VERTICALS else "search"),
+                                    description=description + " Public queries only. Never transmit uploaded content or credentials.",
+                                    func=bind(name, field), input_model=exposed, model_schema=shown))
         return result
