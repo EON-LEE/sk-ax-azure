@@ -32,11 +32,12 @@ Foundry 에이전트가 BYOM 연결로 모델 API에 요청하고 답을 받는 
 | `inspect_connections.py` | 프로젝트 연결을 읽기 전용으로 조회하고 연결 계약과 비교한다. 자격 증명 값은 요청하지 않는다. | 읽기 |
 | `create_agent.py` | 프롬프트 에이전트 버전을 멱등하게 만들고 저장된 모델 참조를 읽어 비교한다. | 에이전트 버전 쓰기와 읽기 |
 | `run_prompt.py` | 에이전트를 Responses API로 한 번 호출하고 출력 항목, 도구 호출, 최종 답, usage를 요약한다. | 모델 호출 |
+| `run_series.py` | 에이전트 버전 호출 묶음을 한 번에 하나씩 순서대로 실행하고 호출마다 기록한다. 호출 전에 에이전트 버전을 읽어 점검하고, 첫 비정상 호출에서 멈추며, 재시도하지 않는다. | 읽기(호출 전 점검), 모델 호출 |
 | `collect_evidence.py` | 비밀을 제거한 증거 JSON을 만들고 점검 항목을 판정한다. | 읽기(`--offline`이면 없음) |
 | `byom_common.py` | 설정 검증, 비밀 제거, `az` 토큰 요청의 구독 지정, 클라이언트 생성, 증거 파일 쓰기 | 없음 |
 | `requirements.txt` | 필요한 패키지 | 없음 |
 
-`run_prompt.py`만 모델을 호출한다. `collect_evidence.py`는 에이전트 정의, 응답, 대화 항목을 읽기만 한다.
+`run_prompt.py`와 `run_series.py`만 모델을 호출한다. `run_series.py`는 `run_prompt.py`의 실행 로직을 그대로 쓴다. `collect_evidence.py`는 에이전트 정의, 응답, 대화 항목을 읽기만 한다.
 
 ## 준비
 
@@ -89,6 +90,11 @@ python run_prompt.py --agent-name <mcp-agent> --scenario mcp --approve-tool micr
 
 # 6. 증거 수집과 수동 점검 기록(읽기 전용)
 python collect_evidence.py --label <label> --connection <conn-fp8> --model ax-k2-fp8 --agent-name <mcp-agent>
+
+# 7. 호출 묶음(모델 호출): 같은 프롬프트를 순서대로, 호출 사이에 간격을 두고 보낸다
+python run_series.py --call <mcp-agent>:1 --repeat 3 --expect-calls 3 --label <label> --min-gap-s 60 --nonce <확인 코드>
+# 7-1. 두 에이전트 버전을 번갈아 보낸다(A, B, A, B, ...)
+python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --repeat 5 --expect-calls 10 --label <label>
 ```
 
 4단계의 함수는 `run_prompt.py`가 로컬에서 실행한다. Foundry가 도구를 실행하는 경로는 5단계의 MCP다.
@@ -96,6 +102,18 @@ python collect_evidence.py --label <label> --connection <conn-fp8> --model ax-k2
 `--temperature 0.3`은 예방 조치다. 이 설정이 Foundry의 500을 막는다는 증거는 없다(DESIGN.md U18).
 `--prompt-file`로 프롬프트를 파일에서 읽을 수 있다. `run_prompt.py`는 실행마다 대화를 하나 만들고 콘솔에서 볼 수 있도록 남긴다. 지우려면 `--delete-conversation`을 쓴다.
 Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 없다. 키를 프로젝트 연결에 저장하는 옵션 D만 남았고, 키가 Foundry에 저장되므로 사용자 승인 뒤에만 한다(DESIGN.md 4.5절, 4.6절). `run_prompt.py --mcp-request-header`는 옵션 B를 시험하려고 만든 실험 옵션이며 Foundry가 거부했다.
+
+7단계의 `run_series.py`는 다음 규칙으로 호출한다.
+
+- `--call <이름>:<버전>`에는 버전을 반드시 적는다. 여러 번 적으면 적은 순서가 한 바퀴이고 `--repeat`만큼 되풀이한다. 한 묶음은 12호출까지다.
+- `--expect-calls`는 실제 호출 수와 같아야 한다. `--dry-run`이 아니면 필수다.
+- 모델을 호출하기 전에 일정에 든 에이전트 버전을 한 번씩 읽는다(GET). 이름이나 버전이 틀리면 모델 호출 없이 멈춘다.
+- 호출마다 새 대화를 쓴다. 호출 사이 간격은 앞 호출이 끝난 시각부터 센다(기본 60초, 최소 15초).
+- 확인 코드는 호출마다 무작위로 정한다. 이전 실행과 같은 프롬프트를 보내려면 `--nonce <코드>`로 하나를 지정한다. 이때는 모든 호출이 같은 확인 코드를 쓰므로 호출은 시각으로 구분한다.
+- 출력 상한은 호출마다 `--max-output-tokens`(기본 384, 1 이상)로 건다. SDK 재시도는 꺼져 있다.
+- `completed`가 아닌 호출이 처음 나오면 멈춘다(오류, 5xx, 시간 초과, `failed`, `incomplete`, 승인 필요). 그 호출을 다시 보내지 않고 다음 호출도 보내지 않는다. 모델이 MCP 도구를 부르지 않고 `completed`로 끝난 호출은 정상 결과이므로 멈추지 않는다.
+- 호출이 하나 끝날 때마다 시리즈 파일을 다시 쓴다. 중간에 멈추면 그때까지의 기록이 남는다.
+- 종료 코드는 모든 호출이 `completed`이면 0이다. 멈춘 경우에는 멈춘 호출의 `run_prompt.py` 종료 코드와 같다. 호출 전 점검이 실패하면 1이고, 설정 오류면 2다.
 
 ## 실행 결과 읽는 법
 
@@ -105,14 +123,14 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 |---|---|
 | `stopped`, `ok` | 끝난 이유와 성공 판정. `stopped`가 `completed`면 성공이다. |
 | `request` | 호출 조건. 시나리오, 에이전트 이름, 확인 코드(`nonce`), 상한(`limits`: `max_output_tokens`, `max_tool_calls`, `max_rounds`, `timeout_s`), 승인한 도구 |
-| `started_at`, `last_request_at`, `finished_at` | 시작, 마지막 요청, 종료 시각(UTC, 초 단위. KST는 UTC+9). 인프라 담당이 APIM 기록과 시간대를 맞출 때 쓴다. |
-| `rounds` | 응답마다 한 항목. 주요 키는 `response_id`, `status`, `model`, `output_item_types`, `usage`, `error`, `chained_by`, `requested_at`, `elapsed_s`다. |
+| `started_at`, `last_request_at`, `finished_at` | 시작, 마지막 요청, 종료 시각. 클라이언트 시계 기준 UTC이고 밀리초 단위다(`YYYY-MM-DDTHH:MM:SS.mmm+00:00`, KST는 UTC+9). 인프라 담당이 APIM 기록과, 모델 API 담당이 모델 쪽 토큰 카운터와 시간대를 맞출 때 쓴다. |
+| `rounds` | 응답마다 한 항목. 주요 키는 `response_id`, `request_id`(서비스가 돌려준 요청 ID의 앞 8자, 없으면 `null`), `status`, `model`, `output_item_types`, `usage`, `error`, `chained_by`, `requested_at`, `responded_at`, `elapsed_s`다. |
 | `item_sequence` | 출력 항목 종류의 순서. 도구 호출 흔적을 본다. |
 | `tool_events` | 도구 목록, 도구 호출, 승인 요청 항목의 요약 |
 | `function_results` | 로컬에서 실행한 함수의 결과 |
 | `final_answer`, `final_answer_contains_nonce` | 최종 답과 확인 코드(`--nonce`) 포함 여부 |
 | `client_http` | 클라이언트가 실제로 보낸 HTTP 요청 수. `responses_posts`가 `responses.create` 호출 수보다 크면 SDK가 다시 보낸 것이다. SDK 자동 재시도는 꺼져 있다(`max_retries=0`). |
-| `error` | 실패한 호출의 상태 코드, Foundry 오류 코드, 메시지 |
+| `error` | 실패한 호출의 상태 코드, Foundry 오류 코드, 메시지. 오류가 알려 준 `param`과 요청 ID(앞 8자)가 있으면 함께 적는다. |
 | `conversation_id`, `conversation_deleted` | 이 호출이 만든 대화의 ID(증거 파일에는 앞 8자). `--delete-conversation`을 쓴 호출만 삭제 결과가 들어가고, 아니면 `null`이다. |
 | `request_header_echoed` | `--mcp-request-header`를 쓴 호출에서 헤더 값이 Foundry 응답에 다시 나타났는지 검사한 결과. 쓰지 않았으면 `null`이다. 값이 나타나면 Foundry에 저장된 것으로 보고 그 값을 교체한다. |
 
@@ -120,6 +138,32 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 
 종료 코드는 0이 성공, 1이 실행 또는 API 오류, 2가 설정 오류, 3이 미완이다. 3은 승인이 필요한 도구 호출을 `--approve-tool`로 승인하지 않았을 때, `max_rounds`를 다 썼을 때, OAuth 동의가 필요할 때, 응답이 `incomplete`일 때 나온다(`--expect-failure`를 쓰면 1).
 
+### 호출 묶음 결과(`<label>.series.json`)
+
+`run_series.py`는 호출마다 한 항목을 `calls`에 쌓는다. 프롬프트, 도구 입출력, 최종 답의 원문은 넣지 않고 길이와 항목 종류만 넣는다. 원문 요약은 호출마다 저장하는 `<label>-NN.run.json`에 있다.
+Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 쪽 토큰 카운터는 이 파일에 없다. 각 담당이 호출 시각과 확인 코드로 맞춘다.
+
+| 키 | 뜻 |
+|---|---|
+| `plan` | 일정. 호출 목록, 시나리오, 간격, 상한, 중단 규칙 |
+| `agents` | 호출 전에 읽은 에이전트 버전의 정의 요약. 모델 참조, `temperature`, 도구, 지시문 길이와 해시 앞 12자 |
+| `planned_calls`, `calls` | 계획한 호출 수와 실제로 실행한 호출의 기록. 중간에 멈추면 `calls`가 더 짧다. |
+| `summary` | 호출 수, 성공 수, MCP 도구를 부른 수, MCP 없이 끝난 수, `model_error` 수. `by_agent`는 에이전트 버전별 같은 집계 |
+| `stopped_early`, `stop_reason`, `error` | 중간에 멈췄는지, 이유, 호출 전 점검이 실패했을 때의 오류 |
+
+`calls[]`의 키는 다음과 같다.
+
+| 키 | 뜻 |
+|---|---|
+| `index`, `agent`, `version`, `nonce` | 호출 번호, 에이전트 이름과 버전, 확인 코드 |
+| `started_at`, `first_request_at`, `finished_at`, `duration_ms` | 시작, 첫 요청, 종료 시각(UTC, 밀리초)과 소요 시간 |
+| `gap_before_s` | 앞 호출이 끝난 뒤 이 호출을 시작하기까지 잰 간격. 첫 호출은 `null` |
+| `ok`, `stopped`, `error`, `model_error` | 성공 여부, 끝난 이유, 오류 요약, 오류 코드가 `model_error`인지 |
+| `item_sequence`, `mcp_called`, `mcp_calls` | 출력 항목 종류의 순서, MCP 도구를 불렀는지, 도구 호출마다 이름·상태·인자가 객체인지·질의 길이(`query_chars`)·출력 길이(`output_chars`). 질의 원문은 넣지 않는다. |
+| `answer_chars`, `final_answer_contains_nonce`, `think_tag` | 최종 답 길이, 확인 코드 포함 여부, `<think>` 태그 여부 |
+| `response_model`, `response_id`, `conversation_id`, `usage`, `rounds` | 마지막 응답의 `model`(에이전트 참조)과 ID, 대화 ID, 마지막 라운드의 usage, 라운드별 시각·요청 ID·usage |
+| `client_http` | 이 호출 하나에서 클라이언트가 보낸 HTTP 요청 수. `requests`는 대화 생성과 Responses POST를 합친 수이고 `responses_posts`는 Responses POST 수다. |
+| `contaminated`, `contamination_note` | 다른 트래픽이 겹친 호출을 사람이 표시하는 칸. 스크립트는 `null`로 두고 `summary`는 이 표시를 반영하지 않는다. |
 ## 증거 파일
 
 증거 파일은 `evidence/foundry-byom/`에 있다.
@@ -129,6 +173,8 @@ Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 �
 | `<label>.connections.json` | `inspect_connections.py` 결과 |
 | `<label>.create.json` | `create_agent.py` 결과와 저장된 모델 참조 확인 |
 | `<label>.run.json` | `run_prompt.py` 결과 |
+| `<label>.series.json` | `run_series.py` 결과. 일정, 호출 전 점검, 호출별 기록, 요약 |
+| `<label>-NN.run.json` | `run_series.py`가 호출마다 저장하는 `run_prompt.py` 결과. NN은 호출 번호 |
 | `<label>.json` | `collect_evidence.py`의 자동 점검과 수동 점검 판정 |
 | `<label>.apim-report.json` | 인프라 담당이 APIM 기록에서 읽어 보고한 값. 이 스크립트가 측정한 값이 아니다. |
 

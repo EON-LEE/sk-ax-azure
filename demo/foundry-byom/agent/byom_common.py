@@ -38,8 +38,8 @@ CONNECTION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 LABEL_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 EVIDENCE_FILES = {"evidence": "{label}.json", "run": "{label}.run.json", "create": "{label}.create.json",
-                  "connections": "{label}.connections.json"}
-RESERVED_LABEL_SUFFIXES = (".run", ".create", ".connections")
+                  "connections": "{label}.connections.json", "series": "{label}.series.json"}
+RESERVED_LABEL_SUFFIXES = (".run", ".create", ".connections", ".series")
 MCP_LABEL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
 TOOL_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
@@ -147,6 +147,11 @@ class HttpRequestCounter:
 
     def summary(self):
         return {"requests": self.requests, "responses_posts": self.responses_posts}
+
+    def reset(self):
+        """Start a new count, so that a series of calls over one client reports its HTTP requests call by call."""
+        self.requests = 0
+        self.responses_posts = 0
 
 
 @dataclasses.dataclass
@@ -300,8 +305,8 @@ def urls_in(text, limit=10):
     return found[:limit]
 
 
-def now_iso():
-    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+def now_iso(timespec="seconds"):
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec=timespec)
 
 
 def dumps(payload, *, keep_ids=False):
@@ -321,7 +326,8 @@ def configure_output():
 
 def evidence_path(label, kind="evidence"):
     if not LABEL_RE.fullmatch(label or "") or label.endswith(RESERVED_LABEL_SUFFIXES):
-        raise ConfigError("label must match [a-z0-9][a-z0-9._-]{0,63} and must not end with .run, .create or .connections")
+        raise ConfigError("label must match [a-z0-9][a-z0-9._-]{0,63} and must not end with "
+                          ".run, .create, .connections or .series")
     return EVIDENCE_DIR / EVIDENCE_FILES[kind].format(label=label)
 
 
@@ -407,6 +413,11 @@ def status_code(exc):
     return value if isinstance(value, int) else None
 
 
+def short_request_id(value):
+    """The first ID_KEEP characters of a request correlation ID (a GUID keeps its first group); None without one."""
+    return value[:ID_KEEP] if isinstance(value, str) and value else None
+
+
 def describe_error(exc):
     """Summarize an SDK exception: the service message stays verbatim (redacted on output); headers and request bodies are never echoed."""
     inner = getattr(exc, "error", None)
@@ -420,6 +431,12 @@ def describe_error(exc):
         "code": code if isinstance(code, str) else None,
         "message": clip(message if isinstance(message, str) else str(exc), ERROR_MESSAGE_LIMIT),
     }
+    param = getattr(exc, "param", None)
+    if isinstance(param, str):
+        summary["param"] = clip(param, 100)
+    request_id = short_request_id(getattr(exc, "request_id", None))
+    if request_id:
+        summary["request_id"] = request_id
     target = getattr(inner, "target", None)
     if isinstance(target, str):
         summary["target"] = clip(target, 200)
