@@ -140,25 +140,42 @@ def run_stage(stage, function, *args, **kwargs):
         raise StageFailure(stage, exc) from exc
 
 
+def is_responses_post(request):
+    return request.method == "POST" and request.url.path.rstrip("/").endswith("/responses")
+
+
 class HttpRequestCounter:
-    """httpx request hook that counts what the OpenAI client really sent, so any retry shows up in the evidence."""
+    """httpx hooks that count what the OpenAI client really sent, so any retry shows up in the evidence.
+
+    The response hook records the HTTP status of every Responses POST that got an answer; a POST without
+    an answer (timeout, connection error) leaves no status, so fewer statuses than responses_posts shows it.
+    """
 
     def __init__(self):
         self.requests = 0
         self.responses_posts = 0
+        self.responses_statuses = []
 
     def __call__(self, request):
         self.requests += 1
-        if request.method == "POST" and request.url.path.rstrip("/").endswith("/responses"):
+        if is_responses_post(request):
             self.responses_posts += 1
 
+    def on_response(self, response):
+        if is_responses_post(response.request):
+            self.responses_statuses.append(response.status_code)
+
     def summary(self):
-        return {"requests": self.requests, "responses_posts": self.responses_posts}
+        summary = {"requests": self.requests, "responses_posts": self.responses_posts}
+        if self.responses_statuses:
+            summary["responses_statuses"] = list(self.responses_statuses)
+        return summary
 
     def reset(self):
         """Start a new count, so that a series of calls over one client reports its HTTP requests call by call."""
         self.requests = 0
         self.responses_posts = 0
+        self.responses_statuses = []
 
 
 @dataclasses.dataclass
@@ -677,8 +694,8 @@ def open_clients(args, with_openai=True):
     if with_openai:
         from openai import DefaultHttpxClient
         # max_retries=0: an SDK retry would be a hidden extra model call; the counter proves none happened.
-        openai = project.get_openai_client(
-            max_retries=0, http_client=DefaultHttpxClient(event_hooks={"request": [counter]}))
+        hooks = {"request": [counter], "response": [counter.on_response]}
+        openai = project.get_openai_client(max_retries=0, http_client=DefaultHttpxClient(event_hooks=hooks))
     return Clients(project=project, openai=openai, models=models, http=counter)
 
 

@@ -936,6 +936,24 @@ class ClientSetupTests(ScriptCase):
         counter(types.SimpleNamespace(method="POST", url=types.SimpleNamespace(path="/p/openai/v1/responses")))
         self.assertEqual(counter.summary(), {"requests": 1, "responses_posts": 1})
 
+    def test_http_request_counter_records_the_status_of_answered_responses_posts_only(self):
+        counter = common.HttpRequestCounter()
+
+        def answered(method, path, status):
+            request = types.SimpleNamespace(method=method, url=types.SimpleNamespace(path=path))
+            counter(request)
+            counter.on_response(types.SimpleNamespace(request=request, status_code=status))
+
+        answered("POST", "/p/openai/v1/conversations", 200)
+        self.assertEqual(counter.summary(), {"requests": 1, "responses_posts": 0})
+        answered("POST", "/p/openai/v1/responses", 500)
+        answered("GET", "/p/openai/v1/responses/resp_1", 404)
+        answered("POST", "/p/openai/v1/responses", 200)
+        counter(types.SimpleNamespace(method="POST", url=types.SimpleNamespace(path="/p/openai/v1/responses")))
+        self.assertEqual(counter.summary(), {"requests": 5, "responses_posts": 3, "responses_statuses": [500, 200]})
+        counter.reset()
+        self.assertEqual(counter.summary(), {"requests": 0, "responses_posts": 0})
+
 
 class CreateAgentTests(ScriptCase):
     def live(self, *argv, clients):
@@ -2015,9 +2033,12 @@ class RunSeriesTests(ScriptCase):
     def test_limits_are_refused_before_any_client_call(self):
         cases = (
             (["--repeat", "0"], "--repeat must be between"),
-            (["--repeat", "13"], "--repeat must be between"),
-            (["--call", f"{self.WEAK}:1", "--repeat", "7"], "at most 12 are allowed"),
+            (["--repeat", "31"], "--repeat must be between"),
+            (["--call", f"{self.WEAK}:1", "--repeat", "16"], "at most 30 are allowed"),
             (["--expect-calls", "2"], "--expect-calls 2 does not match the 1 scheduled calls"),
+            (["--request-budget", "1"], "--request-budget must be at least 2"),
+            (["--request-budget", "0"], "--request-budget must be at least 2"),
+            (["--request-budget", "-3"], "--request-budget must be at least 2"),
             (["--min-gap-s", "14.9"], "--min-gap-s must be between"),
             (["--min-gap-s", "nan"], "--min-gap-s must be between"),
             (["--min-gap-s", "3601"], "--min-gap-s must be between"),
@@ -2097,7 +2118,8 @@ class RunSeriesTests(ScriptCase):
         self.assertTrue(self.STAMP.fullmatch(series["generated_at"]))
         self.assertEqual(series["plan"], {
             "calls": [f"{self.ABLATION}:1"] * 3, "scenario": "mcp", "custom_prompt": False, "min_gap_s": 60.0,
-            "expect_calls": 3, "continue_on_model_error": False, "stop_rule": run_series.STOP_RULE,
+            "expect_calls": 3, "continue_on_model_error": False, "request_budget": None, "stop_on_mcp_error": False,
+            "stop_rule": run_series.STOP_RULE,
             "limits": {"max_output_tokens": 384, "max_tool_calls": 0, "max_rounds": 4, "timeout_s": 180}})
         self.assertEqual(list(series["agents"]), [f"{self.ABLATION}:1"])
         self.assertEqual(series["summary"], {
@@ -2122,6 +2144,129 @@ class RunSeriesTests(ScriptCase):
         self.assertEqual(series["plan"]["limits"],
                          {"max_output_tokens": 200, "max_tool_calls": 2, "max_rounds": 2, "timeout_s": 90})
         self.assertEqual(series["plan"]["min_gap_s"], 20.0)
+
+    def test_thirty_calls_are_allowed_and_thirty_one_are_not(self):
+        base = ["--call", f"{self.ABLATION}:1", "--label", "unit-thirty", "--dry-run"]
+        code, out, err = self.run_script(run_series, [*base, "--repeat", "30"], live=False)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out)["plan"]["planned_calls"], 30)
+        code, out, err = self.run_script(run_series, [*base, "--repeat", "31"], live=False)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("--repeat must be between 1 and 30", err)
+
+    def test_the_dry_run_plan_shows_the_budget_and_the_mcp_stop(self):
+        argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-plan2", "--dry-run", "--request-budget", "64",
+                "--stop-on-mcp-error"]
+        code, out, _ = self.run_script(run_series, argv, live=False)
+        plan = json.loads(out)["plan"]
+        self.assertEqual(code, 0)
+        self.assertEqual((plan["request_budget"], plan["stop_on_mcp_error"]), (64, True))
+
+    def test_the_request_estimate_counts_posts_and_mcp_calls(self):
+        cases = (
+            ({"responses_posts": 1}, [{}], 2),
+            ({"responses_posts": 1}, [], 1),
+            (None, [], 1),
+            ({"responses_posts": 0}, [{}, {}], 3),
+            ({"responses_posts": 3}, [], 3),
+        )
+        for http, mcp_calls, expected in cases:
+            with self.subTest(http=http, mcp_calls=len(mcp_calls)):
+                record = {"client_http": http, "mcp_calls": mcp_calls}
+                self.assertEqual(run_series.request_estimate(record), expected)
+
+    def test_the_request_budget_stops_the_series_before_a_call_that_could_exceed_it(self):
+        replies = [self.mcp_reply(number) for number in (1, 2, 3)]
+        clients, code, out, err = self.run_calls(self.argv("unit-budget", "--request-budget", "5"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual([call["ok"] for call in series["calls"]], [True, True])
+        self.assertTrue(series["stopped_early"])
+        self.assertEqual(series["stop_reason"], "request budget 5 reached before call 3: 4 estimated model "
+                                                "requests so far, one call can use 2")
+        self.assertEqual((series["plan"]["request_budget"], series["plan"]["stop_on_mcp_error"]), (5, False))
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+        self.assertEqual(self.clock.sleeps, [60.0])
+        self.assertFalse((Path(self.tmp.name) / "unit-budget-03.run.json").exists())
+        self.assertEqual(self.read_saved("unit-budget.series.json"), series)
+        self.assertNotIn("call 3/3", err)
+
+    def test_a_series_that_fits_the_request_budget_runs_to_the_end(self):
+        replies = [self.mcp_reply(number) for number in (1, 2, 3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-fits", "--request-budget", "6"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual((len(series["calls"]), series["stopped_early"], series["stop_reason"]), (3, False, None))
+        self.assertEqual(len(clients.openai.responses.calls), 3)
+
+    def test_the_budget_also_stops_a_series_that_continues_past_model_errors(self):
+        failure = ApiError(500, "The model produced invalid content", api_type="model_error")
+        replies = [failure, failure, self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(
+            self.argv("unit-budget-go", "--continue-on-model-error", "--request-budget", "3"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual([call["model_error"] for call in series["calls"]], [True, True])
+        self.assertEqual(series["stop_reason"], "request budget 3 reached before call 3: 2 estimated model "
+                                                "requests so far, one call can use 2")
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+
+    def failed_mcp_replies(self, item):
+        return [self.mcp_reply(1), response([list_tools(), *item, message(self.answer(2))], "resp_2"),
+                self.mcp_reply(3)]
+
+    def test_a_failed_mcp_item_in_a_completed_call_stops_the_series_with_the_option(self):
+        cases = (
+            ([mcp_call("", status="failed", error="tool failed")], "an mcp_call item (microsoft_docs_search) failed"),
+            ([mcp_call("", error={"code": "auth_invalid_api_key"})],
+             "an mcp_call item (microsoft_docs_search) failed"),
+            ([mcp_call("", name="other_tool", status="failed")], "an mcp_call item (other_tool) failed"),
+        )
+        for number, (item, failure) in enumerate(cases, start=1):
+            with self.subTest(failure=failure, number=number):
+                self.clock = FakeClock()
+                label = f"unit-mcp-stop-{number}"
+                clients, code, out, err = self.run_calls(self.argv(label, "--stop-on-mcp-error"),
+                                                         self.failed_mcp_replies(item))
+                series = json.loads(out)
+                self.assertEqual(code, 1)
+                self.assertEqual((series["stopped_early"], series["stop_reason"]),
+                                 (True, f"call 2 completed but {failure}"))
+                self.assertEqual([call["ok"] for call in series["calls"]], [True, True])
+                self.assertEqual(series["plan"]["stop_on_mcp_error"], True)
+                self.assertEqual(len(clients.openai.responses.calls), 2)
+                self.assertEqual(self.clock.sleeps, [60.0])
+                self.assertEqual(self.read_saved(f"{label}.series.json"), series)
+                self.assertNotIn("tool failed", series["stop_reason"])
+                self.assertNotIn("call 3/3", err)
+
+    def test_a_failed_tool_listing_stops_the_series_with_the_option(self):
+        replies = [self.mcp_reply(1), response([list_tools(names=(), error="listing failed"), message(self.answer(2))],
+                                               "resp_2"), self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-list-stop", "--stop-on-mcp-error"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 2 completed but an mcp_list_tools item failed")
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+
+    def test_a_failed_mcp_item_does_not_stop_the_series_without_the_option(self):
+        replies = self.failed_mcp_replies([mcp_call("", status="failed", error="tool failed")])
+        clients, code, out, _ = self.run_calls(self.argv("unit-mcp-go"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual((len(series["calls"]), series["stopped_early"], series["stop_reason"]), (3, False, None))
+        self.assertEqual(series["calls"][1]["mcp_calls"][0]["status"], "failed")
+        self.assertEqual(len(clients.openai.responses.calls), 3)
+
+    def test_the_mcp_stop_ignores_working_calls_and_failed_calls_stop_as_before(self):
+        replies = [self.mcp_reply(number) for number in (1, 2, 3)]
+        _, code, out, _ = self.run_calls(self.argv("unit-mcp-ok", "--stop-on-mcp-error"), replies)
+        self.assertEqual((code, len(json.loads(out)["calls"])), (0, 3))
+        failure = ApiError(503, "backend not ready", code="backend_unavailable")
+        _, code, out, _ = self.run_calls(self.argv("unit-mcp-503", "--stop-on-mcp-error"),
+                                         [self.mcp_reply(1), failure, self.mcp_reply(3)])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["stop_reason"], "call 2 did not complete: error (503 backend_unavailable)")
 
     def test_the_temperature_echoed_by_the_response_is_recorded_per_call(self):
         replies = [self.mcp_reply(1, temperature=0.3, top_p=1.0), self.mcp_reply(2)]
@@ -2684,7 +2829,7 @@ class SdkCompatibilityTests(ScriptCase):
         self.assertEqual((sent[0]["max_output_tokens"], sent[0]["conversation"]), (256, CONVERSATION))
         self.assertNotIn("max_tool_calls", sent[0])
         self.assertNotIn("timeout", sent[0])
-        self.assertEqual(result["client_http"], {"requests": 2, "responses_posts": 1})
+        self.assertEqual(result["client_http"], {"requests": 2, "responses_posts": 1, "responses_statuses": [503]})
         self.assertEqual((result["stopped"], result["rounds"]), ("error", []))
         self.assertEqual((result["error"]["status_code"], result["error"]["code"]), (503, "model_error"))
 

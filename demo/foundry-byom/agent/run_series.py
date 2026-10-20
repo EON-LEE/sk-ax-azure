@@ -4,7 +4,8 @@ Each call is one run_prompt execution: one conversation, one Responses request p
 The series stops at the first call that does not end "completed" (error, 5xx, timeout, failed, incomplete)
 and never retries it. With --continue-on-model-error, a call that fails with a model_error is recorded and the
 next call follows after the gap; every other failure still stops the series. A completed call in which the model
-did not use the MCP tool is a normal result.
+did not use the MCP tool is a normal result. --request-budget stops before a call that could exceed an estimated
+number of model requests, and --stop-on-mcp-error stops after a completed call in which an MCP item failed.
 Before the first model call, every agent version in the schedule is read once (GET), so a wrong name or
 version fails without any model traffic. --precheck-only stops after that read. --dry-run prints the schedule
 without SDK import, credentials or network use.
@@ -28,8 +29,9 @@ CLIPPED_RE = re.compile(r"(.*)\.\.\.\(\+(\d+) chars\)", re.S)
 MIN_GAP_FLOOR_S = 15.0
 MAX_GAP_S = 3600.0
 MAX_TIMEOUT_S = 600.0
-MAX_CALLS = 12
-STOP_RULE = ("stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete); "
+MAX_CALLS = 30
+REQUESTS_PER_CALL = 2
+STOP_RULE =  ("stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete); "
              "no retry and no further call")
 CONTINUE_RULE = ("stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete) "
                  "except a model_error, which is recorded and followed by the next call after the gap; "
@@ -38,7 +40,12 @@ NOTES = (
     "Timestamps are UTC with millisecond precision from the client clock; match them with vLLM, APIM and span "
     "clocks by time window.",
     "client_http counts the HTTP requests the OpenAI client sent for that call only: requests = conversation "
-    "creation plus Responses POSTs, responses_posts = Responses POSTs. The client is created with max_retries=0.",
+    "creation plus Responses POSTs, responses_posts = Responses POSTs. The client is created with max_retries=0. "
+    "responses_statuses lists the HTTP status of each Responses POST that got an answer, in order; it is absent "
+    "when none did, and fewer statuses than responses_posts means a POST without an answer.",
+    "request_budget is a client-side safety net, not a measurement: each call is counted as its Responses POSTs "
+    f"(at least 1) plus its mcp_call items (one more model request each), and a call is not started when the "
+    f"estimate so far plus {REQUESTS_PER_CALL} would exceed the budget. Gateway counts stay authoritative.",
     "Foundry spans (invoke_agent, chat, execute_tool) are not collected here; read them from the telemetry side "
     "by call window and nonce.",
     "model_error is true when the call failed with HTTP 500 (or as a failed response) and the service error type "
@@ -83,6 +90,12 @@ def build_parser():
     parser.add_argument("--continue-on-model-error", action="store_true",
                         help="record a call that ends with a model_error and go on with the next call; "
                              "every other call that does not complete still stops the series")
+    parser.add_argument("--request-budget", type=int, metavar="N",
+                        help="client-side cap on the estimated model requests of the whole series (at least "
+                             f"{REQUESTS_PER_CALL}); the series stops before a call that could exceed it")
+    parser.add_argument("--stop-on-mcp-error", action="store_true",
+                        help="stop after a completed call in which an MCP call or tool listing failed "
+                             "(error set or status failed)")
     parser.add_argument("--precheck-only", action="store_true",
                         help="connect, read every agent version once (GET), print the definitions and exit; "
                              "no model request is sent and no file is written")
@@ -126,6 +139,8 @@ def build_schedule(args):
         raise common.ConfigError(f"--timeout must be above 0 and at most {MAX_TIMEOUT_S:g}")
     if args.nonce is not None and not run_prompt.NONCE_RE.fullmatch(args.nonce):
         raise common.ConfigError("--nonce must match [A-Za-z0-9._-]{1,40}")
+    if args.request_budget is not None and args.request_budget < REQUESTS_PER_CALL:
+        raise common.ConfigError(f"--request-budget must be at least {REQUESTS_PER_CALL}: one call can use that many")
     if args.precheck_only and args.dry_run:
         raise common.ConfigError("--precheck-only reads from the project and cannot be combined with --dry-run")
     common.evidence_path(args.label, "series")
@@ -157,8 +172,10 @@ def describe_plan(args, entries):
         "planned_calls": len(entries),
         "min_gap_s": args.min_gap_s,
         "continue_on_model_error": args.continue_on_model_error,
+        "request_budget": args.request_budget,
+        "stop_on_mcp_error": args.stop_on_mcp_error,
         "stop_rule": stop_rule(args),
-        "precheck": "GET agents.get_version once per distinct name:version, before the first model call",
+        "precheck":  "GET agents.get_version once per distinct name:version, before the first model call",
         "calls": calls,
     }}
 
@@ -313,6 +330,8 @@ def new_series(args, entries):
             "limits": {"max_output_tokens": args.max_output_tokens, "max_tool_calls": args.max_tool_calls,
                        "max_rounds": args.max_rounds, "timeout_s": args.timeout},
             "continue_on_model_error": args.continue_on_model_error,
+            "request_budget": args.request_budget,
+            "stop_on_mcp_error": args.stop_on_mcp_error,
             "stop_rule": stop_rule(args),
         },
         "auth": common.credential_info(args),
@@ -338,6 +357,22 @@ def stop_reason(entry, result):
     return f"call {entry.index} did not complete: {result['stopped']}" + (f" ({detail})" if detail else "")
 
 
+def request_estimate(record):
+    """Estimated model requests of one call: its Responses POSTs (at least 1) plus one more per mcp_call item."""
+    posts = (record["client_http"] or {}).get("responses_posts") or 0
+    return max(1, posts) + len(record["mcp_calls"])
+
+
+def mcp_failure(result):
+    """Content-free description of the first MCP item that failed inside a call, or None."""
+    for event in result["tool_events"]:
+        kind = event.get("type")
+        if kind in ("mcp_call", "mcp_list_tools") and (event.get("error") or event.get("status") == "failed"):
+            name = event.get("name")
+            return f"an {kind} item" + (f" ({name})" if name else "") + " failed"
+    return None
+
+
 def progress(entry, total, record):
     usage = record["usage"] or {}
     error = record["error"] or {}
@@ -361,8 +396,16 @@ def execute_series(args, clients, entries, clock=time.monotonic, sleep=time.slee
         return series, 1
     save(series)
     print(f"precheck ok: {', '.join(series['agents'])}", file=sys.stderr)
-    code, previous_end = 0, None
+    code, previous_end, estimated = 0, None, 0
     for entry in entries:
+        if args.request_budget is not None and estimated + REQUESTS_PER_CALL > args.request_budget:
+            series["stopped_early"] = True
+            series["stop_reason"] = (f"request budget {args.request_budget} reached before call {entry.index}: "
+                                     f"{estimated} estimated model requests so far, "
+                                     f"one call can use {REQUESTS_PER_CALL}")
+            code = 1
+            save(series)
+            break
         if previous_end is not None:
             print(f"call {entry.index}/{len(entries)}: waiting for the {args.min_gap_s:g} s gap", file=sys.stderr)
         gap = wait_for_gap(previous_end, args.min_gap_s, clock, sleep)
@@ -374,12 +417,20 @@ def execute_series(args, clients, entries, clock=time.monotonic, sleep=time.slee
         previous_end = clock()
         record = call_record(entry, result, gap, round((previous_end - began) * 1000))
         series["calls"].append(record)
+        estimated += request_estimate(record)
         common.write_json(common.evidence_path(entry.run_label, "run"), result)
         progress(entry, len(entries), record)
         if not result["ok"] and not (args.continue_on_model_error and record["model_error"]):
             series["stopped_early"] = True
             series["stop_reason"] = stop_reason(entry, result)
             code = run_prompt.exit_code(entry.args, result)
+            save(series)
+            break
+        failure = mcp_failure(result) if args.stop_on_mcp_error and result["ok"] else None
+        if failure:
+            series["stopped_early"] = True
+            series["stop_reason"] = f"call {entry.index} completed but {failure}"
+            code = 1
             save(series)
             break
         save(series)
