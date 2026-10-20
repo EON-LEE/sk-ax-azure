@@ -1187,18 +1187,30 @@ encodability check to the demo chat's request validation.
   on-demand or reserved capacity in the customer subscription. Run the
   same image and command there, on AKS + KubeRay/LWS or CycleCloud Slurm.
 - **Reverse GPU link stability.** The demo's low-priority nodes were kept
-  running, and the reverse GPU link between a serving job and the web app
-  was lost twice on 2026-10-19: for both profiles at once, then for FP8 alone.
-  Counted from the loss to an observed ready state, a profile was not ready
-  for about 43, 66 and 67 minutes (FP8, NVFP4, FP8). These are observed times,
-  not a guarantee, and the cause is not verified. The timeline is in a redacted
-  record, `demo/evidence/recurrent-link-loss-recovery-redacted.json`.
+  running. Over about 16 hours across 2026-10-19 and 2026-10-20, the reverse
+  GPU link between a serving job and the web app closed 8 times, counted per
+  profile (FP8 4, NVFP4 4). Two pairs closed within seconds of each other, so
+  there were 6 incidents. Counted from the close to the first ready state, a
+  profile was not ready for about 32 to 116 minutes. These are observed
+  times, some estimated from the start-up phase, and not a guarantee. The
+  cause is not verified. Two of the incidents, both on 2026-10-19, are in a
+  redacted record, `demo/evidence/recurrent-link-loss-recovery-redacted.json`;
+  they are the first and second loss below. The raw data is not published.
+  - *Recovery times.* The observed times included about 32, 43, 55, 66 and
+    67 minutes, and the longest was about 116 minutes (NVFP4). The 32-minute
+    recovery (the 8th close) needed no action from the supervisor: AML re-ran
+    the same job by itself, on the same node ID. There was no supervisor
+    release and no new submit, and the vLLM counters were reset to 0. The 43,
+    55, 66 and 67 minute recoveries followed a supervisor release (it cancels
+    the job and starts a replacement) or an approved manual restart. Some
+    values, including the longest, are estimates from the start-up phase the
+    job reported, not a ready state seen directly.
   - *First loss.* Both profiles lost the link, 3.1 seconds apart. The
-    supervisor released the FP8 job (it cancels the job and starts a
-    replacement) 20 minutes 39 seconds after the loss, and FP8 was ready 22
-    minutes 15 seconds later, 43 minutes after the loss. NVFP4 had one approved
-    manual restart, requested 44 minutes after the loss, and was stably ready
-    22 minutes after the request, 66 minutes after the loss.
+    supervisor released the FP8 job 20 minutes 39 seconds after the loss, and
+    FP8 was ready 22 minutes 15 seconds later, 43 minutes after the loss.
+    NVFP4 had one approved manual restart, requested 44 minutes after the
+    loss, and was stably ready 22 minutes after the request, 66 minutes after
+    the loss.
   - *Second loss.* Only FP8 lost the link. About 7 minutes later its job went
     to Queued with no usable node, and the supervisor released it by its rule:
     no link for 1,200 seconds and fewer than two usable nodes. FP8 was first
@@ -1210,13 +1222,54 @@ encodability check to the demo chat's request validation.
     were not checked. No link loss was observed on NVFP4, but its samples
     around the loss were up to 112 seconds apart, so a short reconnection
     cannot be excluded.
-  - *Cause: not verified.* The Azure Activity Log for a ten-minute window
-    around the second loss has 52 entries, all reads, and no Resource Health or
-    Service Health event. The Resource Health query was unavailable, so that
-    source was not observed. Node preemption or re-creation and a restart of
-    the worker process alone are unconfirmed. The two FP8 losses are 10,804.9
-    seconds (3 hours 4.9 seconds) apart; that may be chance and is not evidence
-    of a periodic cause.
+  - *Cause: not verified.* The signs below are circumstantial. Run History
+    shows a preemption warning on all 5 AML jobs that have ended. The warning
+    has no time or code field, and a one-to-one match with the closes is not
+    confirmed. In some cases AML ran the same job again on another node
+    without a submit from the supervisor. That matches an automatic requeue,
+    but the attempt history was not checked. GPU telemetry stopped 5 to 21
+    seconds before the close (40 seconds for the last one). One contradiction
+    is unresolved: the Azure Monitor node-state metric and the diagnostic
+    settings show Preempted = 0 for every minute. The Azure Activity Log for a
+    ten-minute window around the second loss has 52 entries, all reads, and
+    no Resource Health or Service Health event. The Resource Health query was
+    unavailable, so that source was not observed. Node preemption or
+    re-creation and a restart of the worker process alone are unconfirmed.
+    Load does not look like the cause: GPU utilisation was 0% in the ten
+    minutes before each of the first 7 closes (per-minute snapshots, 800
+    device samples). A short request between snapshots is not excluded.
+  - *Timing pattern.* The first 7 closes all happened at a clock time whose
+    minute ends in 7. The 8th did not, so this must not be used as a periodic
+    rule. Why the first 7 shared it is unknown. The FP8 closes of the first
+    and second loss are 10,804.9 seconds (3 hours 4.9 seconds) apart; that may
+    be chance and is not evidence of a periodic cause.
+  - *What the supervisor sees.* It checks every 45 seconds. It releases a
+    job at its next check when AML reports a terminal status. Its stale rule
+    releases the active job only when the job has had no link for more than
+    1,200 seconds and fewer nodes are usable than the job needs. The time a
+    link was last seen is refreshed whenever a link exists, so a link process
+    that reconnects over a dead model server keeps that rule from firing. The
+    job status is AML's coarse status and does not show a re-run of the same
+    run. Inside the job, `phase` is set to `ready` when a start first becomes
+    healthy and stays `ready` until the job restarts the server, so it does
+    not follow later `/health` failures. The job restarts the server when the
+    process exits or when 18 `/health` checks in a row fail (about 3 to 6
+    minutes). A start that never becomes healthy is restarted too, after it
+    has waited up to 3,600 seconds and retried once with `--enforce-eager` for
+    up to 3,600 seconds more. At most 2 restarts are allowed. When they run
+    out, the job exits with code 40 and the supervisor replaces it.
+  - *Decision.* No supervisor rule was added. A rule such as "cancel after N
+    minutes not ready" could cut a job that AML is about to recover (the
+    32-minute case). A cancel and resubmit would not be faster either: it
+    also has to wait for node replacement (about 13 to 19 minutes until a
+    node is back) and for boot and model load (about 20 to 26 minutes). A
+    later rule should test for no progress, not for not ready: the tuple
+    `phase`, `since`, `download_gb`, `load_pct` and the `started` time of
+    the link's hello is unchanged for N minutes. N must be well above the
+    45-second check, the 30-second status freshness limit, a web app
+    redeploy gap and the link's reconnect backoff. The timer would live in
+    each profile's own job state. This is a design proposal; it was not
+    implemented or verified.
   - *Effect.* While the link is down, the model API answers 503
     `backend_unavailable` at once with `Retry-After: 30` (8.6). That 503 was
     seen in the first loss (Foundry sent four requests for one NVFP4 call and
@@ -1224,11 +1277,16 @@ encodability check to the demo chat's request validation.
     call during the second loss (its record: 0). `GET {base}/health` shows
     readiness, but it needs the key and the gateway does not expose it, so
     behind the gateway the state shows only as the 503 of a model call.
+    Before a demo starts, call `GET {base}/health` for both profiles on the
+    web app's own address and check that each answers 200.
   - *Conclusion.* On this capacity a profile can be not ready for tens of
-    minutes (43 to 67 observed). Production needs on-demand or reserved
-    capacity, as the limit above says. No code was changed and nothing was
-    redeployed for this (the allowed web app restarts are used up, 8.6), and
-    the hub's reconnection behaviour is unchanged.
+    minutes (about 32 to 116 observed, not a guarantee). The VM quota for
+    the A100 families is 0 (section 2), so the nodes come from Azure ML
+    low-priority (Spot) compute. Production needs on-demand or reserved
+    capacity, as the limit above says. No code was changed, no supervisor
+    rule was added and nothing was redeployed for this (the allowed web app
+    restarts are used up, 8.6), and the hub's reconnection behaviour is
+    unchanged.
 - Native DSA depends on an unmerged upstream PR carried as a hash-checked
   overlay. Re-validate (kernel tests plus the 2-layer comparison in
   `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
