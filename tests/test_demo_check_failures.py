@@ -414,7 +414,7 @@ class StopRuleTests(FailureCase):
         self.assertEqual(len(reasons), 1)
         self.assertRegex(reasons.pop(), r"^api/me transport \w+Error$")
         self.assertEqual((outcome.code, outcome.summary["totals"]["skipped"]), (1, 2))
-        self.assertEqual(outcome.sleeps, [])
+        self.assertEqual(outcome.sleeps, [10.0, 10.0])
 
 
 class OutputFileTests(FailureCase):

@@ -4,7 +4,8 @@
     check_agentic_examples.py --list
     check_agentic_examples.py --write-fixtures DIR
     AXK2_DEMO_URL=https://HOST check_agentic_examples.py [--only ID[,ID]] [--runs fp8=2,nvfp4=1] [--gap 10]
-                                                         [--out RESULT.json] [--table RESULT.md] [--go]
+                                                         [--dns doh|system] [--out RESULT.json] [--table RESULT.md]
+                                                         [--go]
 
 Without --go nothing is sent: the plan (examples, runs, planned model calls) is printed. With --go every run is one
 chat turn made the way the web page makes it: create a workspace, upload the example's fixture if it has one,
@@ -21,6 +22,19 @@ preview), the total time is within --max-seconds and no HTTP 5xx came back. Cont
 rounded calculator result, files rewritten) are reported as flags and do not fail a run. Model-written code is
 parsed, never run.
 
+Name lookup: the resolver of a PC can fail for seconds at a time. With --dns doh (the default) an https host name is
+looked up once through Google's DNS-over-HTTPS service, and every request of the run goes to that address; the TLS
+server name, the certificate check and the Host header stay those of the real name. The address is not printed or
+saved. If the lookup fails the system resolver is used. --dns system skips the lookup. The system DNS settings and
+the hosts file are never touched.
+
+Connection errors: a request that gets no HTTP answer (name lookup, connect, TLS, a stream that breaks, a download
+that breaks) makes the run a CONNECTION ERROR. It says nothing about the example, so it is recorded apart from
+failures and the example is run once more after the gap; a candidate gets one such retry in all, and the first
+attempt stays in the summary marked "superseded". A run that only went over its deadline is a failure, not a
+connection error. Three attempts in a row with a connection error stop the plan. /api/me is asked again twice when
+the server cannot be reached.
+
 Exit code: 0 every run passed, 1 a run failed or was skipped, 2 usage error.
 """
 
@@ -29,9 +43,11 @@ from __future__ import annotations
 import argparse
 import ast
 import http.client
+import ipaddress
 import json
 import os
 import re
+import socket
 import ssl
 import sys
 import time
@@ -48,6 +64,13 @@ DEFAULT_RUNS = "fp8=2,nvfp4=1"
 MIN_GAP = 10.0
 STOP_STATUSES = (401, 403, 429)
 MAX_5XX_STREAK = 3
+MAX_LINK_STREAK = 3
+PREFLIGHT_RETRIES = 2
+CONNECT_TIMEOUT = 20.0
+STALLS = ("deadline", "oversized line")
+DOH_NAME = "dns.google"
+DOH_ADDRESSES = ("8.8.8.8", "8.8.4.4")
+DOH_TRIES, DOH_PAUSE, DOH_TIMEOUT, MAX_DNS_BODY = 3, 3.0, 10.0, 65536
 LOOPBACK = ("localhost", "127.0.0.1", "::1")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]+")
 THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
@@ -128,6 +151,9 @@ def build_parser(sink):
     parser.add_argument("--only", action="append", help="comma-separated example ids (default: all; see --list)")
     parser.add_argument("--runs", default=DEFAULT_RUNS, help="runs per profile (default: %(default)s)")
     parser.add_argument("--gap", type=float, default=MIN_GAP, help="seconds between runs, at least 10 (default 10)")
+    parser.add_argument("--dns", choices=("doh", "system"), default="doh",
+                        help="doh: look the https host up once through DNS-over-HTTPS and use that address; "
+                             "system: use the system resolver (default: %(default)s)")
     parser.add_argument("--max-seconds", type=float, default=45.0,
                         help="a turn passes when its total time is within this many seconds (default 45)")
     parser.add_argument("--timeout", type=float, default=120.0,
@@ -169,8 +195,8 @@ def pick_examples(values):
 
 
 class Target:
-    def __init__(self, scheme, host, port):
-        self.scheme, self.host, self.port = scheme, host, port
+    def __init__(self, scheme, host, port, address=None):
+        self.scheme, self.host, self.port, self.address = scheme, host, port, address
 
 
 def parse_target(url):
@@ -231,6 +257,25 @@ def events(response, deadline):
         yield name or "message", "\n".join(data)
 
 
+class PinnedConnection(http.client.HTTPSConnection):
+    """An HTTPS connection to a fixed address. Only the name lookup is replaced: the TLS server name, the certificate
+    check and the Host header stay those of the host name."""
+
+    def __init__(self, host, port, address, timeout, context):
+        super().__init__(host, port, timeout=timeout, context=context)
+        self.address, self.tls = address, context
+
+    def connect(self):
+        raw = socket.create_connection((self.address, self.port), min(CONNECT_TIMEOUT, self.timeout))
+        self.sock = raw  # close() reaches the raw socket when the handshake fails
+        try:
+            raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        raw.settimeout(self.timeout)
+        self.sock = self.tls.wrap_socket(raw, server_hostname=self.host)
+
+
 class Server:
     def __init__(self, target, timeout):
         self.target, self.timeout, self.statuses = target, timeout, []
@@ -239,12 +284,14 @@ class Server:
     def connect(self):
         target = self.target
         if target.scheme == "https":
-            return http.client.HTTPSConnection(target.host, target.port, timeout=self.timeout,
-                                               context=ssl.create_default_context())
+            context = ssl.create_default_context()
+            if target.address:
+                return PinnedConnection(target.host, target.port, target.address, self.timeout, context)
+            return http.client.HTTPSConnection(target.host, target.port, timeout=self.timeout, context=context)
         return http.client.HTTPConnection(target.host, target.port, timeout=self.timeout)
 
     def request(self, method, path, body=None, headers=None):
-        reply, connection = Reply(), self.connect()
+        reply, connection, response = Reply(), self.connect(), None
         try:
             connection.request(method, path, body=body, headers={**self.headers, **(headers or {})})
             response = connection.getresponse()
@@ -253,13 +300,15 @@ class Server:
         except (OSError, http.client.HTTPException) as exc:
             reply.error = type(exc).__name__
         finally:
+            if response is not None:  # the connection has handed its socket to the response
+                response.close()
             connection.close()
         self.statuses.append(reply.status)
         return reply
 
     def stream(self, path, payload, token, deadline, turn):
         """POST the agent request and give every event of the answer to the turn; returns (status, error name)."""
-        connection, status, error = self.connect(), None, None
+        connection, response, status, error = self.connect(), None, None, None
         try:
             connection.request("POST", path, body=dumps(payload).encode("utf-8"), headers={
                 **self.headers, "Content-Type": "application/json", "Accept": "text/event-stream",
@@ -276,9 +325,87 @@ class Server:
         except (OSError, http.client.HTTPException) as exc:
             error = type(exc).__name__
         finally:
+            if response is not None:
+                response.close()
             connection.close()
         self.statuses.append(status)
         return status, error
+
+
+# ------------------------------------------------------------------------------------------ name lookup
+def public_ipv4(text):
+    try:
+        address = ipaddress.IPv4Address(text) if isinstance(text, str) else None
+    except ValueError:
+        return None
+    # is_global alone lets multicast addresses through
+    return str(address) if address is not None and address.is_global and not address.is_multicast else None
+
+
+def doh_query(connection, host):
+    """The first public IPv4 address that the DNS-over-HTTPS service answers for the host, or None."""
+    response = None
+    try:
+        connection.request("GET", "/resolve?name=" + quote(host, safe="") + "&type=A",
+                           headers={"Accept": "application/dns-json", "User-Agent": "axk2-agentic-examples-check/1"})
+        response = connection.getresponse()
+        body = response.read(MAX_DNS_BODY) if response.status == 200 else b""
+    except (OSError, http.client.HTTPException):
+        return None
+    finally:
+        if response is not None:
+            response.close()
+        connection.close()
+    answers = (json_object(body) or {}).get("Answer")
+    for answer in answers if isinstance(answers, list) else ():
+        if isinstance(answer, dict) and answer.get("type") == 1:  # type 1 is an A record; CNAME links are skipped
+            address = public_ipv4(answer.get("data"))
+            if address:
+                return address
+    return None
+
+
+def doh_connections():
+    """The ways to reach the service: straight to its well-known addresses first, then by name."""
+    context = ssl.create_default_context()
+    for address in DOH_ADDRESSES:
+        yield PinnedConnection(DOH_NAME, 443, address, DOH_TIMEOUT, context)
+    yield http.client.HTTPSConnection(DOH_NAME, 443, timeout=DOH_TIMEOUT, context=context)
+
+
+def doh_address(host, sleep, connections=doh_connections):
+    """One public IPv4 address of the host from the DNS-over-HTTPS service; raises LookupError after a few tries."""
+    for attempt in range(DOH_TRIES):
+        if attempt:
+            sleep(DOH_PAUSE)
+        for connection in connections():
+            address = doh_query(connection, host)
+            if address:
+                return address
+    raise LookupError("no DNS-over-HTTPS answer")
+
+
+def pinnable(target):
+    if target.scheme != "https" or target.host.lower() in LOOPBACK:
+        return False
+    try:
+        ipaddress.ip_address(target.host)
+    except ValueError:
+        return True
+    return False
+
+
+def pin(target, mode, resolve):
+    """Make the target go to one address, asked once. Returns what the summary says; it never holds the address."""
+    if mode == "system":
+        return {"mode": mode, "pinned": False}
+    if not pinnable(target):
+        return {"mode": mode, "pinned": False, "note": "no lookup needed: plain http, loopback or an IP address"}
+    try:
+        target.address = resolve(target.host)
+    except (LookupError, OSError):  # OSError: the lookup could not start, e.g. no CA file
+        return {"mode": mode, "pinned": False, "note": "the DNS-over-HTTPS lookup failed; the system resolver is used"}
+    return {"mode": mode, "pinned": True}
 
 
 class Turn:
@@ -327,8 +454,15 @@ def refusal(reply):
     return f"http {reply.status}" + (f" {tidy(code, 40)}" if code else "")
 
 
-def collect_files(server, prefix, auth, turn):
-    """Download what write_file reported and open the HTML files in the preview, as the page does."""
+def lost(broke, step, reply):
+    """Note a request that got no HTTP answer at all: name lookup, connect, TLS or a broken connection."""
+    if reply.status is None:
+        broke.append((step, reply.error))
+
+
+def collect_files(server, prefix, auth, turn, broke):
+    """Download what write_file reported and open the HTML files in the preview, as the page does. Once a request
+    has lost its connection the other files are not asked for."""
     paths = []
     for action in turn.ok("write_file"):
         path = (action.get("result") or {}).get("file") if isinstance(action.get("result"), dict) else None
@@ -337,25 +471,33 @@ def collect_files(server, prefix, auth, turn):
     files, texts = [], {}
     for path in paths[:MAX_FILES]:
         query = "?path=" + quote(path, safe="")
+        entry = {"name": path.rsplit("/", 1)[-1], "download": None, "bytes": None}
+        files.append(entry)
+        if broke:
+            continue
         got = server.request("GET", prefix + "/api/workspace/download" + query, headers=auth)
-        entry = {"name": path.rsplit("/", 1)[-1], "download": got.status,
-                 "bytes": len(got.body) if got.status == 200 else None}
+        entry["download"] = got.status
+        lost(broke, "download", got)
         if got.status == 200:
+            entry["bytes"] = len(got.body)
             texts[entry["name"]] = got.body.decode("utf-8", "replace")
             if path.lower().endswith(".html"):
                 shown = server.request("GET", prefix + "/api/workspace/preview" + query, headers=auth)
-                entry["preview"] = shown.status == 200 and bool(PREVIEW_TAG.search(shown.body.decode("utf-8", "replace")))
-        files.append(entry)
+                lost(broke, "preview", shown)
+                entry["preview"] = None if shown.status is None else (
+                    shown.status == 200 and bool(PREVIEW_TAG.search(shown.body.decode("utf-8", "replace"))))
     return files, texts
 
 
-def run_one(server, prefix, example, profile, number, limit, timeout):
-    rec = {"id": example.id, "profile": profile, "run": number, "ok": False, "state": "", "http": {}}
-    mark, turn, files, texts, token = len(server.statuses), Turn(), [], {}, None
+def run_one(server, prefix, example, profile, number, limit, timeout, attempt=1):
+    rec = {"id": example.id, "profile": profile, "run": number, "attempt": attempt, "ok": False, "state": "",
+           "http": {}}
+    mark, turn, files, texts, token, broke = len(server.statuses), Turn(), [], {}, None, []
     began = time.monotonic()
     try:
         reply = server.request("POST", prefix + "/api/workspace")
         rec["http"]["workspace"] = reply.status
+        lost(broke, "workspace", reply)
         token = reply.json().get("token") if reply.status == 200 else None
         if not isinstance(token, str):
             token, rec["state"] = None, refusal(reply)
@@ -366,6 +508,7 @@ def run_one(server, prefix, example, profile, number, limit, timeout):
                                        body=FIXTURES[example.upload](),
                                        headers={**auth, "Content-Type": "application/octet-stream"})
                 rec["http"]["upload"] = reply.status
+                lost(broke, "upload", reply)
                 names = reply.json().get("files")
                 attachments = [n for n in names if isinstance(n, str)] if isinstance(names, list) else []
                 if reply.status != 200 or not attachments:
@@ -380,7 +523,9 @@ def run_one(server, prefix, example, profile, number, limit, timeout):
                 if error:
                     server.request("POST", prefix + "/api/workspace/cancel", headers=auth)
                 rec["state"] = outcome(turn, status, error)
-                files, texts = collect_files(server, prefix, auth, turn)
+                if error and error not in STALLS and not turn.error and status in (None, 200):
+                    broke.append(("agent", error))
+                files, texts = collect_files(server, prefix, auth, turn, broke)
     finally:
         if token:
             rec["http"]["close"] = server.request("POST", prefix + "/api/workspace/close",
@@ -389,6 +534,10 @@ def run_one(server, prefix, example, profile, number, limit, timeout):
     rec["stop"] = next((status for status in server.statuses[mark:] if status in STOP_STATUSES), None)
     describe(rec, turn, files)
     rec["failed"], rec["flags"] = evaluate(example, rec, turn, turn.answer(), files, texts, limit)
+    rec["connection_error"] = None
+    if broke:
+        link = rec["connection_error"] = {"error": tidy(broke[0][1], 60), "step": broke[0][0]}
+        rec["failed"] = {"connection": f"{link['error']} at {link['step']}", **rec["failed"]}
     rec["ok"] = not rec["failed"]
     rec["elapsed_seconds"] = round(time.monotonic() - began, 3)
     return rec
@@ -515,9 +664,19 @@ def artifact_problems(example, turn):
 
 def file_problems(example, files):
     by_name = {f["name"]: f for f in files}
-    problems = [f"{name} was not written" for name in example.files if by_name.get(name, {}).get("download") != 200]
-    if example.preview and not by_name.get(example.preview, {}).get("preview"):
-        problems.append(f"{example.preview} does not open in the preview")
+    problems = []
+    for name in example.files:
+        entry = by_name.get(name)
+        if entry is not None and entry["download"] is None:
+            problems.append(f"{name} could not be downloaded (connection error)")
+        elif entry is None or entry["download"] != 200:
+            problems.append(f"{name} was not written")
+    if example.preview:
+        entry = by_name.get(example.preview, {})
+        if "preview" in entry and entry["preview"] is None:
+            problems.append(f"{example.preview} could not be opened in the preview (connection error)")
+        elif not entry.get("preview") and entry.get("download", 0) is not None:  # None: the download message says why
+            problems.append(f"{example.preview} does not open in the preview")
     return problems
 
 
@@ -641,17 +800,18 @@ def render_table(runs):
             "files", "hosts", "failed", "flags")
     rows = [head]
     for rec in runs:
-        who = (rec["id"], LABELS[rec["profile"]], str(rec["run"]))
+        who = (rec["id"], LABELS[rec["profile"]], str(rec["run"]) + (" (retry)" if rec.get("attempt", 1) > 1 else ""))
         if rec.get("skipped"):
             rows.append((*who, "skipped", "", "", "", "", "", "", "", "", rec["skipped"], ""))
             continue
-        rows.append((*who, "PASS" if rec["ok"] else "FAIL",
+        verdict = "CONNECTION ERROR" if rec.get("connection_error") else "PASS" if rec["ok"] else "FAIL"
+        failed = [f"{k}: {v}" for k, v in rec["failed"].items()] + (["retried"] if rec.get("superseded") else [])
+        rows.append((*who, verdict,
                      cell(rec.get("total_seconds") or rec.get("wall_seconds")), cell(rec.get("ttft_seconds")),
                      f"{cell(rec.get('input_tokens'))}/{cell(rec.get('output_tokens'))}", cell(rec.get("model_calls")),
                      cell(">".join(t["name"] or "?" for t in rec["tools"])), str(rec["web_iq_calls"]),
                      cell(",".join(f["name"] for f in rec["files"])), cell(",".join(rec.get("source_hosts") or [])),
-                     "; ".join(f"{k}: {v}" for k, v in rec["failed"].items()),
-                     "; ".join(f"{k}: {v}" for k, v in rec["flags"].items())))
+                     "; ".join(failed), "; ".join(f"{k}: {v}" for k, v in rec["flags"].items())))
     lines = ["| " + " | ".join(item.replace("|", "/") for item in row) + " |" for row in rows]
     lines.insert(1, "|" + " --- |" * len(head))
     return "\n".join(lines) + "\n"
@@ -672,9 +832,14 @@ def write_text(path, text, stderr, name):
     return True
 
 
-def preflight(server, prefix):
-    """(reason the profile cannot be used or None, Web IQ state)."""
-    me = server.request("GET", prefix + "/api/me")
+def preflight(server, prefix, sleep=time.sleep, pause=MIN_GAP):
+    """(reason the profile cannot be used or None, Web IQ state). A request that gets no HTTP answer is made again."""
+    for attempt in range(PREFLIGHT_RETRIES + 1):
+        if attempt:
+            sleep(pause)
+        me = server.request("GET", prefix + "/api/me")
+        if me.status is not None:
+            break
     if me.status != 200:
         return "api/me " + refusal(me), "unknown"
     if me.json().get("open") is not True:
@@ -685,21 +850,55 @@ def preflight(server, prefix):
 
 
 def progress_line(position, total, rec, stderr):
+    label = (f"[{position}/{total}] {LABELS[rec['profile']]} {rec['id']} #{rec['run']}"
+             + (" (retry)" if rec.get("attempt", 1) > 1 else ""))
     if rec.get("skipped"):
-        stderr.write(f"[{position}/{total}] {LABELS[rec['profile']]} {rec['id']} #{rec['run']}: skipped "
-                     f"({rec['skipped']})\n")
+        stderr.write(f"{label}: skipped ({rec['skipped']})\n")
         return
-    verdict = "PASS" if rec["ok"] else "FAIL " + ",".join(rec["failed"])
-    stderr.write(f"[{position}/{total}] {LABELS[rec['profile']]} {rec['id']} #{rec['run']}: {verdict} "
-                 f"{rec.get('total_seconds') or rec.get('wall_seconds')}s calls {rec.get('model_calls')} "
-                 f"tools {'>'.join(t['name'] or '?' for t in rec['tools'])}\n")
+    link = rec.get("connection_error")
+    if link:
+        verdict = f"CONNECTION ERROR {link['error']} at {link['step']}" + (", retrying once" if rec.get("superseded")
+                                                                          else "")
+    else:
+        verdict = "PASS" if rec["ok"] else "FAIL " + ",".join(rec["failed"])
+    seconds = rec.get("total_seconds") or rec.get("wall_seconds") or rec.get("elapsed_seconds")
+    stderr.write(f"{label}: {verdict} {cell(seconds)}s calls {cell(rec.get('model_calls'))} "
+                 f"tools {'>'.join(t['name'] or '?' for t in rec['tools']) or '-'}\n")
 
 
 def skipped(example, profile, number, reason):
     return {"id": example.id, "profile": profile, "run": number, "ok": False, "skipped": reason}
 
 
-def main(argv=None, *, environ=None, stdout=None, stderr=None, sleep=time.sleep):
+class Course:
+    """What the finished attempts say about going on: the stop reason, the two streaks, the candidates run again."""
+
+    def __init__(self):
+        self.stop, self.errors, self.broken, self.retried = None, 0, 0, set()
+
+    def judge(self, rec):
+        """Take one attempt into account. Returns why its profile can no longer be used, or None."""
+        self.errors = self.errors + 1 if rec["http_5xx"] else 0
+        self.broken = self.broken + 1 if rec["connection_error"] else 0
+        if rec["stop"]:
+            self.stop = f"stopped after HTTP {rec['stop']}"
+        elif self.errors >= MAX_5XX_STREAK:
+            self.stop = f"stopped after {MAX_5XX_STREAK} runs in a row with HTTP 5xx"
+        elif self.broken >= MAX_LINK_STREAK:
+            self.stop = f"stopped after {MAX_LINK_STREAK} attempts in a row with connection errors"
+        elif 503 in (rec["http"].get("workspace"), rec["http"].get("agent")):
+            return "the profile answered HTTP 503"
+        return None
+
+    def again(self, rec):
+        """Whether an attempt that lost its connection is made once more. A candidate has one such retry in all."""
+        if not rec["connection_error"] or self.stop or rec["id"] in self.retried:
+            return False
+        self.retried.add(rec["id"])
+        return True
+
+
+def main(argv=None, *, environ=None, stdout=None, stderr=None, sleep=time.sleep, resolve=None):
     environ = os.environ if environ is None else environ
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
@@ -739,15 +938,21 @@ def main(argv=None, *, environ=None, stdout=None, stderr=None, sleep=time.sleep)
         stderr.write("nothing was sent: add --go to run this plan\n")
         return 0
 
-    server, results, states, stop, streak, began = Server(target, args.timeout), [], {}, None, 0, False
-    summary.update(started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), scheme=target.scheme)
+    server, results, states, course, began, finished = Server(target, args.timeout), [], {}, Course(), False, 0
+    summary.update(started_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), scheme=target.scheme,
+                   dns={"mode": args.dns, "pinned": False})
+    resolver = resolve or (lambda host: doh_address(host, sleep))
     try:
+        summary["dns"] = pin(target, args.dns, resolver)
+        if args.dns == "doh":
+            stderr.write("dns: " + ("looked up once through DNS-over-HTTPS; the address is not shown"
+                                    if summary["dns"]["pinned"] else summary["dns"]["note"]) + "\n")
         for position, (example, profile, number) in enumerate(plan, 1):
-            if stop:
-                rec = skipped(example, profile, number, stop)
+            if course.stop:
+                rec = skipped(example, profile, number, course.stop)
             else:
                 if profile not in states:
-                    states[profile] = preflight(server, PROFILES[profile])
+                    states[profile] = preflight(server, PROFILES[profile], sleep, args.gap)
                 reason, web_iq = states[profile]
                 if reason:
                     rec = skipped(example, profile, number, reason)
@@ -758,33 +963,50 @@ def main(argv=None, *, environ=None, stdout=None, stderr=None, sleep=time.sleep)
                         sleep(args.gap)
                     began = True
                     rec = run_one(server, PROFILES[profile], example, profile, number, args.max_seconds, args.timeout)
-                    streak = streak + 1 if rec["http_5xx"] else 0
-                    if rec["stop"]:
-                        stop = f"stopped after HTTP {rec['stop']}"
-                    elif streak >= MAX_5XX_STREAK:
-                        stop = f"stopped after {MAX_5XX_STREAK} runs in a row with HTTP 5xx"
-                    elif 503 in (rec["http"].get("workspace"), rec["http"].get("agent")):
-                        states[profile] = ("the profile answered HTTP 503", "unknown")
+                    problem = course.judge(rec)
+                    if problem:
+                        states[profile] = (problem, "unknown")
+                    elif course.again(rec):
+                        rec["superseded"] = True
+                        results.append(rec)
+                        progress_line(position, len(plan), rec, stderr)
+                        sleep(args.gap)
+                        rec = run_one(server, PROFILES[profile], example, profile, number, args.max_seconds,
+                                      args.timeout, attempt=2)
+                        problem = course.judge(rec)
+                        if problem:
+                            states[profile] = (problem, "unknown")
             results.append(rec)
             progress_line(position, len(plan), rec, stderr)
+            finished = position
     except KeyboardInterrupt:
-        stop = "interrupted"
-    results += [skipped(example, profile, number, "interrupted") for example, profile, number in plan[len(results):]]
+        course.stop = "interrupted"
+    results += [skipped(example, profile, number, "interrupted") for example, profile, number in plan[finished:]]
+    final = [r for r in results if not r.get("superseded")]
     summary.update(profiles={p: {"web_iq": s[1], "problem": s[0]} for p, s in states.items()},
-                   ok=all(r["ok"] for r in results), interrupted=stop == "interrupted", runs=results,
-                   totals={"passed": sum(1 for r in results if r["ok"]),
-                           "failed": sum(1 for r in results if not r["ok"] and not r.get("skipped")),
-                           "skipped": sum(1 for r in results if r.get("skipped")),
+                   ok=all(r["ok"] for r in final), interrupted=course.stop == "interrupted", runs=results,
+                   totals={"passed": sum(1 for r in final if r["ok"]),
+                           "failed": sum(1 for r in final if not r["ok"] and not r.get("skipped")
+                                         and not r.get("connection_error")),
+                           "skipped": sum(1 for r in final if r.get("skipped")),
                            "http_5xx": sum(r.get("http_5xx", 0) for r in results),
-                           "web_iq_calls": sum(r.get("web_iq_calls", 0) for r in results)})
-    table = render_table(results)
-    text = json.dumps(summary, indent=2, ensure_ascii=False).replace(target.host, "<host>")
+                           "web_iq_calls": sum(r.get("web_iq_calls", 0) for r in results)},
+                   connection_errors={"attempts": sum(1 for r in results if r.get("connection_error")),
+                                      "retried": sum(1 for r in results if r.get("superseded")),
+                                      "final": sum(1 for r in final if r.get("connection_error"))})
+
+    def scrub(text):
+        text = text.replace(target.host, "<host>")
+        return text.replace(target.address, "<ip>") if target.address else text
+
+    table = scrub(render_table(results))
+    text = scrub(json.dumps(summary, indent=2, ensure_ascii=False))
     stdout.write(text + "\n")
-    stderr.write(table.replace(target.host, "<host>"))
+    stderr.write(table)
     code = 0 if summary["ok"] else 1
     if args.out and not write_text(args.out, text + "\n", stderr, "--out"):
         code = code or 2
-    if args.table and not write_text(args.table, table.replace(target.host, "<host>"), stderr, "--table"):
+    if args.table and not write_text(args.table, table, stderr, "--table"):
         code = code or 2
     return code
 

@@ -35,6 +35,9 @@ HOSTS = {"ai-chip-news": ["news.example.com"], "chip-price-ratio": ["quotes.exam
 
 
 # ------------------------------------------------------------------------------------------------- the fake demo
+DROP = object()  # an override's answer that closes the connection without a reply
+
+
 class Space:
     def __init__(self):
         self.files, self.originals = {}, {}
@@ -135,12 +138,14 @@ class Handler(BaseHTTPRequestHandler):
 
 class FakeDemo:
     """The demo's routes. `scripts` maps an example prompt to the turn to play; `overrides` maps (profile, method,
-    route) to a function of the hit number that returns (status, payload) to answer instead, or None."""
+    route) to a function of the hit number that returns (status, payload) to answer instead, DROP to close the
+    connection without any reply, or None to carry on normally."""
 
     def __init__(self, scripts):
         self.scripts, self.overrides, self.hits = scripts, {}, {}
         self.requests, self.bodies, self.uploads = [], [], []
         self.created, self.closed, self.cancelled, self.spaces = [], [], [], {}
+        self.hosts = set()
         self.me = {"fp8": {}, "nvfp4": {}}
         self.web_iq = {"fp8": "ready", "nvfp4": "ready"}
         self.lock = threading.Lock()
@@ -178,9 +183,12 @@ class FakeDemo:
         key = (profile, method, route)
         with self.lock:
             self.requests.append(key)
+            self.hosts.add(http.headers.get("Host"))
             hit = self.hits[key] = self.hits.get(key, 0) + 1
         override = self.overrides.get(key)
         replaced = override(hit) if override else None
+        if replaced is DROP:
+            return
         if replaced:
             return self.send(http, *replaced)
         action = (method, route)
