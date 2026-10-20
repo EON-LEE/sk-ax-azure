@@ -1029,8 +1029,11 @@ Management gateway recorded a 200 from the backend after 1.1 seconds. Foundry
 did not retry. In Foundry's trace the span of the tool run was named
 differently from the spans of successful runs (details: the Foundry BYOM
 README, `demo/foundry-byom/README.md`, section 9). One guess is that the model
-wrote a tool name with a prefix such as `functions.`, which did not match the
-declared name. It rests on that one span and has not been verified.
+wrote a tool name that did not match the declared one, so that Foundry did not
+treat the call as an MCP call. A trace does not show the name the model wrote:
+in the traces of successful runs the tool name also differs from the declared
+name (it has an `mcp_` form), so a trace holds the name after Foundry's own
+conversion. The guess has not been verified.
 
 The same agent definition, with no `temperature` and the same prompt, was then
 run three more times from Foundry through the Responses API, one call after
@@ -1083,7 +1086,9 @@ the stream analysis below shows the few ways in which the model API changes a
 stream. Setting `temperature` to 0.3 on the agent is a precaution that needs
 no redeployment: 15 of 15 direct replays and 2 of 2 Foundry runs at that
 value were clean. Those counts are not statistical evidence that it prevents
-the error.
+the error. The counts of Foundry runs in this paragraph are those at the time
+of the 44 replays; later runs, including a second failure, are counted in
+section 9 of the Foundry BYOM README (`demo/foundry-byom/README.md`).
 
 **Replay of the captured request.** A successful Foundry run of the same agent
 as the failed run left a gateway trace, and the exact body of its first model
@@ -1108,9 +1113,9 @@ carry the declared tool name were 9 of 100 at 1.0 (3 near names and 6 text
 only) and 0 of 100 at 0.3. The difference in near names alone, 3 against 0, is
 within what chance can produce; the difference in all responses without the
 declared name, 9 against 0, is unlikely to be chance. Because the two series
-ran one after the other, a change between them cannot be ruled out. This shows
-that the model can return a name other than the declared one, here with one
-`mcp_` missing. It does not show whether such a name causes the Foundry
+ran one after the other, a change between them cannot be ruled out. The replays
+show that the model can return a name other than the declared one, here with
+one `mcp_` missing. They do not show whether such a name causes the Foundry
 `model_error`: the replayed body comes from a successful run and the body of
 the failed response was not kept, so any link between the two is a guess.
 
