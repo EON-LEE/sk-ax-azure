@@ -18,9 +18,11 @@ is never printed. The summary holds only what the turn did: tools and errors, so
 
 A run passes when the turn completed with an answer, the tools the example needs ran in order without a tool error,
 the first tool is the forced one, links in the answer come from tool results, the files exist (HTML opens in the
-preview), the total time is within --max-seconds and no HTTP 5xx came back. Content checks (expected numbers,
-rounded calculator result, files rewritten) are reported as flags and do not fail a run. Model-written code is
-parsed, never run.
+preview), the total time is within --max-seconds and no HTTP 5xx came back. The answer must be real text: an empty
+answer, an answer that still holds tool-call markup (<tool_call>) and the server's own notice that the tool limit
+was reached (the model wrote no answer) fail the run. Content checks (expected numbers, rounded calculator
+result, files rewritten, tool-call markup in the text of an earlier round, markup the server cut from an answer) are
+reported as flags and do not fail a run. Model-written code is parsed, never run.
 
 Evidence for a failure: an HTML file asked for in the preview route keeps the status and the length of the answer
 (preview_status, preview_bytes), and a web_iq_browse call that failed keeps url_shape, only whether its address had
@@ -78,6 +80,8 @@ DOH_TRIES, DOH_PAUSE, DOH_TIMEOUT, MAX_DNS_BODY = 3, 3.0, 10.0, 65536
 LOOPBACK = ("localhost", "127.0.0.1", "::1")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]+")
 THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+TOOL_MARKUP = re.compile(r"<\s*/?\s*tool_call\b", re.I)
+LIMIT_NOTICE = "도구 사용 한도에 도달해"  # how the server's notice for an answer that was not written starts
 NUMBER = re.compile(r"\d{1,30}(?:\.\d{1,12})?")
 URL = re.compile(r"https?://[^\s<>\"'`)\]}\\]+")
 HANGUL_TAIL = re.compile(r"[\u3131-\u318e\uac00-\ud7a3]+$")
@@ -735,6 +739,10 @@ def evaluate(example, rec, turn, answer, files, texts, limit):
         failed["completed"] = rec["state"]
     elif not answer:
         failed["answer"] = "the turn ended without answer text"
+    elif TOOL_MARKUP.search(answer):
+        failed["answer"] = "the answer holds tool-call markup"
+    elif answer.startswith(LIMIT_NOTICE):
+        failed["answer"] = "the answer is the server's tool-limit notice: the model wrote none"
     broken = [a for a in actions if a.get("state") in ("error", "cancelled")]
     if broken:
         failed["tool_errors"] = f"{len(broken)}: " + ", ".join(
@@ -765,7 +773,22 @@ def evaluate(example, rec, turn, answer, files, texts, limit):
         flags["reasoning"] = "reasoning text arrived although thinking was off"
     if turn.notices:
         flags["notice"] = ", ".join(turn.notices)
+    flags.update(markup_flags(rec, turn))
     return failed, flags
+
+
+def markup_flags(rec, turn):
+    """Tool-call markup that is not in the answer: in the text of an earlier round, which the page shows too, or cut
+    by the server from the answer of the last round (the model tried to call a tool when none was left)."""
+    flags = {}
+    earlier = sorted(number for number, text in turn.texts.items() if number != turn.round and TOOL_MARKUP.search(text))
+    if earlier:
+        flags["markup"] = "tool-call markup in the text of round " + ", ".join(map(str, earlier))
+    rounds = rec.get("rounds") if isinstance(rec.get("rounds"), list) else []
+    cut = [tidy(r.get("index"), 6) for r in rounds if isinstance(r, dict) and r.get("markup_removed") is True]
+    if cut:
+        flags["markup removed"] = "the server cut tool-call markup from the answer of round " + ", ".join(cut)
+    return flags
 
 
 def content_flags(example, turn, answer, texts):
@@ -812,10 +835,16 @@ def stray_inputs(example, turn):
     return stray
 
 
+def exact_result(result):
+    """The exact number of a calculator result: 125/3 for "125/3 (≈ 41.6667)". The decimal after the fraction is only
+    there to be read. Raises what Fraction raises for text that is no number."""
+    return Fraction(str(result).partition("(")[0].strip())
+
+
 def calculation_shown(turn, texts):
     for action in reversed(turn.ok("calculator")):
         try:
-            value = Fraction(str((action.get("result") or {}).get("result")))
+            value = exact_result((action.get("result") or {}).get("result"))
         except (AttributeError, ValueError, ZeroDivisionError):
             return True
         targets = (value, value * 100)

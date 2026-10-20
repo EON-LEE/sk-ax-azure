@@ -109,7 +109,8 @@ def play(http, space, script):
                 act(http, space, f"call_{index}_{number}", call)
                 invoked += 1
             rounds.append({"index": index, "input_tokens": 16000 + index, "output_tokens": 40,
-                           "first_token_seconds": 0.5, "seconds": 1.0, "cached_tokens": 0})
+                           "first_token_seconds": 0.5, "seconds": 1.0, "cached_tokens": 0,
+                           "markup_removed": bool(turn.get("markup_removed"))})
         for notice in script.get("notices", ()):
             emit(http, "notice", {"code": notice, "message": "fixture"})
         emit(http, "metrics", {"state": "completed", "ttft_seconds": script.get("ttft", 3.1),
@@ -336,7 +337,7 @@ def ideal():
     report = "<h1>월별 매출</h1><table><tr><th>합계</th><th>증감률</th></tr><tr><td>8660</td><td>41.7%</td></tr></table>"
     add("monthly-sales-report",
         step(call("write_file", {"path": "sales.csv", "content": sales}),
-             calc("1200+1350+1280+1520+1610+1700", "8660"), calc("(1700-1200)/1200", "5/12")),
+             calc("1200+1350+1280+1520+1610+1700", "8660"), calc("(1700-1200)/1200", "5/12 (≈ 0.4167)")),
         step(call("write_file", {"path": "report.html", "content": report})),
         step(call("preview_html", {"path": "report.html"})),
         final("매출 합계는 8,660만원이고 1월 대비 6월 증감률은 41.7%입니다."))

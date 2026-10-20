@@ -7,7 +7,8 @@ customer document, host or account appears in this file.
 The server forces a tool in round 1 only when the prompt asks for one by name or by a search/file keyword
 (agent.requested_tool). The wording below is chosen so that the forced first tool is the step the scenario starts with:
 "계산기" is used only when the calculator is step 1, and a web search is always asked for with "웹 검색" or "Web IQ".
-A turn has at most 5 model calls and no tools in the last one, so a scenario needs at most 4 tool rounds.
+A turn has at most 7 model calls (agent.MODEL_CALLS) and no tools in the last one, so a scenario needs at most 6 tool
+rounds (agent.TOOL_ROUNDS).
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ class Example:
     upload     fixture uploaded and attached before the turn
     changes    uploaded file the turn must have rewritten
     external   needs Web IQ
-    calls      planned model calls (at most 5)
+    calls      planned model calls (at most agent.MODEL_CALLS, 7)
     """
 
     id: str
@@ -86,12 +87,13 @@ EXAMPLES = (
     Example(
         id="ai-chip-news", label="AI 반도체 뉴스 브리핑", group="agent",
         prompt="웹 검색으로 AI 반도체 관련 최신 뉴스 3건을 찾아 제목·언론사·날짜를 briefing.html 표로 만들어 저장하고 "
-               "미리보기로 열어 줘. CSS·스크립트·링크·이미지 없이 h1과 table만 쓰고, 답변에는 기사 3건의 실제 출처 "
-               "URL을 적어 줘.",
+               "미리보기로 열어 줘. web_iq_news에는 query만 넣어 한 번 호출해 줘. CSS·스크립트·링크·이미지 없이 h1과 "
+               "table만 쓰고, 답변에는 기사 3건의 실제 출처 URL을 적어 줘.",
         forced="web_iq_news", tools=("web_iq_news", "write_file", "preview_html"),
         files=("briefing.html",), preview="briefing.html", artifacts=("preview",),
         contains=(("briefing.html", r"(?:<tr\b[\s\S]*?){3}"),),
-        sources=3, external=True, calls=4, risk="HTML 출력 길이, 뉴스가 3건 미만일 수 있음"),
+        sources=3, external=True, calls=4,
+        risk="HTML 출력 길이, 뉴스가 3건 미만일 수 있음, 모델이 query 밖의 인자를 넣으면 도구가 거부함"),
     Example(
         id="chip-price-ratio", label="반도체 두 종목 시세 비율", group="agent",
         prompt="Web IQ로 SK하이닉스(000660)와 삼성전자(005930)의 주가를 실제 조회하고, 두 현재가의 "
@@ -129,8 +131,8 @@ EXAMPLES = (
         files=("sales.csv", "report.html"), preview="report.html", artifacts=("preview",),
         contains=(("answer", r"8660"), ("report.html", r"8660"), ("report.html", r"41\.[67]|\b42\s*%")),
         shown=True, calls=4,
-        risk="계산기가 분수(125/3)를 돌려주므로 소수점 표기를 명시함, 도구 호출을 한 번에 묶지 않으면 "
-             "모델 호출 5번째에 미리보기 단계가 빠짐"),
+        risk="계산기가 분수와 소수 근사(125/3 (≈ 41.6667))를 함께 돌려주므로 소수점 표기용 추가 계산 라운드가 줄어드는지 "
+             "실측해야 함, 도구 라운드 6번 안에 끝나지 못하면 미리보기 단계가 빠짐"),
     Example(
         id="contract-review", label="계약서 PDF 조항 점검", group="agent",
         prompt="첨부한 계약서(PDF)에서 해지·위약금·비밀유지 조항을 찾아 조항 번호와 페이지 근거를 붙인 체크리스트로 "

@@ -17,6 +17,8 @@ from tests import test_demo_check_examples as base
 from tests.test_demo_check_examples import BY_ID, DOCS, NEWS, calc, call, catalog, check, final, found, item, page, step
 
 AGENT, WORKSPACE = "/api/agent", "/api/workspace"
+# what the server sends when the last round holds nothing but tool-call markup (agent.TOOL_LIMIT_NOTICE)
+LIMIT_NOTICE = "도구 사용 한도에 도달해 남은 단계를 실행하지 못했습니다. 지금까지 확인한 결과는 위 도구 카드에 있습니다."
 
 
 class FailureCase(base.DemoCase):
@@ -74,6 +76,28 @@ class TurnFailureTests(FailureCase):
         rounds = self.script("plan-fee")["rounds"]
         rounds[0]["text"], rounds[-1]["text"] = "계산해 보겠습니다.", ""
         self.assertEqual(self.failed("plan-fee"), {"answer": "the turn ended without answer text"})
+
+    def test_an_answer_that_holds_tool_call_markup_fails(self):
+        for text in ('<tool_call>{"name": "calculator", "arguments": {"expression": "1+1"}}</tool_call>',
+                     '할인 후 총액은 1,242,000원입니다.\n<tool_call>\n{"name": "calc', "끝났습니다.</tool_call>",
+                     "< TOOL_CALL >{}", "<tool_call"):
+            self.answer_with("plan-fee", text)
+            with self.subTest(text=text):
+                self.assertEqual(self.failed("plan-fee"), {"answer": "the answer holds tool-call markup"})
+
+    def test_words_that_only_resemble_the_tag_are_no_markup(self):
+        for text in ("할인 후 총액은 1,242,000원이고 414,000원 적습니다. tool_call은 호출 형식의 이름입니다.",
+                     "1,242,000원, 414,000원. <tool_calling> 같은 글자는 표식이 아닙니다."):
+            self.answer_with("plan-fee", text)
+            with self.subTest(text=text):
+                self.assertEqual(self.failed("plan-fee"), {})
+
+    def test_the_tool_limit_notice_as_the_answer_fails(self):
+        self.answer_with("plan-fee", LIMIT_NOTICE)
+        self.assertEqual(self.failed("plan-fee"),
+                         {"answer": "the answer is the server's tool-limit notice: the model wrote none"})
+        self.answer_with("plan-fee", "할인 후 총액은 1,242,000원이고 414,000원 적습니다. 참고: " + LIMIT_NOTICE)
+        self.assertEqual(self.failed("plan-fee"), {})
 
     def test_a_turn_that_ends_in_another_state_fails(self):
         self.script("plan-fee")["end_state"] = "cancelled"
@@ -260,6 +284,15 @@ class FlagTests(FailureCase):
     def test_code_without_a_function_is_flagged(self):
         self.answer_with("code-baseline", "함수는 sum으로 충분합니다.")
         self.assertEqual(set(self.flags("code-baseline")), {"contains answer"})
+
+    def test_tool_call_markup_in_an_earlier_round_is_flagged(self):
+        self.script("plan-fee")["rounds"][0]["text"] = '<tool_call>{"name": "calculator"}</tool_call>'
+        self.assertEqual(self.flags("plan-fee"), {"markup": "tool-call markup in the text of round 1"})
+
+    def test_markup_the_server_cut_from_the_answer_is_flagged(self):
+        self.script("plan-fee")["rounds"][-1]["markup_removed"] = True
+        self.assertEqual(self.flags("plan-fee"),
+                         {"markup removed": "the server cut tool-call markup from the answer of round 2"})
 
 
 class HttpFailureTests(FailureCase):

@@ -44,6 +44,24 @@ class NumberTests(unittest.TestCase):
         self.assertFalse(shown(turn, ["약 40%입니다"]))
         self.assertTrue(shown(turn, ["약 40%입니다", "파일에는 41.7%"]))
 
+    def test_a_result_with_its_decimal_approximation_is_judged_by_its_exact_part(self):
+        turn = turn_with(("calculator", {"expression": "125/3"}, {"result": "125/3 (≈ 41.6667)"}))
+        for text in ("약 41.7%입니다", "41.67", "125/3은 약 41.6667", "약 4,167%"):
+            with self.subTest(text=text):
+                self.assertTrue(check.calculation_shown(turn, [text]))
+        self.assertFalse(check.calculation_shown(turn, ["약 40%입니다"]))
+
+    def test_the_exact_part_of_a_calculator_result(self):
+        for result, exact in (("125/3 (≈ 41.6667)", Fraction(125, 3)), ("-5/12 (≈ -0.4167)", Fraction(-5, 12)),
+                              ("5/12", Fraction(5, 12)), (" 8660 ", Fraction(8660)), (8660, Fraction(8660))):
+            with self.subTest(result=result):
+                self.assertEqual(check.exact_result(result), exact)
+        for junk in ("abc", "", "(≈ 0.5)", None):
+            with self.subTest(junk=junk), self.assertRaises(ValueError):
+                check.exact_result(junk)
+        with self.assertRaises(ZeroDivisionError):
+            check.exact_result("1/0 (≈ ?)")
+
     def test_only_the_last_calculator_counts(self):
         turn = turn_with(("calculator", {"expression": "5/12"}, {"result": "5/12"}),
                          ("calculator", {"expression": "3+4"}, {"result": "7"}))
@@ -67,6 +85,42 @@ class NumberTests(unittest.TestCase):
         self.assertEqual(stray(example, turn_with(*read, calculator("210000/70001"))), ["70001"])
         self.assertEqual(stray(example, turn_with(calculator("210000/70000"), *read)), ["210000", "70000"])
         self.assertEqual(stray(example, turn_with(*read, calculator("660+5930"))), [])
+
+
+class MarkupFlagTests(unittest.TestCase):
+    """Tool-call markup outside the answer: in the text of an earlier round, or cut by the server from the answer."""
+
+    @staticmethod
+    def said(*rounds):
+        """A turn whose rounds wrote these texts; each text arrives as the list of its stream pieces."""
+        turn = check.Turn()
+        for number, pieces in enumerate(rounds, 1):
+            turn.feed("round", json.dumps({"index": number}))
+            for piece in pieces:
+                turn.feed("message", json.dumps({"choices": [{"delta": {"content": piece}}]}))
+        return turn
+
+    def test_markup_is_looked_for_in_the_rounds_before_the_last(self):
+        turn = self.said(["<tool_call>{}"], ["정상 글"], ["</tool_call>"], ["< Tool_Call >"])
+        self.assertEqual(check.markup_flags({}, turn), {"markup": "tool-call markup in the text of round 1, 3"})
+
+    def test_a_tag_split_over_several_pieces_is_found(self):
+        turn = self.said(["작업을 시작합니다. <tool", "_call>", '{"name": "x"}'], ["끝났습니다."])
+        self.assertEqual(check.markup_flags({}, turn), {"markup": "tool-call markup in the text of round 1"})
+
+    def test_the_rounds_the_server_cut_are_named_in_order(self):
+        rounds = [{"index": 1, "markup_removed": False}, {"index": 5, "markup_removed": True},
+                  {"index": 7, "markup_removed": True}]
+        self.assertEqual(check.markup_flags({"rounds": rounds}, check.Turn()),
+                         {"markup removed": "the server cut tool-call markup from the answer of round 5, 7"})
+
+    def test_a_rounds_field_that_is_not_a_list_of_records_is_ignored(self):
+        turn = check.Turn()
+        for rounds in (None, "x", 7, {}, [None, 3, "a"],
+                       [{"index": 2, "markup_removed": "yes"}, {"index": 3, "markup_removed": 1}, {"index": 4}]):
+            with self.subTest(rounds=rounds):
+                self.assertEqual(check.markup_flags({"rounds": rounds}, turn), {})
+        self.assertEqual(check.markup_flags({}, turn), {})
 
 
 class LinkHelperTests(unittest.TestCase):

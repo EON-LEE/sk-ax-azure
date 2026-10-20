@@ -11,7 +11,7 @@
   const EXAMPLES = [
     { label: "세 도시 현재 시각", text: "서울(Asia/Seoul)·뉴욕(America/New_York)·런던(Europe/London)의 현재 시각을 get_current_time 도구로 각각 확인해서 한 줄씩 알려 주고, 세 도시가 함께 화상회의를 하기에 덜 불편한 시간대를 한 문장으로 제안해 줘.", tools: true },
     { label: "요금제 총액 계산", text: "월 69000원 요금제를 24개월 쓰고 25% 할인을 받으면 총 얼마인지 계산기로 정확히 구하고, 할인 전 금액과의 차이도 알려 줘.", tools: true },
-    { label: "AI 반도체 뉴스 브리핑", text: "웹 검색으로 AI 반도체 관련 최신 뉴스 3건을 찾아 제목·언론사·날짜를 briefing.html 표로 만들어 저장하고 미리보기로 열어 줘. CSS·스크립트·링크·이미지 없이 h1과 table만 쓰고, 답변에는 기사 3건의 실제 출처 URL을 적어 줘.", tools: true },
+    { label: "AI 반도체 뉴스 브리핑", text: "웹 검색으로 AI 반도체 관련 최신 뉴스 3건을 찾아 제목·언론사·날짜를 briefing.html 표로 만들어 저장하고 미리보기로 열어 줘. web_iq_news에는 query만 넣어 한 번 호출해 줘. CSS·스크립트·링크·이미지 없이 h1과 table만 쓰고, 답변에는 기사 3건의 실제 출처 URL을 적어 줘.", tools: true },
     { label: "반도체 두 종목 시세 비율", text: "Web IQ로 SK하이닉스(000660)와 삼성전자(005930)의 주가를 실제 조회하고, 두 현재가의 비율(SK하이닉스 ÷ 삼성전자)을 정확히 계산해 줘. 시세 기준 시각·통화·지연 여부와 출처 URL을 함께 적고, 제공되지 않은 값은 '미확인'으로 표시해 줘. 투자 조언은 하지 마.", tools: true },
     { label: "Foundry BYOM 연결 방법", text: "웹 검색으로 Microsoft Learn에서 Foundry에 직접 만든 모델(BYOM)을 연결하는 방법 문서를 찾고, 가장 관련 있는 문서 1개를 browse로 읽어 연결 단계를 번호 목록으로 요약해 줘. 주소에 물음표(?)가 있으면 물음표 앞부분만 사용하고, 읽은 범위에 없는 단계는 추측하지 말고 출처 URL을 마지막에 적어 줘.", tools: true },
     { label: "판교역 점심 일정", text: "Web IQ 장소 도구로 판교역 근처 점심 식당 두 곳을 실제로 검색하고, get_current_time으로 오늘 날짜를 확인해 오늘 12시 30분 점심 일정을 lunch_plan.md에 기록해 줘. 식당 이름·주소·출처 URL을 함께 넣어 줘.", tools: true },

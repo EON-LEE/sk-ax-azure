@@ -172,7 +172,7 @@ class RealToolTests(AppCase):
         self.assertEqual(self.link.requests[0]["tool_choice"], forced("write_file"))
         self.assertEqual([t["name"] for t in rec["tools"]], self.tools_of("monthly-sales-report"))
         self.assertEqual({t["state"] for t in rec["tools"]}, {"success"})
-        self.assertEqual(sorted(self.results_of(1, "result")), ["5/12", "8660"])
+        self.assertEqual(sorted(self.results_of(1, "result")), ["5/12 (≈ 0.4167)", "8660"])
         self.assertEqual([(f["name"], f["download"], f.get("preview")) for f in rec["files"]],
                          [("sales.csv", 200, None), ("report.html", 200, True)])
 
@@ -257,6 +257,45 @@ class RealFailureTests(AppCase):
         self.assertEqual(rec["http"]["close"], 200)
         self.assertEqual(outcome.summary["profiles"],
                          {"fp8": {"web_iq": "unknown", "problem": "the profile answered HTTP 503"}})
+
+
+class LastRoundTests(AppCase):
+    """The tool-round limit of the real agent loop, as the verifier sees it: a model that never stops calling tools."""
+
+    @staticmethod
+    def script_of(last):
+        keep = {"text": "", "calls": [{"name": "calculator", "arguments": {"expression": "1+1"}}]}
+        return {"rounds": [keep] * agent.TOOL_ROUNDS + [{"text": last, "calls": []}]}
+
+    def assert_closing_round(self):
+        requests = self.link.requests
+        self.assertEqual(len(requests), agent.MODEL_CALLS)
+        self.assertTrue(all("tools" in request for request in requests[:-1]))
+        self.assertNotIn("tools", requests[-1])
+        self.assertEqual(requests[-1]["messages"][-1], {"role": "system", "content": agent.LAST_ROUND_NOTE})
+        self.assertFalse(any(m.get("content") == agent.LAST_ROUND_NOTE for m in requests[-2]["messages"]))
+
+    async def test_markup_only_in_the_closing_round_becomes_the_notice_and_fails_the_answer_check(self):
+        marker = '<tool_call>{"name": "calculator", "arguments": {"expression": "2+2"}}</tool_call>'
+        outcome, rec = await self.verify("plan-fee", script=self.script_of(marker))
+        self.assert_closing_round()
+        self.assertTrue(agent.TOOL_LIMIT_NOTICE.startswith(check.LIMIT_NOTICE))
+        self.assertEqual((outcome.code, rec["state"], rec["model_calls"]), (1, "completed", agent.MODEL_CALLS))
+        self.assertEqual(rec["failed"]["answer"], "the answer is the server's tool-limit notice: the model wrote none")
+        self.assertEqual(rec["flags"]["markup removed"],
+                         "the server cut tool-call markup from the answer of round %d" % agent.MODEL_CALLS)
+        self.assertEqual(rec["flags"]["calls"], "%d model calls, 2 planned" % agent.MODEL_CALLS)
+        self.assertNotIn("markup", rec["flags"])
+        self.assertEqual([r["markup_removed"] for r in rec["rounds"]], [False] * agent.TOOL_ROUNDS + [True])
+
+    async def test_a_written_answer_in_the_closing_round_passes_the_answer_check(self):
+        answer = "할인 후 총액은 1,242,000원이고 414,000원 적습니다. 남은 단계는 실행하지 못했습니다."
+        outcome, rec = await self.verify("plan-fee", script=self.script_of(answer))
+        self.assert_closing_round()
+        self.assertEqual((rec["state"], rec["model_calls"]), ("completed", agent.MODEL_CALLS))
+        self.assertNotIn("answer", rec["failed"])
+        self.assertNotIn("markup removed", rec["flags"])
+        self.assertEqual([r["markup_removed"] for r in rec["rounds"]], [False] * agent.MODEL_CALLS)
 
 
 class ExternalExampleTests(AppCase):
