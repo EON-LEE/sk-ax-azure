@@ -852,11 +852,14 @@ set vLLM extensions such as `chat_template_kwargs`, `guided_*` or `priority`.
 - Stream: vLLM's `data:` chunks pass through unchanged and the stream ends with
   `data: [DONE]`; there are no `event:` lines. vLLM always gets
   `include_usage`; the final usage chunk is removed unless the caller asked for
-  it. `reasoning_content` is removed. When the first token takes longer than
-  ten seconds, the response starts (HTTP 200) and `: keepalive` comment lines
-  follow every ten seconds of silence. A failure after the first byte is an
-  error object in a `data:` chunk followed by `[DONE]`; before that it is an
-  ordinary HTTP error.
+  it. `reasoning_content` is removed. A tool call whose name is not declared
+  but differs from exactly one declared name only by `mcp_` parts gets that
+  declared name (a non-stream answer, built from the same chunks, gets it too);
+  only that chunk is re-serialized as compact JSON. When the first token takes
+  longer than ten seconds, the response starts (HTTP 200) and `: keepalive`
+  comment lines follow every ten seconds of silence. A failure after the first
+  byte is an error object in a `data:` chunk followed by `[DONE]`; before that
+  it is an ordinary HTTP error.
 - Non-stream: one `chat.completion` JSON built from vLLM's chunks, with
   `tool_calls` deltas merged by index, `function.arguments` as a JSON string,
   `finish_reason` (`stop`, `length` or `tool_calls`) and `usage`.
@@ -923,8 +926,10 @@ its default, and a number outside its allowed range is clamped.
 **Logs.** One JSON line per request on stdout (logger `axk2.model_api`):
 `request_id`, `profile`, `route`, `stream`, `status`, `prompt_tokens`,
 `completion_tokens`, `ttft_ms`, `queue_ms`, `total_ms`, `finish_reason`, a short
-`error` code and `dropped_fields` (names only). Prompts, answers, headers, keys
-and caller addresses are never logged.
+`error` code, `dropped_fields` (names only) and, only when a tool name was
+replaced, `tool_name_repairs` (lengths only, never the names: `emitted_len` of
+the name the model sent and `declared_len` of the declared name; 8 entries at
+most). Prompts, answers, headers, keys and caller addresses are never logged.
 
 **Foundry's request.** Traces at the API Management gateway show what a Foundry
 agent sends: `POST {base}/chat/completions` with no query string (no
@@ -1087,22 +1092,28 @@ is an ordinary HTTP error, not a stream.
 
 | The upstream stream has | The model API sends | Responsible |
 | --- | --- | --- |
-| Tool-call `arguments` that are not valid JSON or are cut off (`finish_reason` `length`); a tool name that was not declared, misspelled or prefixed (for example `functions.`); an empty answer; text mixed with tool calls; `tool_calls` with no call, or a call with `stop`; a missing `id`, `type` or `index`; a repeated `finish_reason`; a usage chunk in an odd place when the caller asked for usage | The same bytes | Model |
+| Tool-call `arguments` that are not valid JSON or are cut off (`finish_reason` `length`); a tool name that was not declared, misspelled or prefixed (for example `functions.`), except the case of the `mcp_` row below; an empty answer; text mixed with tool calls; `tool_calls` with no call, or a call with `stop`; a missing `id`, `type` or `index`; a repeated `finish_reason`; a usage chunk in an odd place when the caller asked for usage | The same bytes | Model |
 | U+FFFD, `\u0000` or `\ud800` escapes, invalid UTF-8 bytes, a multi-byte character split across reads | The same bytes | Model |
 | A usage chunk (empty `choices`) that the caller did not ask for | Nothing: the chunk is removed | Model API, by design |
 | `reasoning_content` | A chunk with only reasoning is dropped; with other delta fields it is re-serialized as compact JSON | Model API, by design |
+| A tool name that is not declared and equals exactly one declared name once every `mcp_` is removed from both | The declared name in its place; the chunk is re-serialized as compact JSON | Model API, by design |
 | No `[DONE]`, a second `[DONE]`, events after it, `event:`, `id:` or `retry:` lines, CRLF | One `[DONE]` at the end, the rest dropped, CRLF as LF | Model API, by design |
 | No data for ten seconds or more before the first chunk | `: keepalive` comment lines, which the OpenAI Python SDK ignores | Model API, by design |
 | An upstream error event, an end without `finish_reason`, a lost link, the time limit, an upstream 4xx after the response started, a raw NUL byte in a JSON string | A `data:` chunk with an `error` object, then `[DONE]`, in an HTTP 200 response; the log's `error` field is set (limit 7) | Model API |
 | An upstream 4xx before any byte | An ordinary HTTP error with the OpenAI error body | Model API |
 | `reasoning_content` and an unpaired surrogate escape in the same chunk | An `internal_error` chunk, then `[DONE]` (limit 8) | Model API, a defect |
 
-The model API never changes tool names, arguments, `finish_reason`, ids or
-indexes, and it does not validate or retry them: a malformed tool call from the
-model reaches Foundry as it is, because the stream passes through unchanged by
-design. The `error` chunk has no `choices`. The OpenAI Python SDK raises
-`APIError` on it and ignores comment lines; how Foundry's parser treats either
-is not known.
+The `mcp_` row is not part of the offline analysis above;
+`tests/test_demo_model_api_tool_names.py` covers it. Its effect with the real
+model and with Foundry is not verified: only local tests with fakes have been
+run.
+
+The model API changes a tool name only in the `mcp_` case above. It never
+changes arguments, `finish_reason`, ids or indexes, and it does not validate or
+retry tool calls: any other malformed tool call from the model reaches Foundry
+as it is, because the stream otherwise passes through unchanged by design. The
+`error` chunk has no `choices`. The OpenAI Python SDK raises `APIError` on it
+and ignores comment lines; how Foundry's parser treats either is not known.
 
 To tell the model's output from a fault of the model API, find the request's
 `x-request-id` in the model API's log line. A `status` of 200 with an empty
