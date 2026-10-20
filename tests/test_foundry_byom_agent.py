@@ -338,6 +338,15 @@ class ConfigTests(ScriptCase):
             with self.subTest(value=value), self.assertRaises(common.ConfigError):
                 common.check_endpoint(value)
 
+    def test_project_endpoint_rejects_whitespace_and_control_characters(self):
+        for tail in ("\r", "\n", "\r\n", "\t", " ", "\x00", "\x7f", "\u00a0", "\u200b", "\ud55c", "/\r"):
+            with self.subTest(tail=repr(tail)), self.assertRaises(common.ConfigError) as caught:
+                common.check_endpoint(ENDPOINT + tail)
+            self.assertNotIn(ENDPOINT, str(caught.exception))
+        with self.assertRaises(common.ConfigError):
+            common.check_endpoint(ENDPOINT.replace("/api/", "/api/\r"))
+        self.assertEqual(common.check_endpoint(ENDPOINT + "/"), ENDPOINT)
+
     def test_tool_specs(self):
         self.assertEqual(self.spec_for("--connection", CONNECTION)["tools"], [])
         function_spec = self.spec_for("--connection", CONNECTION, "--tool", "function")
@@ -365,6 +374,12 @@ class ConfigTests(ScriptCase):
                     "https://user:pw@mcp.example.invalid/x", "https://mcp.example.invalid/x#frag"):
             with self.subTest(url=url), self.assertRaises(common.ConfigError):
                 self.spec_for("--connection", CONNECTION, "--tool", "mcp", "--mcp-url", url)
+
+    def test_mcp_url_rejects_whitespace_and_control_characters(self):
+        for tail in ("\r", "\n", "\t", " ", "\x00"):
+            with self.subTest(tail=repr(tail)), self.assertRaises(common.ConfigError):
+                self.spec_for("--connection", CONNECTION, "--tool", "mcp", "--mcp-url",
+                              MCP_TOOL_RECORD["server_url"] + tail)
 
     def test_invalid_mcp_names_are_rejected(self):
         for argv in (["--mcp-label", "bad label"], ["--mcp-allowed-tools", "ok,bad tool"],
@@ -1028,6 +1043,7 @@ class CreateAgentTests(ScriptCase):
                  (["--connection", CONNECTION], "FOUNDRY_PROJECT_ENDPOINT"),
                  (["--project-endpoint", "https://example.invalid/api/projects/p", "--connection", CONNECTION],
                   "project endpoint"),
+                 (["--project-endpoint", ENDPOINT + "\r", "--connection", CONNECTION], "project endpoint"),
                  (["--project-endpoint", ENDPOINT, "--connection", CONNECTION, "--agent-name", "bad_name"],
                   "agent name"))
         for argv, expected in cases:

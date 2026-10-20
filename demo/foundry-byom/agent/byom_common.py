@@ -41,6 +41,7 @@ EVIDENCE_FILES = {"evidence": "{label}.json", "run": "{label}.run.json", "create
                   "connections": "{label}.connections.json", "series": "{label}.series.json"}
 RESERVED_LABEL_SUFFIXES = (".run", ".create", ".connections", ".series")
 MCP_LABEL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+VISIBLE_ASCII_RE = re.compile(r"[\x21-\x7e]+")
 TOOL_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 SCAN_MIN_LENGTH = 8
@@ -513,7 +514,16 @@ def model_reference(connection, model, allow_placeholder=False):
     return f"{connection}/{model}"
 
 
+def require_visible_ascii(value, what):
+    # urlsplit silently drops CR, LF and TAB, so a value read from a CRLF file would pass the URL checks
+    # and then fail at the first request (or be stored in the agent definition) with the character intact.
+    if value and not VISIBLE_ASCII_RE.fullmatch(value):
+        raise ConfigError(f"{what} must be visible ASCII without spaces or control characters "
+                          "(a trailing carriage return from a CRLF file is a common cause)")
+
+
 def check_endpoint(value):
+    require_visible_ascii(value, "project endpoint")
     parts = urllib.parse.urlsplit(value or "")
     host = parts.hostname or ""
     if (parts.scheme != "https" or not host.endswith(ENDPOINT_HOST_SUFFIX) or parts.username
@@ -544,6 +554,7 @@ def mcp_tool_spec(args):
     url = args.mcp_url or preset["url"]
     if not url:
         raise ConfigError(f"--mcp-url is required for preset {args.mcp_preset!r}")
+    require_visible_ascii(url, "MCP server URL")
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise ConfigError("MCP server URL must be https without credentials, query or fragment")
