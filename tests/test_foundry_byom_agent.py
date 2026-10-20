@@ -808,7 +808,11 @@ class SummaryTests(ScriptCase):
                          ("microsoft_docs_search", {"query": "BYOM"}, len(output)))
         self.assertLess(len(call["output_preview"]), 260)
         self.assertEqual(call["output_urls"], [DOC_URL])
+        self.assertEqual((call["output_url_count"], call["output_hosts"], call["output_shape"]),
+                         (1, ["learn.microsoft.com"], {"kind": "text"}))
+        self.assertNotIn("result_items", call)
         self.assertEqual(summary["answer_urls"], [DOC_URL])
+        self.assertEqual(summary["answer_hosts"], ["learn.microsoft.com"])
         self.assertEqual(summary["agent"], {"name": "byom-demo-agent", "version": "3"})
         self.assertEqual(summary["conversation_id"], CONVERSATION)
         self.assertEqual(summary["usage"],
@@ -883,6 +887,108 @@ class SummaryTests(ScriptCase):
         for value in (None, "", 5, ["0a1b2c3d"]):
             with self.subTest(value=value):
                 self.assertIsNone(common.short_request_id(value))
+
+
+class HostAndShapeTests(ScriptCase):
+    def test_public_host_names_only_hosts_anyone_may_read(self):
+        at = "@"
+        cases = (
+            ("https://Learn.Microsoft.com:443/en-us/x?q=1#frag", "learn.microsoft.com"),
+            ("https://reuters.com./world", "reuters.com"),
+            ("https://ai.azure.com/doc", "ai.azure.com"),
+            ("https://xn--bcher-kva.example.net/", "xn--bcher-kva.example.net"),
+            (f"https://reader{at}example.org/x", None),
+            ("http://192.168.1.5/x", None),
+            ("http://[::1]:8080/x", None),
+            ("http://[bad", None),
+            ("https://localhost/x", None),
+            ("https://intranet/x", None),
+            ("https://host.local/x", None),
+            ("https://svc.internal/x", None),
+            ("https://contoso.sharepoint.com/x", None),
+            ("https://contoso-my.sharepoint.com/x", None),
+            ("https://store.blob.core.windows.net/x", None),
+            (ENDPOINT, None),
+            ("https://éxample.com/x", None),
+            ("not a url", None),
+        )
+        for url, expected in cases:
+            with self.subTest(url=url):
+                self.assertEqual(common.public_host(url), expected)
+
+    def test_url_hosts_dedupes_keeps_the_order_and_masks_the_rest_once(self):
+        at = "@"
+        urls = ["https://b.example.net/1", "https://a.example.net/2", "https://B.example.net/3", "http://10.0.0.1/x",
+                f"https://reader{at}x.example.org/", ENDPOINT]
+        self.assertEqual(common.url_hosts(urls), ["b.example.net", "a.example.net", common.MASKED_HOST])
+        self.assertEqual(common.url_hosts([]), [])
+        hosts = common.url_hosts([f"https://h{number}.example.net/" for number in range(common.HOST_LIMIT + 5)])
+        self.assertEqual((len(hosts), hosts[0]), (common.HOST_LIMIT, "h0.example.net"))
+        self.assertNotIn(common.MASKED_HOST, hosts)
+
+    def test_output_shape_describes_a_result_without_its_values(self):
+        learn = json.dumps({"results": [{"title": "t", "content": "c", "contentUrl": DOC_URL}] * 3})
+        parsed = common.output_json(learn)
+        self.assertEqual(common.output_shape(parsed),
+                         {"kind": "object", "key_count": 1, "keys": ["results"], "lists": {"results": 3}})
+        self.assertEqual(common.count_result_items(parsed), 3)
+        self.assertEqual(common.output_shape([1, 2]), {"kind": "list", "length": 2})
+        self.assertEqual(common.output_shape(7), {"kind": "scalar"})
+        self.assertEqual(common.count_result_items(common.output_json('[{"a": 1}, {"a": 2}]')), 2)
+
+    def test_result_items_count_only_the_recognised_lists_through_every_wrapper(self):
+        body = {"webResults": [{"url": DOC_URL}] * 4, "newsResults": [{"url": DOC_URL}] * 2,
+                "suggestions": ["a", "b", "c"]}
+        wrapped = {"content": [{"type": "text", "text": json.dumps(body)}]}
+        for name, text in (("plain", json.dumps(body)), ("one text part", json.dumps(wrapped)),
+                           ("structured", json.dumps({"structuredContent": body, "content": []})),
+                           ("part list", json.dumps(wrapped["content"])),
+                           ("object", json.dumps({"content": [{"type": "text", "text": json.dumps(wrapped)}]}))):
+            with self.subTest(form=name):
+                parsed = common.output_json(text)
+                self.assertEqual(common.count_result_items(parsed), 6)
+                self.assertEqual(common.output_shape(parsed)["lists"],
+                                 {"webResults": 4, "newsResults": 2, "suggestions": 3})
+
+    def test_a_text_output_has_no_json_shape(self):
+        for text in ("Title: BYOM\nLink: x", "", "{not json", "[" * 5000, '{"content": [{"type": "text", "text": "x"}]}'):
+            with self.subTest(text=text[:12]):
+                parsed = common.output_json(text)
+                self.assertIsNone(parsed)
+                self.assertEqual(common.output_shape(parsed), {"kind": "text"})
+                self.assertIsNone(common.count_result_items(parsed))
+        self.assertIsNone(common.count_result_items({"other": [1, 2]}))
+
+    def test_unsafe_key_names_and_long_key_lists_stay_out_of_the_shape(self):
+        value = {"https://x.example.net/a": [1], "ok_key": [1, 2], **{f"k{number}": number for number in range(20)}}
+        shape = common.output_shape(value)
+        self.assertEqual((shape["key_count"], len(shape["keys"])), (22, common.SHAPE_KEY_LIMIT))
+        self.assertEqual(shape["keys"][:2], ["[key]", "ok_key"])
+        self.assertEqual(shape["lists"], {"[key]": 1, "ok_key": 2})
+        self.assertNotIn("example", json.dumps(shape))
+
+    def test_a_json_tool_output_adds_its_shape_hosts_and_result_count(self):
+        body = {"webResults": [{"url": "https://news.example.net/a"}, {"url": "https://news.example.net/b"}],
+                "newsResults": [{"url": "https://wire.example.org/c"}]}
+        output = json.dumps({"content": [{"type": "text", "text": json.dumps(body)}]})
+        call = common.summarize_response(response([mcp_call(output), message("답")]))["tool_events"][0]
+        self.assertEqual((call["result_items"], call["output_url_count"], call["output_hosts"]),
+                         (3, 3, ["news.example.net", "wire.example.org"]))
+        self.assertEqual(call["output_shape"], {"kind": "object", "key_count": 2, "keys": ["webResults", "newsResults"],
+                                                "lists": {"webResults": 2, "newsResults": 1}})
+
+    def test_a_failed_tool_call_without_output_adds_no_shape_fields(self):
+        failed = mcp_call(None, status="failed", error={"code": "tool_error", "message": "boom"})
+        call = common.summarize_response(response([failed, message("답")]))["tool_events"][0]
+        for key in ("output_chars", "output_url_count", "output_hosts", "output_shape", "result_items"):
+            self.assertNotIn(key, call)
+
+    def test_a_structured_tool_output_is_described_like_its_json_text(self):
+        call = common.summarize_response(
+            response([mcp_call({"results": [{"url": DOC_URL}]}), message("답")]))["tool_events"][0]
+        self.assertEqual((call["result_items"], call["output_hosts"], call["output_shape"]["lists"]),
+                         (1, ["learn.microsoft.com"], {"results": 1}))
+        self.assertNotIn("output_chars", call)
 
 
 class ClientSetupTests(ScriptCase):
@@ -2097,9 +2203,13 @@ class RunSeriesTests(ScriptCase):
                 self.assertTrue(call["mcp_called"])
                 self.assertEqual(call["mcp_calls"], [{"name": "microsoft_docs_search", "status": "completed",
                                                       "arguments_object": True, "query_chars": 4,
-                                                      "output_chars": len(self.SEARCH_OUTPUT)}])
+                                                      "output_chars": len(self.SEARCH_OUTPUT),
+                                                      "output_url_count": 1, "output_hosts": ["learn.microsoft.com"],
+                                                      "output_shape": {"kind": "text"}}])
                 self.assertEqual((call["answer_chars"], call["final_answer_contains_nonce"], call["think_tag"]),
                                  (len(self.answer(number)), True, False))
+                self.assertEqual((call["answer_hosts"], call["answer_hosts_not_in_tool_output"]),
+                                 (["learn.microsoft.com"], []))
                 self.assertEqual((call["response_model"], call["response_id"], call["conversation_id"]),
                                  ("fake-backend-model", f"resp_{number}", CONVERSATION))
                 self.assertEqual((call["usage"]["input_tokens"], call["usage"]["output_tokens"]), (120, 30))
@@ -2144,6 +2254,35 @@ class RunSeriesTests(ScriptCase):
         self.assertEqual(series["plan"]["limits"],
                          {"max_output_tokens": 200, "max_tool_calls": 2, "max_rounds": 2, "timeout_s": 90})
         self.assertEqual(series["plan"]["min_gap_s"], 20.0)
+
+    def test_answer_hosts_that_no_tool_output_contained_are_listed_and_private_hosts_masked(self):
+        body = {"webResults": [{"url": "https://news.example.net/a"}, {"url": "https://contoso.sharepoint.com/c"}]}
+        output = json.dumps({"content": [{"type": "text", "text": json.dumps(body)}]})
+        answer = ("요약 https://news.example.net/x https://wire.example.org/y https://invented.example.net/z "
+                  "http://10.1.2.3/z https://contoso.sharepoint.com/q r-00000001")
+        reply = response([list_tools(), mcp_call(output), message(answer)], "resp_1")
+        _, code, out, _ = self.run_calls(self.argv("unit-hosts", calls=1), [reply])
+        call = json.loads(out)["calls"][0]
+        tool = call["mcp_calls"][0]
+        self.assertEqual(code, 0)
+        self.assertEqual((tool["result_items"], tool["output_url_count"], tool["output_hosts"]),
+                         (2, 2, ["news.example.net", common.MASKED_HOST]))
+        self.assertEqual(call["answer_hosts"],
+                         ["news.example.net", "wire.example.org", "invented.example.net", common.MASKED_HOST])
+        self.assertEqual(call["answer_hosts_not_in_tool_output"], ["wire.example.org", "invented.example.net"])
+        saved = (Path(self.tmp.name) / "unit-hosts.series.json").read_text(encoding="utf-8")
+        for text in (out, saved):
+            self.assertNotIn("10.1.2.3", text)
+            self.assertNotIn("sharepoint", text)
+
+    def test_the_hosts_missing_from_the_tools_ignore_the_mask_and_unsummarized_answers(self):
+        calls = [{"output_hosts": ["a.example.net", common.MASKED_HOST]}, {"output_hosts": None}, {}]
+        self.assertIsNone(run_series.hosts_missing_from_tools(None, calls))
+        self.assertEqual(run_series.hosts_missing_from_tools([], calls), [])
+        self.assertEqual(
+            run_series.hosts_missing_from_tools(["a.example.net", "b.example.net", common.MASKED_HOST], calls),
+            ["b.example.net"])
+        self.assertEqual(run_series.hosts_missing_from_tools(["a.example.net"], []), ["a.example.net"])
 
     def test_thirty_calls_are_allowed_and_thirty_one_are_not(self):
         base = ["--call", f"{self.ABLATION}:1", "--label", "unit-thirty", "--dry-run"]
@@ -2544,7 +2683,7 @@ class RunSeriesTests(ScriptCase):
         self.assertEqual(call["item_sequence"], ["mcp_list_tools", "mcp_call", "mcp_call", "message"])
         self.assertEqual(call["mcp_calls"], [
             {"name": "microsoft_docs_search", "status": "completed", "arguments_object": True, "query_chars": 600,
-             "output_chars": 40},
+             "output_chars": 40, "output_url_count": 0, "output_hosts": [], "output_shape": {"kind": "text"}},
             {"name": "microsoft_docs_search", "status": "failed", "arguments_object": False,
              "error": {"code": "tool_error", "message": "boom"}}])
         saved = (Path(self.tmp.name) / "unit-query.series.json").read_text(encoding="utf-8")

@@ -48,6 +48,11 @@ NOTES = (
     f"estimate so far plus {REQUESTS_PER_CALL} would exceed the budget. Gateway counts stay authoritative.",
     "Foundry spans (invoke_agent, chat, execute_tool) are not collected here; read them from the telemetry side "
     "by call window and nonce.",
+    "output_hosts and answer_hosts name public hosts only (at most 20, found among the first 100 URLs); an IP address, "
+    "an internal or tenant-specific name, an Azure resource host or a URL with user info shows as [masked-host]. "
+    "answer_hosts_not_in_tool_output lists the public hosts of the final answer that no MCP output contained. "
+    "output_shape holds key names and list lengths only, never values; result_items is the number of entries in the "
+    "recognised result lists (webResults, newsResults, results, ...) and is absent when the output has none.",
     "model_error is true when the call failed with HTTP 500 (or as a failed response) and the service error type "
     "or code is model_error. A 503 'model backend not ready' can carry the same code; it is not counted.",
     "contaminated and contamination_note stay null until someone marks a call by hand because other traffic "
@@ -222,7 +227,9 @@ def mcp_view(event):
     view = {"name": event.get("name"), "status": event.get("status"), "error": event.get("error"),
             "arguments_object": isinstance(arguments, Mapping),
             "query_chars": chars_of(query) if isinstance(query, str) else None,
-            "output_chars": event.get("output_chars")}
+            "output_chars": event.get("output_chars"), "result_items": event.get("result_items"),
+            "output_url_count": event.get("output_url_count"), "output_hosts": event.get("output_hosts"),
+            "output_shape": event.get("output_shape")}
     return {key: value for key, value in view.items() if value is not None}
 
 
@@ -263,6 +270,14 @@ def round_view(item):
     return {key: item[key] for key in keys if item.get(key) is not None}
 
 
+def hosts_missing_from_tools(answer_hosts, mcp_calls):
+    """Public hosts the final answer names that no MCP output contained; None when the answer was not summarized."""
+    if answer_hosts is None:
+        return None
+    seen = {host for call in mcp_calls for host in call.get("output_hosts") or []}
+    return [host for host in answer_hosts if host != common.MASKED_HOST and host not in seen]
+
+
 def call_record(entry, result, gap_s, duration_ms):
     rounds = result["rounds"]
     last = rounds[-1] if rounds else {}
@@ -288,6 +303,8 @@ def call_record(entry, result, gap_s, duration_ms):
         "mcp_called": bool(mcp_calls),
         "mcp_calls": mcp_calls,
         "answer_chars": last.get("answer_chars"),
+        "answer_hosts": last.get("answer_hosts"),
+        "answer_hosts_not_in_tool_output": hosts_missing_from_tools(last.get("answer_hosts"), mcp_calls),
         "final_answer_contains_nonce": result["final_answer_contains_nonce"],
         "think_tag": any(item.get("think_tag") for item in rounds),
         "response_model": last.get("model"),

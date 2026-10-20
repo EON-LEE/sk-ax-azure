@@ -329,6 +329,100 @@ def urls_in(text, limit=10):
     return found[:limit]
 
 
+# Public output names a host only when anyone may read it: an IP address, an internal or tenant-specific name, an
+# Azure resource host and a URL with user info all become MASKED_HOST. Tool output structure is described by key
+# names and counts, never by values.
+MASKED_HOST = "[masked-host]"
+URL_SCAN_LIMIT = 100
+HOST_LIMIT = 20
+PUBLIC_HOST_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})")
+NON_PUBLIC_HOST_RE = re.compile(
+    r"(?:^|\.)(?:sharepoint(?:-df)?\.com|onedrive\.com|1drv\.ms"
+    r"|local|localhost|localdomain|internal|intranet|corp|lan|home|invalid|test|example)$")
+SAFE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
+SHAPE_KEY_LIMIT = 12
+RESULT_LIST_KEYS = ("webResults", "newsResults", "financeResults", "placeResults", "imageResults", "videoResults",
+                    "sportsResults", "results")
+
+
+def public_host(url):
+    """Lower-case host of a URL when it may be named in public output; None otherwise."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = (parts.hostname or "").rstrip(".").lower()
+    except ValueError:
+        return None
+    if "@" in parts.netloc or not PUBLIC_HOST_RE.fullmatch(host) or NON_PUBLIC_HOST_RE.search(host):
+        return None
+    return None if PATTERNS["azure_host"].search(host) else host
+
+
+def url_hosts(urls):
+    """Distinct public hosts of the URLs in order (at most HOST_LIMIT), then MASKED_HOST once if any other host occurs."""
+    hosts, masked = [], False
+    for url in urls:
+        host = public_host(url)
+        if host is None:
+            masked = True
+        elif host not in hosts and len(hosts) < HOST_LIMIT:
+            hosts.append(host)
+    return hosts + [MASKED_HOST] if masked else hosts
+
+
+def output_text(output):
+    """A tool output as text: a string stays as it is, a structured value becomes JSON; None without output."""
+    if isinstance(output, str):
+        return output
+    if isinstance(output, (Mapping, list)):
+        return json.dumps(output, ensure_ascii=False, default=str)
+    return None
+
+
+def output_json(text):
+    """JSON value of a tool output text, looking through an MCP result wrapper (structuredContent or one text part).
+
+    None when the text is not JSON.
+    """
+    value = text
+    for _ in range(3):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, RecursionError):
+                return None
+        wrapped = value.get("structuredContent") if isinstance(value, Mapping) else None
+        if isinstance(wrapped, (Mapping, list)):
+            return wrapped
+        parts = value.get("content") if isinstance(value, Mapping) else value
+        only = parts[0] if isinstance(parts, list) and len(parts) == 1 else None
+        if not (isinstance(only, Mapping) and only.get("type") == "text" and isinstance(only.get("text"), str)):
+            return value
+        value = only["text"]
+    return None if isinstance(value, str) else value
+
+
+def output_shape(value):
+    """Content-free structure of a parsed tool output: its kind, top-level key names and list lengths."""
+    if isinstance(value, Mapping):
+        names = [key if isinstance(key, str) and SAFE_NAME_RE.fullmatch(key) else "[key]" for key in value]
+        lists = {name: len(item) for name, item in zip(names, value.values()) if isinstance(item, list)}
+        return {"kind": "object", "key_count": len(names), "keys": names[:SHAPE_KEY_LIMIT],
+                "lists": dict(list(lists.items())[:SHAPE_KEY_LIMIT])}
+    if isinstance(value, list):
+        return {"kind": "list", "length": len(value)}
+    return {"kind": "text" if value is None else "scalar"}
+
+
+def count_result_items(value):
+    """Entries of the recognised result lists of a parsed tool output; None when it has none."""
+    if isinstance(value, list):
+        return len(value)
+    if isinstance(value, Mapping):
+        counts = [len(value[key]) for key in RESULT_LIST_KEYS if isinstance(value.get(key), list)]
+        return sum(counts) if counts else None
+    return None
+
+
 def now_iso(timespec="seconds"):
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec=timespec)
 
@@ -752,12 +846,19 @@ def summarize_item(item):
                        tools=[tool.get("name") for tool in item.get("tools") or [] if isinstance(tool, Mapping)])
     elif kind == "mcp_call":
         output = item.get("output")
+        text = output_text(output)
+        urls = urls_in(text, URL_SCAN_LIMIT) if text is not None else None
+        parsed = output_json(text) if text is not None else None
         summary.update(server_label=item.get("server_label"), name=item.get("name"),
                        arguments=parse_arguments(item.get("arguments")), status=item.get("status"),
                        error=shrink(item.get("error")),
                        output_chars=len(output) if isinstance(output, str) else None,
                        output_preview=clip(output, 200) if output is not None else None,
-                       output_urls=urls_in(output) if isinstance(output, str) else None)
+                       output_urls=urls_in(output) if isinstance(output, str) else None,
+                       output_url_count=len(urls) if urls is not None else None,
+                       output_hosts=url_hosts(urls) if urls is not None else None,
+                       output_shape=output_shape(parsed) if text is not None else None,
+                       result_items=count_result_items(parsed))
     elif kind == "mcp_approval_request":
         summary.update(id=item.get("id"), server_label=item.get("server_label"), name=item.get("name"),
                        arguments=parse_arguments(item.get("arguments")))
@@ -816,6 +917,7 @@ def summarize_response(response):
         "final_answer": clip(answer),
         "answer_chars": len(answer),
         "answer_urls": urls_in(answer),
+        "answer_hosts": url_hosts(urls_in(answer, URL_SCAN_LIMIT)),
         "think_tag": "<think" in answer.lower(),
         "usage": summarize_usage(data.get("usage")),
         "incomplete_reason": incomplete.get("reason") if isinstance(incomplete, Mapping) else None,
