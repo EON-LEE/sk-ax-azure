@@ -1264,14 +1264,25 @@ switched off.
   and no call, or leaves a tag in the text: `finish_without_calls` and
   `marker_in_text` were never true in the log lines saved so far, a small
   sample.
-- Why Foundry's input count is 4 below vLLM's for the same request, and
-  whether Foundry counts only the last model request of a turn. The figures
-  fit (482 + 4 = 486 in the retests) but were not checked directly.
-- How Foundry's parser treats an `error` chunk in a stream, and a tool call
-  whose `arguments` are not valid JSON.
+- Which layer takes the 4 tokens off Foundry's input count. In 27 of 27 calls
+  through Foundry that were checked, its input count was the prompt tokens of
+  the call's last model request minus 4, and its output count was the
+  completion tokens of all the call's model requests added up. In direct calls
+  (not through Foundry), the usage the API returned was equal to the vLLM token
+  counter. That Foundry's usage reporting takes the 4 off is a guess and was
+  not checked.
+- How Foundry's parser treats an `error` chunk in a stream.
+- How Foundry treats a tool call with a wrong argument. One case was seen: the
+  Web IQ tool rejected the `location` argument as badly formatted, Foundry
+  ended that run with a 400 `tool_user_error`, and it sent no second model
+  request. Not checked: other arguments, other tools, and a tool call whose
+  `arguments` are not valid JSON.
 - What the Foundry console shows for this connection: the model setting, the
   conversation and the tool runs. This needs a person signed in to the console.
-- The Web IQ search tool with a real key.
+- The header name of the Web IQ key. With a real key, 3 of 3 calls through
+  Foundry succeeded, and so did later demonstration calls to the tool. That
+  Foundry sends the key name set in its connection unchanged as the request
+  header name is a guess and was not checked.
 
 **A related issue in the demo chat (unchanged).** `POST /api/chat` has the same
 exposure that the model API now closes. A user message with an unpaired
@@ -1375,8 +1386,8 @@ encodability check to the demo chat's request validation.
 - The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
   registration. Its open items are listed at the end of 8.6: the cause of one
   unexplained Foundry `model_error` and whether the tool-name replacement
-  prevents it, why Foundry's input count is 4 below vLLM's, how Foundry
-  handles a stream error chunk and malformed tool arguments, console
-  visibility and the Web IQ tool with a real key. Its latency and load are
-  not measured; do that with the customer's scenario once the connection is
-  complete.
+  prevents it, which layer takes 4 tokens off Foundry's input count, how
+  Foundry handles a stream error chunk and wrong tool arguments other than the
+  one case seen, console visibility and whether the Web IQ key's header name
+  is sent unchanged. Its latency and load are not measured; do that with the
+  customer's scenario once the connection is complete.
