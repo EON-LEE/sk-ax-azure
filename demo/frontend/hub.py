@@ -21,7 +21,7 @@ LOG = logging.getLogger("axk2.link")
 
 
 class Stderr(logging.StreamHandler):
-    """Logs to whatever sys.stderr is at the moment: App Service shows the container's stdout and stderr."""
+    """Logs to whatever sys.stderr is at the moment, so a later redirect of sys.stderr is followed."""
 
     def __init__(self):
         super().__init__(sys.stderr)
