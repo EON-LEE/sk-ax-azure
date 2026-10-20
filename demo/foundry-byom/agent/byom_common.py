@@ -764,6 +764,11 @@ def answer_text(items):
                    if item.get("type") == "message" and item.get("role", "assistant") == "assistant")
 
 
+def sampling_value(value):
+    """temperature or top_p as the service echoed it; anything that is not a plain number is ignored."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def summarize_response(response):
     """Secret-free summary of a Responses API result (accepts SDK objects or dicts)."""
     data = to_plain(response)
@@ -778,6 +783,8 @@ def summarize_response(response):
         "response_id": data.get("id"),
         "status": data.get("status"),
         "model": data.get("model"),
+        "temperature": sampling_value(data.get("temperature")),
+        "top_p": sampling_value(data.get("top_p")),
         "agent": {key: reference[key] for key in ("name", "version") if reference.get(key) is not None} or None,
         "conversation_id": conversation_id if isinstance(conversation_id, str) else None,
         "output_item_types": [item.get("type") for item in items],

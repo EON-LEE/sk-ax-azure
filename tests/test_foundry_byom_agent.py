@@ -793,6 +793,16 @@ class SummaryTests(ScriptCase):
                          {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150, "reasoning_tokens": 0})
         self.assertEqual((summary["think_tag"], summary["reasoning_item_count"]), (False, 0))
 
+    def test_sampling_values_are_kept_only_when_the_service_echoes_a_number(self):
+        echoed = common.summarize_response(response([message("답")], temperature=0.3, top_p=1.0))
+        self.assertEqual((echoed["temperature"], echoed["top_p"]), (0.3, 1.0))
+        zero = common.summarize_response(response([message("답")], temperature=0, top_p=1))
+        self.assertEqual((zero["temperature"], zero["top_p"]), (0, 1))
+        absent = common.summarize_response(response([message("답")]))
+        self.assertEqual((absent["temperature"], absent["top_p"]), (None, None))
+        odd = common.summarize_response(response([message("답")], temperature="0.3", top_p=True))
+        self.assertEqual((odd["temperature"], odd["top_p"]), (None, None))
+
     def test_reasoning_items_and_think_tags_are_flagged(self):
         summary = common.summarize_response(
             response([{"type": "reasoning", "id": "rs_1", "summary": []}, message("<think>메모</think>답")]))
@@ -2090,6 +2100,16 @@ class RunSeriesTests(ScriptCase):
         self.assertEqual(series["plan"]["limits"],
                          {"max_output_tokens": 200, "max_tool_calls": 2, "max_rounds": 2, "timeout_s": 90})
         self.assertEqual(series["plan"]["min_gap_s"], 20.0)
+
+    def test_the_temperature_echoed_by_the_response_is_recorded_per_call(self):
+        replies = [self.mcp_reply(1, temperature=0.3, top_p=1.0), self.mcp_reply(2)]
+        _, code, out, _ = self.run_calls(self.argv("unit-temp", calls=2), replies)
+        first, second = json.loads(out)["calls"]
+        self.assertEqual(code, 0)
+        self.assertEqual((first["response_temperature"], first["response_top_p"]), (0.3, 1.0))
+        self.assertEqual((first["rounds"][0]["temperature"], first["rounds"][0]["top_p"]), (0.3, 1.0))
+        self.assertEqual((second["response_temperature"], second["response_top_p"]), (None, None))
+        self.assertNotIn("temperature", second["rounds"][0])
 
     def test_wait_for_gap_sleeps_only_for_the_missing_time(self):
         clock = FakeClock(100.0)

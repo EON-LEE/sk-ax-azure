@@ -241,8 +241,8 @@ def failure_labels(error):
 
 
 def round_view(item):
-    keys = ("requested_at", "responded_at", "elapsed_s", "response_id", "request_id", "status", "usage",
-            "output_item_types")
+    keys = ("requested_at", "responded_at", "elapsed_s", "response_id", "request_id", "status", "temperature",
+            "top_p", "usage", "output_item_types")
     return {key: item[key] for key in keys if item.get(key) is not None}
 
 
@@ -274,6 +274,8 @@ def call_record(entry, result, gap_s, duration_ms):
         "final_answer_contains_nonce": result["final_answer_contains_nonce"],
         "think_tag": any(item.get("think_tag") for item in rounds),
         "response_model": last.get("model"),
+        "response_temperature": last.get("temperature"),
+        "response_top_p": last.get("top_p"),
         "response_id": last.get("response_id"),
         "conversation_id": result["conversation_id"],
         "usage": last.get("usage"),
