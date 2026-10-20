@@ -273,7 +273,7 @@ AXK2_SUB=<구독 ID> AXK2_FRONTEND_ONLY=1 bash demo/deploy.sh
 
 GPU 링크가 열리거나 닫힐 때마다 한 줄을 남깁니다(연결당 2줄). 같은 내용이 두 곳에 들어갑니다.
 
-- 컨테이너 로그(stderr, 로거 `axk2.link`): `az webapp log tail`로 봅니다. 줄 앞에 UTC 시각이 붙습니다. 이 로거만 설정하고 root 로거와 다른 모듈의 로그 수준은 바꾸지 않습니다.
+- 컨테이너 로그(stderr, 로거 `axk2.link`): `az webapp log tail`, 포털의 Log stream, Kudu의 진단 덤프(컨테이너 콘솔 출력)로 봅니다. 앱의 App Service logs에서 Application logging(File System)이 켜져 있어야 줄이 보이고, 리눅스 플랜에서는 `az webapp log tail`이 동작하지 않을 수 있다고 Azure 문서에 적혀 있으니 안 되면 포털이나 Kudu를 쓰세요. 줄 앞에 UTC 시각이 붙습니다. 이 로거만 설정하고 root 로거와 다른 모듈의 로그 수준은 바꾸지 않습니다.
 - 관리자 화면의 이벤트(`link`): 최근 100건, 건당 500자까지만 보관합니다. 닫힘 이벤트는 예전처럼 활성 작업일 때만 남고, 열림 이벤트는 등록된 작업이면 남습니다.
 
 ```text
