@@ -970,10 +970,16 @@ a Foundry agent for plain chat, a function tool and an MCP tool (approval
 fake link found two input defects in that version, an unpaired surrogate and
 JSON nested too deeply (see Requests). `9cd2220` fixes both and changes
 `model_api.py` alone. It was deployed as an exact package of that commit (52
-files), which used the last of the three web app restarts that were allowed. A
+files), which used the last of the three web app restarts allowed at first. A
 regression check and the direct smoke test then passed (4 of 4). The earlier
 behaviour on these inputs was reproduced with the fake link only; the old code
 was not probed live.
+
+Later, on 2026-10-20, the demo owner approved additional maintenance. The web
+app was then redeployed twice (web only, each time as an exact revision), and
+the App Service plan was restored to B1 with Always On (limit 9). After each
+restart of the web app, the GPU link was connected again within a minute, and
+the GPU job was not restarted.
 
 **Live probes of the fix.** To show that the fix is the running code, three
 probes were sent to the web app's own address, one at a time and without
@@ -1154,6 +1160,11 @@ non-empty `error` (for example `upstream_error`, `backend_unavailable`,
    `ensure_ascii=True` when the UTF-8 encoding fails, which keeps the
    reasoning removal. A standalone check shows that the escaped text encodes
    and parses back to the same chunk.
+9. A subscription-level automation outside this repository lowered the web
+   app's App Service plan to the Free tier and turned Always On off, at the
+   same time of day on two days in a row. The plan was restored each time (B1,
+   Always On). At that time the web app restarts, and the first model request
+   can get a 503 (seen once).
 
 **Not yet verified.**
 
@@ -1316,8 +1327,9 @@ encodability check to the demo chat's request validation.
     the closes (not confirmed, see Cause above). Production needs on-demand
     or reserved capacity, as the limit above says. No code was changed, no
     supervisor rule was added, the cluster was not switched to dedicated
-    nodes and nothing was redeployed for this (the allowed web app restarts
-    are used up, 8.6), and the hub's reconnection behaviour is unchanged.
+    nodes and nothing was redeployed for this (no web app restart was made
+    for the link-loss question), and the hub's reconnection behaviour is
+    unchanged.
 - Native DSA depends on an unmerged upstream PR carried as a hash-checked
   overlay. Re-validate (kernel tests plus the 2-layer comparison in
   `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
