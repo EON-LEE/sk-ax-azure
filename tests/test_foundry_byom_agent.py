@@ -589,6 +589,28 @@ class ServiceIdTests(ScriptCase):
         text = "{'request_id': 'req-1'} request_id_length: 12345678901234567890 etag: fe49cff6b2f854e3d8ed52e2dfb9e48f"
         self.assertEqual(common.redact_text(text), text)
 
+    def test_trace_ids_and_json_rpc_ids_keep_only_the_first_eight_characters(self):
+        text = ('Response body: {\\n  "jsonrpc": "2.0",\\n  "id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",\\n  "error": '
+                '{"code": "x", "trace_id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9"}} correlation-id: 0a1b2c3d4e5f60718293a4b5c6d7e8f9')
+        expected = ('Response body: {\\n  "jsonrpc": "2.0",\\n  "id": "0a1b2c3d…",\\n  "error": '
+                    '{"code": "x", "trace_id": "0a1b2c3d…"}} correlation-id: 0a1b2c3d…')
+        self.assertEqual(common.redact_text(text), expected)
+        self.assertEqual(common.redact_text(expected), expected)
+        self.assertEqual(common.redact_text(text, keep_ids=True), text)
+
+    def test_other_id_fields_and_short_hex_ids_are_left_alone(self):
+        text = ('{"id": "req-1", "id": 12345678901234567890123, "grid": "0a1b2c3d4e5f60718293a4b5c6d7e8f9", '
+                '"identity": "0a1b2c3d4e5f60718293a4b5c6d7e8f9", "trace_id": "abc123", trace_id_length: 12345678901234567890)')
+        self.assertEqual(common.redact_text(text), text)
+
+    def test_backslash_escaped_quotes_in_json_text_are_handled(self):
+        text = r'{"message": "body {\"id\": \"0a1b2c3d4e5f60718293a4b5c6d7e8f9\", \"trace_id\": \"0a1b2c3d4e5f60718293a4b5c6d7e8f9\"}"}'
+        expected = r'{"message": "body {\"id\": \"0a1b2c3d…\", \"trace_id\": \"0a1b2c3d…\"}"}'
+        self.assertEqual(common.redact_text(text), expected)
+        self.assertEqual(common.redact_text(expected), expected)
+        self.assertTrue(common.REQUEST_ID_RE.search(text))
+        self.assertFalse(common.REQUEST_ID_RE.search(expected))
+
     def test_other_names_codes_and_short_ids_are_left_alone(self):
         text = ("r-0a1b2c3d byom-marker-0a1b2c3d4e5f6071 lookup_demo_stock max_output_tokens previous_response_id "
                 "mcp_approval_request microsoft_docs_search call_1 conv_9f8e7d6c FOUNDRY_PROJECT_ENDPOINT "
