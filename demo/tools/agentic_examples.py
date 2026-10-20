@@ -104,10 +104,12 @@ EXAMPLES = (
         risk="종목마다 조회 1번씩이라 모델 호출 4번"),
     Example(
         id="axk2-public-research", label="A.X K2 공개 자료 조사", group="agent",
-        prompt="웹 검색으로 'A.X K2' 공개 자료를 찾고, 가장 관련 있는 페이지 1개를 browse로 읽어 핵심 3가지를 요약해 줘. "
-               "마지막에 출처 표(제목·URL)를 붙이고, 읽지 못한 내용은 추측하지 말고 '미확인'이라고 적어 줘.",
+        prompt="웹 검색으로 'A.X K2' 공개 자료를 찾고, 가장 관련 있는 페이지를 browse로 읽어 핵심 3가지를 요약해 줘. "
+               "검색 결과 주소를 그대로 쓰되 ?·# 없는 한 페이지만 읽어 줘. 마지막에 출처 표(제목·URL)를 붙이고, "
+               "읽지 못한 내용은 추측하지 말고 '미확인'이라고 적어 줘.",
         forced="web_iq_web", tools=("web_iq_web", "web_iq_browse"),
-        sources=1, external=True, calls=3, risk="검색 색인에 자료가 얇거나 browse가 거부될 수 있음"),
+        sources=1, external=True, calls=3,
+        risk="browse는 ? 쿼리와 로그인·인증 주소를 거부함(# 조각은 서버가 무시), 검색 색인에 자료가 얇을 수 있음"),
     Example(
         id="foundry-byom-steps", label="Foundry BYOM 연결 방법", group="agent",
         prompt="웹 검색으로 Microsoft Learn에서 Foundry에 직접 만든 모델(BYOM)을 연결하는 방법 문서를 찾고, 가장 관련 있는 "
@@ -119,13 +121,16 @@ EXAMPLES = (
     Example(
         id="monthly-sales-report", label="월별 매출 리포트", group="agent",
         prompt="먼저 sales.csv 파일을 만들어 월,매출(만원) 열로 1월 1200, 2월 1350, 3월 1280, 4월 1520, 5월 1610, "
-               "6월 1700을 저장해 줘. 그다음 매출 합계와 1월 대비 6월 증감률(%)을 정확히 계산해서 report.html에 h1과 "
-               "table만 써서 저장하고 미리보기로 열어 줘.",
+               "6월 1700을 저장해 줘. 그다음 매출 합계와 1월 대비 6월 증감률(%)을 정확히 계산해 줘. 증감률은 소수점 "
+               "첫째 자리 %로 표기하고, report.html은 h1과 table만 써서 표가 있는 완전한 HTML로 작성해 저장한 뒤 "
+               "미리보기로 열어 줘.",
         forced="write_file", tools=("write_file", "write_file", "preview_html"),
         any_of=(("calculator", "analyze_table"),),
         files=("sales.csv", "report.html"), preview="report.html", artifacts=("preview",),
         contains=(("answer", r"8660"), ("report.html", r"8660"), ("report.html", r"41\.[67]|\b42\s*%")),
-        shown=True, calls=4, risk="도구 호출을 한 번에 묶지 않으면 모델 호출 5번째에 미리보기 단계가 빠짐"),
+        shown=True, calls=4,
+        risk="계산기가 분수(125/3)를 돌려주므로 소수점 표기를 명시함, 도구 호출을 한 번에 묶지 않으면 "
+             "모델 호출 5번째에 미리보기 단계가 빠짐"),
     Example(
         id="contract-review", label="계약서 PDF 조항 점검", group="agent",
         prompt="첨부한 계약서(PDF)에서 해지·위약금·비밀유지 조항을 찾아 조항 번호와 페이지 근거를 붙인 체크리스트로 "

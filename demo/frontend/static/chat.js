@@ -9,14 +9,14 @@
   const FILE_BYTES = 8 * 1024 * 1024;
 
   const EXAMPLES = [
-    { label: "코드 작성", text: "파이썬으로 이진 탐색 함수를 작성하고 시간 복잡도를 설명해 줘.", tools: true },
-    { label: "도구로 정확히 계산", text: "2의 64제곱에서 1을 뺀 값을 계산기로 정확히 구해 줘.", tools: true },
-    { label: "문서·데이터 분석", text: "첨부한 문서·CSV를 읽고 핵심 내용과 합계를 정리해 줘. 파일이 없으면 먼저 첨부를 요청해 줘.", tools: true },
-    { label: "파일 수정·미리보기", text: "간단한 소개 페이지 index.html을 만들고 다운로드와 미리보기를 제공해 줘.", tools: true },
-    { label: "Web IQ · 웹 검색", text: "Web IQ 웹 검색으로 서울의 산책하기 좋은 공원 두 곳을 찾고 실제 출처 링크를 알려 줘.", tools: true },
-    { label: "Web IQ · 최신 뉴스", text: "Web IQ 뉴스 도구로 최신 AI 뉴스 두 건을 찾아 기사 시각과 실제 출처 링크를 알려 줘.", tools: true },
-    { label: "Web IQ · 삼성전자 주가", text: "Web IQ 금융 도구로 오늘 삼성전자 005930 주가를 조회하고 출처·시세 기준 시각을 알려 줘. 지연 여부가 미제공이면 미확인으로 표시해 줘.", tools: true },
-    { label: "Web IQ · 주변 장소", text: "Web IQ 장소 도구로 서울 시청 근처 카페 두 곳을 찾아 실제 주소와 출처 링크를 알려 줘.", tools: true },
+    { label: "세 도시 현재 시각", text: "서울(Asia/Seoul)·뉴욕(America/New_York)·런던(Europe/London)의 현재 시각을 get_current_time 도구로 각각 확인해서 한 줄씩 알려 주고, 세 도시가 함께 화상회의를 하기에 덜 불편한 시간대를 한 문장으로 제안해 줘.", tools: true },
+    { label: "요금제 총액 계산", text: "월 69000원 요금제를 24개월 쓰고 25% 할인을 받으면 총 얼마인지 계산기로 정확히 구하고, 할인 전 금액과의 차이도 알려 줘.", tools: true },
+    { label: "AI 반도체 뉴스 브리핑", text: "웹 검색으로 AI 반도체 관련 최신 뉴스 3건을 찾아 제목·언론사·날짜를 briefing.html 표로 만들어 저장하고 미리보기로 열어 줘. CSS·스크립트·링크·이미지 없이 h1과 table만 쓰고, 답변에는 기사 3건의 실제 출처 URL을 적어 줘.", tools: true },
+    { label: "반도체 두 종목 시세 비율", text: "Web IQ로 SK하이닉스(000660)와 삼성전자(005930)의 주가를 실제 조회하고, 두 현재가의 비율(SK하이닉스 ÷ 삼성전자)을 정확히 계산해 줘. 시세 기준 시각·통화·지연 여부와 출처 URL을 함께 적고, 제공되지 않은 값은 '미확인'으로 표시해 줘. 투자 조언은 하지 마.", tools: true },
+    { label: "Foundry BYOM 연결 방법", text: "웹 검색으로 Microsoft Learn에서 Foundry에 직접 만든 모델(BYOM)을 연결하는 방법 문서를 찾고, 가장 관련 있는 문서 1개를 browse로 읽어 연결 단계를 번호 목록으로 요약해 줘. 주소에 물음표(?)가 있으면 물음표 앞부분만 사용하고, 읽은 범위에 없는 단계는 추측하지 말고 출처 URL을 마지막에 적어 줘.", tools: true },
+    { label: "판교역 점심 일정", text: "Web IQ 장소 도구로 판교역 근처 점심 식당 두 곳을 실제로 검색하고, get_current_time으로 오늘 날짜를 확인해 오늘 12시 30분 점심 일정을 lunch_plan.md에 기록해 줘. 식당 이름·주소·출처 URL을 함께 넣어 줘.", tools: true },
+    { label: "CSV 합계와 막대 차트", text: "월별 모바일 데이터 사용량(TB)을 1월 410, 2월 395, 3월 430, 4월 465, 5월 500, 6월 520으로 traffic.csv 파일에 저장하고, 합계와 월 평균을 정확히 계산한 뒤 막대 차트로 보여 줘. 시연용 가상 데이터라고 표시해 줘.", tools: true },
+    { label: "월별 매출 리포트", text: "먼저 sales.csv 파일을 만들어 월,매출(만원) 열로 1월 1200, 2월 1350, 3월 1280, 4월 1520, 5월 1610, 6월 1700을 저장해 줘. 그다음 매출 합계와 1월 대비 6월 증감률(%)을 정확히 계산해 줘. 증감률은 소수점 첫째 자리 %로 표기하고, report.html은 h1과 table만 써서 표가 있는 완전한 HTML로 작성해 저장한 뒤 미리보기로 열어 줘.", tools: true },
   ];
 
   const SVG = "http://www.w3.org/2000/svg";

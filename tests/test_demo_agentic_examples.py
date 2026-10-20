@@ -27,6 +27,18 @@ del sys.path[:2]
 EXAMPLES = catalog.EXAMPLES
 
 
+# the chat buttons, in the order of the start screen; contract-review and code-fix-diff need an attachment and
+# axk2-public-research waits for a live re-check, so none of the three is a button
+BUTTONS = ("time-zones", "plan-fee", "ai-chip-news", "chip-price-ratio",
+           "foundry-byom-steps", "pangyo-lunch-plan", "csv-chart", "monthly-sales-report")
+
+
+def chat_buttons():
+    js = (ROOT / "demo" / "frontend" / "static" / "chat.js").read_text(encoding="utf-8")
+    block = js.split("const EXAMPLES = [", 1)[1].split("];", 1)[0]
+    return re.findall(r'\{ label: "([^"]+)", text: "([^"]+)", tools: true \}', block)
+
+
 def tool_names():
     return {tool.name for tool in Workspace().tools()} | {"web_iq_" + name for name in VERTICALS}
 
@@ -134,6 +146,21 @@ class CatalogTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIsInstance(build(), bytes)
                 self.assertEqual(build(), build())
+
+
+class ChatButtonTests(unittest.TestCase):
+    def test_every_button_sends_the_catalog_prompt_word_for_word(self):
+        by_id = {e.id: e for e in EXAMPLES}
+        self.assertEqual(chat_buttons(), [(by_id[name].label, by_id[name].prompt) for name in BUTTONS])
+
+    def test_a_button_needs_nothing_the_visitor_does_not_have(self):
+        by_id = {e.id: e for e in EXAMPLES}
+        self.assertEqual(len(set(BUTTONS)), len(BUTTONS))
+        for name in BUTTONS:
+            with self.subTest(example=name):
+                self.assertEqual(by_id[name].upload, "")
+        self.assertEqual(Counter(by_id[name].group for name in BUTTONS), {"quick": 2, "agent": 6})
+        self.assertEqual(sum(by_id[name].external for name in BUTTONS), 4)
 
 
 class FixtureTests(unittest.TestCase):
