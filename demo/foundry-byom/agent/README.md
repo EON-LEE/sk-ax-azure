@@ -17,12 +17,12 @@ Foundry에서 만든 프롬프트 에이전트가 BYOM(Bring your own model) 연
 | Phase 0.5: 연결 조회, 도구 없는 에이전트 버전 생성 | 완료. 연결 2개가 계약과 같고, 저장된 모델 참조가 요청과 같다. |
 | Phase 1a: 도구 없는 호출 | NVFP4 첫 시도는 모델 쪽 503으로 실패했다(GPU 링크 장애). 링크가 복구된 뒤 FP8와 NVFP4 모두 성공했다. |
 | Phase 1b: 함수 도구 | FP8와 NVFP4 모두 성공했다. 모델이 `function_call`을 내고 로컬 함수 결과를 받아 최종 답을 냈다. |
-| Phase 1c: Learn MCP | FP8에서 Foundry가 도구를 실행했다(`mcp_call`). `never`는 강화한 지시문으로 성공했고, `always`는 승인 흐름이 성공했다. ablation 에이전트(`temperature` 미지정)는 첫 호출이 500이었고 재시험 3회는 성공했다. 500은 재현되지 않았고 원인은 모른다(U18). |
-| Phase 1c: Web IQ MCP | 요청 단위 헤더는 400으로 거부됐다(`agent_reference`와 요청의 `tools`는 함께 쓸 수 없다). 키를 프로젝트 연결에 저장하는 방식은 사용자 승인을 기다린다. 실키는 쓰지 않았다. |
-| 콘솔 확인 | 미실행. 사용자 로그인이 필요하다. |
+| Phase 1c: Learn MCP | FP8에서 Foundry가 도구를 실행했다(`mcp_call`). `never`는 강화한 지시문으로 성공했고, `always`는 승인 흐름이 성공했다. ablation 에이전트(`temperature` 미지정)는 첫 호출이 500이었다. 재시험 3회와 재실행 3회(`run_series.py`, DESIGN.md의 ⓐ)는 성공했다. 이 에이전트의 호출은 첫 호출, 재시험 3회, 재실행 3회, ⓑ 5회(약한 지시문 에이전트와 번갈아 보낸 10회 중), 캡처 3회로 모두 15회다. 2회가 Foundry 500(`model_error`)이고 13회가 완료다(도구를 부른 11회, 안 부른 2회). 500의 원인은 모른다(U18). 같은 에이전트의 새 버전(`temperature` 0.3, 다른 변경 없음)은 3회 모두 완료했고 도구를 불렀다(온도 0.3 확인). 표본이 작아 이 설정이 500을 막는다는 증거는 아니다. |
+| Phase 1c: Web IQ MCP | 요청 단위 헤더는 400으로 거부됐다(`agent_reference`와 요청의 `tools`는 함께 쓸 수 없다). 키를 프로젝트 연결에 저장하는 방식은 사용자 승인을 기다린다. 실키는 쓰지 않았다. 더미 값으로 연결을 만들어 호출 1회를 연습했다(D-1). Foundry가 MCP 인증 실패를 요청 수준의 400(`tool_user_error`)으로 돌려줬고 APIM 요청은 0건이었다(인프라 담당 보고). 실키 호출(D-2)은 하지 않았다(DESIGN.md 4.6절). |
+| 콘솔 확인 | 이 작업은 화면을 보지 못했고 캡처가 없다. 사용자가 포털에서 모델 배포가 보이고 플레이그라운드로 에이전트를 쓸 수 있음을 직접 확인했다고 전달했다. 그 화면이 BYOM 연결과 `byom-demo-*` 에이전트인지는 미확인이다(DESIGN.md U11). 로그인과 MFA는 사용자가 한다. |
 
 Foundry 에이전트가 BYOM 연결로 모델 API에 요청하고 답을 받는 것, 함수 도구 왕복, Foundry 쪽 MCP 도구 실행은 확인했다.
-사용 모델이 A.X K2라는 것은 아직 확정하지 않았다. 에이전트 정의와 응답의 `model` 필드는 모델 참조일 뿐이다. APIM 요청 본문의 모델 이름과 모델 런타임 출처가 같은 시간대로 맞아야 한다(DESIGN.md 7절). 재시험 3회에서 인프라 담당이 읽은 APIM 요청 본문의 모델 이름은 6건 모두 `ax-k2-fp8`이었다. 같은 시간대에 모델 API 담당이 보고한 vLLM 출력 토큰 증가분은 Foundry의 출력 usage와 같았다. 이것은 시간대 대조의 일부이며 요청 단위 대조는 아니다. 입력 토큰 증가분은 호출마다 Foundry usage보다 486개 많았고 원인은 모른다.
+사용 모델이 A.X K2라는 것은 아직 확정하지 않았다. 에이전트 정의와 응답의 `model` 필드는 모델 참조일 뿐이다. APIM 요청 본문의 모델 이름과 모델 런타임 출처가 같은 시간대로 맞아야 한다(DESIGN.md 7절). 인프라 담당이 읽은 APIM 요청 본문의 모델 이름은 재시험 6건, 재실행(ⓐ) 6건, ⓑ 13건, 온도 0.3 확인 6건 모두 `ax-k2-fp8`이었다. 캡처 3회의 요청 본문은 받지 못했다(미확인). 모델 API 담당이 보고한 vLLM 출력 토큰 증가분은 Foundry의 출력 usage와 같았다(18회 중 18회. 재시험 3회, 재실행 3회, ⓑ 완료 9회, 온도 0.3 확인 3회). 이것은 시간대 대조의 일부이며 요청 단위 대조는 아니다. 모델을 두 번 부른 12회는 입력 토큰 증가분의 합이 Foundry의 입력 usage보다 486개 많았다. 이 486은 482와 4의 합이다(관찰됨(산술 일치)). 482는 첫 요청의 프롬프트 토큰이다. 라운드를 나눠 읽은 7회는 첫 라운드가 482였고 둘째 라운드가 입력 usage보다 4 컸다. 재시험 3회의 482는 직접 측정한 값이 아니라 같은 에이전트이므로 맞는 수치로 쓴 것이다. 한 요청마다 4개가 달라지는 원인과, 입력 usage가 마지막 요청만 센 값이라는 해석은 확인하지 못했다(미확인). 근거는 DESIGN.md 3.4절의 "재시험의 vLLM 토큰 대조" 행에 있다.
 확인된 사실과 미확인 항목의 최신 목록은 DESIGN.md 3.4절에 있다.
 
 ## 구성
@@ -57,6 +57,7 @@ export BYOM_PRIVATE_DIR="$HOME/.byom-evidence-raw"
 
 `FOUNDRY_BYOM_AZ_SUBSCRIPTION`은 `az` 토큰 명령에 `--subscription`을 붙인다. 로그인 계정이 바뀌어도 다른 구독의 토큰을 조용히 쓰지 않고 실패한다.
 `BYOM_REDACT_LITERALS`는 쉼표로 구분한 목록이다. `실제값=별칭` 항목은 실제값을 별칭으로 바꾸고, 값만 적은 항목은 `<redacted>`로 바꾼다. 대소문자는 구분하지 않는다.
+`FOUNDRY_PROJECT_ENDPOINT`와 MCP 서버 URL(`--mcp-url`, `FOUNDRY_BYOM_MCP_URL`)에 공백, 제어 문자, 비ASCII 문자가 있으면 설정 오류(종료 코드 2)다. CRLF 줄바꿈 파일에서 값을 읽으면 끝에 `\r`이 붙는 경우가 흔하므로 읽은 값에서 `\r`을 지운다.
 전체 환경변수 목록은 DESIGN.md 5.2절에 있다.
 
 ## 실행 순서
@@ -106,6 +107,7 @@ python run_series.py --call <mcp-agent-a>:1 --call <mcp-agent-b>:1 --label <labe
 `--temperature 0.3`은 예방 조치다. 이 설정이 Foundry의 500을 막는다는 증거는 없다(DESIGN.md U18).
 `--prompt-file`로 프롬프트를 파일에서 읽을 수 있다. `run_prompt.py`는 실행마다 대화를 하나 만들고 콘솔에서 볼 수 있도록 남긴다. 지우려면 `--delete-conversation`을 쓴다.
 Web IQ MCP는 요청 단위 헤더(옵션 B)가 400으로 거부되어 쓸 수 없다. 키를 프로젝트 연결에 저장하는 옵션 D만 남았고, 키가 Foundry에 저장되므로 사용자 승인 뒤에만 한다(DESIGN.md 4.5절, 4.6절). `run_prompt.py --mcp-request-header`는 옵션 B를 시험하려고 만든 실험 옵션이며 Foundry가 거부했다.
+옵션 D의 연습(D-1)은 더미 값으로 한 번 했다(DESIGN.md 3.4절, 4.6절). 연결 이름은 `create_agent.py --mcp-connection <연결 이름>`으로 넘기며 `project_connection_id`를 채운다. 키 값이 서버 기록에 남았는지는 `collect_evidence.py --scan-env <변수>`로 검사한다. 실키를 쓰는 호출은 하지 않았고 사용자 승인 뒤에만 한다.
 
 7단계의 `run_series.py`는 다음 규칙으로 호출한다.
 
@@ -167,9 +169,10 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 | `ok`, `stopped`, `error`, `model_error` | 성공 여부, 끝난 이유, 오류 요약, `model_error` 여부. `error.type`은 예외 클래스 이름이고 서비스가 돌려준 오류 type은 `error.api_type`이다. `model_error`는 HTTP 500(또는 `failed` 응답)이고 `error.code`나 `error.api_type`이 `model_error`일 때만 `true`다. 503은 code가 `model_error`여도 `false`다. |
 | `item_sequence`, `mcp_called`, `mcp_calls` | 출력 항목 종류의 순서, MCP 도구를 불렀는지, 도구 호출마다 이름·상태·인자가 객체인지·질의 길이(`query_chars`)·출력 길이(`output_chars`). 질의 원문은 넣지 않는다. |
 | `answer_chars`, `final_answer_contains_nonce`, `think_tag` | 최종 답 길이, 확인 코드 포함 여부, `<think>` 태그 여부 |
-| `response_model`, `response_id`, `conversation_id`, `usage`, `rounds` | 마지막 응답의 `model`(에이전트 참조)과 ID, 대화 ID, 마지막 라운드의 usage, 라운드별 시각·요청 ID·usage |
+| `response_model`, `response_temperature`, `response_top_p`, `response_id`, `conversation_id`, `usage`, `rounds` | 마지막 응답의 `model`(에이전트 참조), 응답 객체가 돌려준 `temperature`와 `top_p`(숫자가 아니면 `null`), ID, 대화 ID, 마지막 라운드의 usage, 라운드별 시각·요청 ID·`temperature`·`top_p`·usage. `temperature`와 `top_p`는 서비스가 응답에 되돌려 준 값이며 모델 API가 받은 요청 본문의 값이 아니다. |
 | `client_http` | 이 호출 하나에서 클라이언트가 보낸 HTTP 요청 수. `requests`는 대화 생성과 Responses POST를 합친 수이고 `responses_posts`는 Responses POST 수다. |
 | `contaminated`, `contamination_note` | 다른 트래픽이 겹친 호출을 사람이 표시하는 칸. 스크립트는 `null`로 두고 `summary`는 이 표시를 반영하지 않는다. |
+
 ## 증거 파일
 
 증거 파일은 `evidence/foundry-byom/`에 있다.
@@ -188,7 +191,12 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 - 구독 ID, tenant ID, 객체 ID, 전체 리소스 ID, 호스트, 키, 토큰은 저장하지 않는다. 시험(`HygieneTests`)이 `demo/foundry-byom/agent/`와 `evidence/foundry-byom/`의 파일에서 GUID, 이메일, JWT, 리소스 호스트, 구독 경로가 든 리소스 ID, 전체 응답·요청 ID를 찾는다.
 - 증거마다 확인됨, 실패, 미확인을 나눠 적는다. 미확인을 확인됨으로 바꾸려면 실제 호출의 증거가 있어야 한다.
 - 모델 API 담당이 보고한 직접 재생 결과와 vLLM 토큰 증가분은 이 저장소에 증거 파일이 없다. DESIGN.md 3.4절에 "보고됨(모델 API 담당)"으로만 적었다.
-- 재시험 3회의 APIM 기록은 인프라 담당이 PR #28(48f9c26)의 `gateway-requests-foundry-ablation-retest-{1,2,3}.json`에 올렸다. 그 브랜치를 병합하기 전에는 이 저장소에서 참조가 연결되지 않는다.
+- 재시험 3회의 APIM 기록은 인프라 담당이 PR #28(48f9c26)의 `gateway-requests-foundry-ablation-retest-{1,2,3}.json`에 올렸고 그 PR은 병합됐다.
+- 재실행 3회(ⓐ)의 증거는 `rerun-ablation-fp8-a.series.json`과 `rerun-ablation-fp8-a-{01,02,03}.run.json`이다. 호출별 시작·종료 시각이 UTC 밀리초로 들어 있다. 이 재실행의 APIM 요청별 기록과 Foundry span은 인프라 담당이 읽었다(보고됨). 이 저장소에는 그 증거 파일이 없다. 요청 본문의 모델 이름은 6건 모두 `ax-k2-fp8`이었다(보고됨(인프라 담당)). 9f92a3f 이전에 만든 증거 파일의 시각은 초 단위다.
+- ⓑ(두 에이전트를 번갈아 10회)의 증거는 `rerun-ablation-fp8-b.series.json`과 `rerun-ablation-fp8-b-{01..10}.run.json`이다. 호출 2는 Foundry 500(`model_error`)이었고 응답 항목과 usage가 없다. 이 호출의 APIM 요청별 기록과 Foundry span은 인프라 담당이 읽었다(보고됨). 이 저장소에는 그 증거 파일이 없다.
+- 캡처 3회의 증거는 `capture-ablation-fp8-b.series.json`과 `capture-ablation-fp8-b-{01,02,03}.run.json`이다. 인프라 담당이 APIM 기록을 켠 구간에 보냈다. 이 호출의 APIM 요청별 기록은 아직 받지 못했다(미확인).
+- 온도 0.3 확인 3회의 증거는 `temp03-ablation-fp8-b.create.json`(새 에이전트 버전), `temp03-ablation-fp8-b.series.json`, `temp03-ablation-fp8-b-{01,02,03}.run.json`이다. 응답 객체의 `temperature`는 3회 모두 0.3000000119209289(0.3의 float32 값)이고 `top_p`는 1.0이다. APIM 요청 본문의 `temperature`도 0.3이었다(보고됨(인프라 담당)). Foundry span에는 `temperature` 속성이 없다(보고됨(인프라 담당)).
+- D-1(더미 키 연습)의 증거는 `d1-dummy-webiq.create.json`, `d1-dummy-webiq.series.json`, `d1-dummy-webiq-01.run.json`, `d1-dummy-webiq-01.json`이다. 호출 1회가 HTTP 400(`tool_user_error`)으로 끝났다. 더미 값은 어떤 파일에도 없다. 오류 본문의 요청 ID와 대화 ID는 앞 8자만 남겼다.
 - 기존 앱 경로(MAF `/api/agent`)의 Web IQ 성공은 이 데모의 증거가 아니다.
 
 ## 안전 규칙
@@ -196,8 +204,8 @@ Foundry 쪽 span(`invoke_agent`, `chat`, `execute_tool`), APIM 기록, 모델 �
 1. 비밀은 환경변수로만 받는다. 출력, 파일, 커밋에 쓰지 않는다(DESIGN.md 5.3절).
 2. 공개 저장소다. 배포별 이름, 호스트, GUID를 커밋하지 않는다. 연결 이름은 별칭을 쓴다.
 3. 모델 호출은 최소로 한다. 동시성 1, 출력 상한 설정, thinking 끔.
-4. 호출 예산은 `responses.create` 횟수가 아니라 APIM 요청 수로 센다. 모델 쪽 5xx는 Foundry가 다시 보낼 수 있다(추정). 1a 시도 1에서는 호출 1번이 APIM 요청 4건이 됐다. MCP `never`에서 도구를 부른 호출은 `responses.create` 1번에 APIM 요청이 2건이었다(인프라 담당 보고). 인프라 담당이 확인한 누적 요청은 25건이고 상한은 32건이다. 7건이 남았다(DESIGN.md 8.3절).
-5. 호출은 순차로 하고(동시성 1) 호출 사이에 15초 이상 둔다. ablation 재시험은 45초 이상으로 정했고 실제 간격은 50초 이상이었다.
+4. 호출 예산은 `responses.create` 횟수가 아니라 APIM 요청 수로 센다. 모델 쪽 5xx는 Foundry가 다시 보낼 수 있다(추정). 1a 시도 1에서는 호출 1번이 APIM 요청 4건이 됐다. MCP `never`에서 도구를 부른 호출은 `responses.create` 1번에 APIM 요청이 2건이었다(인프라 담당 보고). 인프라 담당이 확인한 누적 요청은 재시험까지 25건이다. 재실행 3회(ⓐ)의 요청 6건과 ⓑ의 요청 13건은 응답 ID와 요청 ID로 호출마다 맞춰졌다(인프라 담당 보고). 그래서 확인된 누적은 44건이다. 캡처 3회는 요청 5건이 예상되나 호출별 기록을 받지 못했다(미확인). 온도 0.3 확인 3회는 요청 6건이었고, D-1의 400 호출은 0건이었다(인프라 담당 보고). 인프라 담당이 센 이 작업의 누적은 예상한 캡처 5건을 포함해 55건이다. 상한은 64건이고 이 작업이 보낸 요청만 센다. 이 작업이 보내지 않은 게이트웨이 요청 15건은 누적에 넣지 않았다(DESIGN.md 3.4절, 8.3절).
+5. 호출은 순차로 하고(동시성 1) 호출 사이에 15초 이상 둔다. ablation 재시험은 45초 이상으로 정했고 실제 간격은 50초 이상이었다. 재실행 3회(ⓐ), ⓑ, 캡처, 온도 0.3 확인은 60초 이상으로 정했고 실제 간격은 60.0초였다.
 6. 첫 예상 밖 실패에서 멈추고 오류 원문을 보고한다. 이 스크립트는 자동 재시도를 하지 않는다. 승인받은 재시험이 아니면 실패한 호출을 다시 보내지 않는다.
 7. 허용되는 클라우드 변경은 기존 프로젝트 안의 에이전트 버전, 대화, 응답 생성뿐이다. 새 리소스, RBAC, APIM, 웹앱, GPU는 건드리지 않는다. 삭제는 지시가 있을 때만 한다.
 
@@ -218,7 +226,7 @@ python -m unittest discover -s tests -p "test_foundry_byom*.py"
 
 이 데모가 만든 클라우드 개체다. 삭제는 프로젝트 소유자와 합의한 뒤, 지시가 있을 때만 한다. 콘솔 시연에 쓸 수 있으므로 지금은 지우지 않는다.
 
-에이전트는 7개 이름, 9개 버전이다. `create_agent.py --delete <이름>`은 그 이름의 모든 버전을 지운다.
+에이전트는 8개 이름, 11개 버전이다. `create_agent.py --delete <이름>`은 그 이름의 모든 버전을 지운다.
 
 | 에이전트 이름 | 버전 | 용도 |
 |---|---|---|
@@ -228,9 +236,10 @@ python -m unittest discover -s tests -p "test_foundry_byom*.py"
 | `byom-demo-fn-agent-nv` | 1 | NVFP4 함수 도구 |
 | `byom-demo-mcp-agent-fp8` | 1, 2, 3 | Learn MCP. 1은 약한 지시문, 2는 강한 지시문과 `temperature` 0.3(`never`), 3은 `always` |
 | `byom-demo-webiq-agent-fp8` | 1 | Web IQ 요청 단위 헤더 시험용(400으로 거부됨) |
-| `byom-demo-mcp-ablation-fp8` | 1 | 강한 지시문, `temperature` 미지정, `never`(U18, U19) |
+| `byom-demo-mcp-ablation-fp8` | 1, 2 | 강한 지시문, `never`. 1은 `temperature` 미지정(U18, U19), 2는 `temperature` 0.3(온도 0.3 확인) |
+| `dummy-d1-webiq-agent-fp8` | 1 | D-1 더미 키 연습용. FP8, `temperature` 0.3, Web IQ MCP, 더미 키를 담은 프로젝트 연결 사용 |
 
-대화는 15개다. 증거 이름과 대화 ID 앞 8자는 다음과 같다. `run_prompt.py`는 실행마다 대화를 하나 만들기 때문에 호출이 늘면 대화도 늘어난다.
+대화는 35개다. 증거 이름과 대화 ID 앞 8자는 다음과 같다. `run_prompt.py`는 실행마다 대화를 하나 만들기 때문에 호출이 늘면 대화도 늘어난다.
 
 | 증거 이름 | 대화 |
 |---|---|
@@ -249,6 +258,28 @@ python -m unittest discover -s tests -p "test_foundry_byom*.py"
 | `retest-9cd2220-fp8-ablation-1` | `conv_0dd9df8a…` |
 | `retest-9cd2220-fp8-ablation-2` | `conv_0e725356…` |
 | `retest-9cd2220-fp8-ablation-3` | `conv_0847c851…` |
+| `rerun-ablation-fp8-a-01`(`byom-demo-mcp-ablation-fp8` 1) | `conv_05bd7adf…` |
+| `rerun-ablation-fp8-a-02` | `conv_0acb2e05…` |
+| `rerun-ablation-fp8-a-03` | `conv_035d6d92…` |
+| `rerun-ablation-fp8-b-01`(`byom-demo-mcp-agent-fp8` 1) | `conv_008e5ca1…` |
+| `rerun-ablation-fp8-b-02`(`byom-demo-mcp-ablation-fp8` 1. 500으로 실패. 대화 항목 0개를 조회로 확인) | `conv_0b186c53…` |
+| `rerun-ablation-fp8-b-03`(`byom-demo-mcp-agent-fp8` 1) | `conv_003184ea…` |
+| `rerun-ablation-fp8-b-04`(`byom-demo-mcp-ablation-fp8` 1) | `conv_0996e58c…` |
+| `rerun-ablation-fp8-b-05`(`byom-demo-mcp-agent-fp8` 1) | `conv_0ff63cae…` |
+| `rerun-ablation-fp8-b-06`(`byom-demo-mcp-ablation-fp8` 1) | `conv_086e4b19…` |
+| `rerun-ablation-fp8-b-07`(`byom-demo-mcp-agent-fp8` 1) | `conv_0e727b85…` |
+| `rerun-ablation-fp8-b-08`(`byom-demo-mcp-ablation-fp8` 1) | `conv_0e2d2abb…` |
+| `rerun-ablation-fp8-b-09`(`byom-demo-mcp-agent-fp8` 1) | `conv_029a68fe…` |
+| `rerun-ablation-fp8-b-10`(`byom-demo-mcp-ablation-fp8` 1) | `conv_0755da41…` |
+| `capture-ablation-fp8-b-01`(`byom-demo-mcp-ablation-fp8` 1) | `conv_0a1aa325…` |
+| `capture-ablation-fp8-b-02` | `conv_0045a00e…` |
+| `capture-ablation-fp8-b-03` | `conv_04e55fc6…` |
+| `temp03-ablation-fp8-b-01`(`byom-demo-mcp-ablation-fp8` 2) | `conv_0eb5f9fe…` |
+| `temp03-ablation-fp8-b-02` | `conv_04e92587…` |
+| `temp03-ablation-fp8-b-03` | `conv_0204fc97…` |
+| `d1-dummy-webiq-01`(`dummy-d1-webiq-agent-fp8` 1. HTTP 400으로 실패) | `conv_003f50ba…` |
 
+- 더미 연결 `dummy-d1-webiq`는 인프라 담당이 만들었다. 삭제하지 않았고 인프라 담당의 정리 목록에 있다. D-1이 쓴 더미 값은 저장소 밖의 개인 파일에만 있다.
+- 사용자가 2026-10-20에 포털에서 직접 만든 항목은 이 목록에 없다. 모델 배포 2개(`gpt-5`, `text-embedding-3-large`)와 포털이 이름을 붙인 에이전트 1개다. 이 작업이 만든 것이 아니므로 정리 대상에 넣지 않는다(DESIGN.md U11).
 - 이 스크립트에는 대화 ID로 대화를 지우는 기능이 없다. `run_prompt.py --delete-conversation`은 그 실행이 만든 대화만 지운다. 이미 있는 대화를 지우려면 기능을 추가해야 하고 별도 승인이 필요하다(DESIGN.md 9.1절).
 - 응답 객체의 저장 여부와 삭제 동작은 확인하지 않았다.
