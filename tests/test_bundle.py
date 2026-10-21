@@ -124,7 +124,7 @@ class BundleTests(unittest.TestCase):
         for needle in ('PHASE_PLAN: "demo"', "  type: managed", 'AXK2_LINK_URL: "__AXK2_LINK_URL__"',
                        'AXK2_LINK_TOKEN: "__AXK2_LINK_TOKEN__"', 'IB_PROBE: "1"', "instance_count: 2",
                        "  timeout: 604800", 'TP: "8"', 'PP: "2"', 'FULL_MAX_MODEL_LEN: "262144"',
-                       "compute: azureml:a100-nd96-lp", "hf:2287ca456927eed33b899c404c0b2ffaf17aa09f"):
+                       "compute: azureml:a100-nd96-lp", "hf:4237c6a60cec6ae449854870d01a42665a1166aa"):
             self.assertIn(needle, job)
         self.assertNotIn("EAGLE3_SOURCE", job)
         entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
