@@ -66,11 +66,14 @@ EXAMPLES = (
     Example(
         id="time-zones", label="세 도시 현재 시각", group="quick",
         prompt="서울(Asia/Seoul)·뉴욕(America/New_York)·런던(Europe/London)의 현재 시각을 get_current_time 도구로 "
-               "각각 확인해서 한 줄씩 알려 주고, 세 도시가 함께 화상회의를 하기에 덜 불편한 시간대를 한 문장으로 "
-               "제안해 줘.",
+               "각각 확인해서 도시별 현지 시각을 한 줄씩 알려 주고, 서울이 뉴욕과 런던보다 각각 몇 시간 "
+               "빠른지도 알려 줘. 시차는 도구가 돌려준 현지 시각(UTC 오프셋 포함)의 차이로 계산해 줘.",
         tools=("get_current_time",) * 3,
         args=(("get_current_time", "America/New_York"), ("get_current_time", "Europe/London")),
-        calls=2, risk="Asia/Seoul은 기본값이라 인자가 비어 있을 수 있음, 서버의 시간대 데이터가 없으면 도구 오류"),
+        calls=2, risk="Asia/Seoul은 기본값이라 인자가 비어 있을 수 있음, 서버의 시간대 데이터가 없으면 도구 오류. "
+                      "시차는 서머타임에 따라 바뀌므로(런던 2026-10-25, 뉴욕 2026-11-01 종료) 답을 그날의 시차와 "
+                      "직접 대조해야 하고 검증기는 시차 값을 보지 않음. 이전 문구(회의 시간대 제안)에서 시차 환산 "
+                      "오류가 나와(단일 표본) 현지 시각과 서울 기준 시차만 묻도록 좁힘"),
     Example(
         id="plan-fee", label="요금제 총액 계산", group="quick",
         prompt="월 69000원 요금제를 24개월 쓰고 25% 할인을 받으면 총 얼마인지 계산기로 정확히 구하고, "
@@ -93,7 +96,10 @@ EXAMPLES = (
         files=("briefing.html",), preview="briefing.html", artifacts=("preview",),
         contains=(("briefing.html", r"(?:<tr\b[\s\S]*?){3}"),),
         sources=3, external=True, calls=4,
-        risk="HTML 출력 길이, 뉴스가 3건 미만일 수 있음, 모델이 query 밖의 인자를 넣으면 도구가 거부함"),
+        risk="버튼에서 뺌(카탈로그에만 남김). 배포 33b4e07 실서비스 검증(단일 표본) 1/3: FP8 1회는 "
+             "write_file·preview_html 없이 HTML을 답에 붙였고, NVFP4 1회는 write_file 인자가 JSON이 아니라는 "
+             "오류가 두 번 나(원인 미확인) 도구 오류로 실패함. web_iq_news에 query 밖의 인자(예: freshness)를 "
+             "넣으면 도구가 거부함(이전 배포 검증 2회, 이번 0건). 뉴스가 3건 미만일 수 있음"),
     Example(
         id="chip-price-ratio", label="반도체 두 종목 시세 비율", group="agent",
         prompt="Web IQ로 SK하이닉스(000660)와 삼성전자(005930)의 주가를 실제 조회하고, 두 현재가의 "

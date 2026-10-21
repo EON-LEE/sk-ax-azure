@@ -301,7 +301,7 @@ def ideal():
     zones = ("Asia/Seoul", "America/New_York", "Europe/London")
     add("time-zones",
         step(*(call("get_current_time", {"timezone": z}, result={"timezone": z, "time": "fixture"}) for z in zones)),
-        final("서울, 뉴욕, 런던의 현재 시각입니다. 서울 저녁 시간대가 세 도시에 덜 불편합니다."))
+        final("서울, 뉴욕, 런던의 현재 시각과 서울 기준 시차입니다."))
     add("plan-fee",
         step(calc("69000*24*75/100", "1242000"), calc("69000*24-69000*24*75/100", "414000")),
         final("할인 후 총액은 1,242,000원이고 할인 전보다 414,000원 적습니다."))

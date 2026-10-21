@@ -10,8 +10,10 @@ import sys
 import unittest
 from collections import Counter
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tests.test_demo_agent import ROOT, Workspace
 from tests.test_agent_turns import TextLink, run
@@ -27,10 +29,17 @@ del sys.path[:2]
 EXAMPLES = catalog.EXAMPLES
 
 
-# the chat buttons, in the order of the start screen; contract-review and code-fix-diff need an attachment and
-# axk2-public-research waits for a live re-check, so none of the three is a button
-BUTTONS = ("time-zones", "plan-fee", "ai-chip-news", "chip-price-ratio",
+# the chat buttons, in the order of the start screen; contract-review and code-fix-diff need an attachment, and
+# code-baseline (no tools) and ai-chip-news (its last live check failed in the file steps) stay in the catalog only
+BUTTONS = ("time-zones", "plan-fee", "axk2-public-research", "chip-price-ratio",
            "foundry-byom-steps", "pangyo-lunch-plan", "csv-chart", "monthly-sales-report")
+
+
+def have_time_zones():
+    try:
+        return all(ZoneInfo(name) for name in ("Asia/Seoul", "America/New_York", "Europe/London"))
+    except ZoneInfoNotFoundError:
+        return False
 
 
 def chat_buttons():
@@ -161,6 +170,62 @@ class ChatButtonTests(unittest.TestCase):
                 self.assertEqual(by_id[name].upload, "")
         self.assertEqual(Counter(by_id[name].group for name in BUTTONS), {"quick": 2, "agent": 6})
         self.assertEqual(sum(by_id[name].external for name in BUTTONS), 4)
+
+    def test_the_public_research_example_is_the_third_button_and_ai_chip_news_is_catalog_only(self):
+        by_id = {e.id: e for e in EXAMPLES}
+        buttons = chat_buttons()
+        research, news = by_id["axk2-public-research"], by_id["ai-chip-news"]
+        self.assertEqual(buttons[2], (research.label, research.prompt))
+        self.assertNotIn(news.label, [label for label, _ in buttons])
+        self.assertNotIn(news.prompt, [text for _, text in buttons])
+        # the note keeps the last live result, so the example does not return to the buttons without a new check
+        for fact in ("버튼에서 뺌", "1/3", "단일 표본", "write_file"):
+            self.assertIn(fact, news.risk)
+
+
+class TimeZoneExampleTests(unittest.TestCase):
+    """The first button asks for each city's local time and its offset from Seoul, computed from the tool result."""
+
+    def setUp(self):
+        self.example = next(e for e in EXAMPLES if e.id == "time-zones")
+
+    def test_it_still_reads_the_clock_of_all_three_cities_with_the_tool(self):
+        example = self.example
+        self.assertIsNone(example.forced)
+        self.assertEqual(example.tools, ("get_current_time",) * 3)
+        self.assertEqual(example.args,
+                         (("get_current_time", "America/New_York"), ("get_current_time", "Europe/London")))
+        self.assertIn("get_current_time", example.prompt)
+        for zone in ("Asia/Seoul", "America/New_York", "Europe/London"):
+            self.assertIn(zone, example.prompt)
+
+    def test_it_asks_for_local_times_and_the_offset_from_seoul_and_nothing_about_meetings(self):
+        prompt = self.example.prompt
+        self.assertIn("도시별 현지 시각을 한 줄씩", prompt)
+        self.assertIn("서울이 뉴욕과 런던보다 각각 몇 시간 빠른지", prompt)
+        for word in ("회의", "제안", "덜 불편"):
+            self.assertNotIn(word, prompt)
+
+    def test_the_offset_comes_from_the_tool_result_and_the_prompt_fixes_no_number(self):
+        prompt = self.example.prompt
+        self.assertIn("시차는 도구가 돌려준 현지 시각(UTC 오프셋 포함)의 차이로 계산해 줘.", prompt)
+        # summer time moves the offsets (London ends it on 2026-10-25, New York on 2026-11-01): no value is written
+        self.assertNotRegex(prompt, r"\d+\s*시간|[+-]\s*\d|UTC\s*[+-]")
+
+    @unittest.skipUnless(have_time_zones(), "this host has no IANA time zone data")
+    def test_the_clock_tool_returns_local_times_that_carry_the_utc_offset(self):
+        tool = next(tool for tool in Workspace().tools() if tool.name == "get_current_time")
+        clocks = {zone: datetime.fromisoformat(json.loads(tool.func(zone))["time"])
+                  for zone in ("Asia/Seoul", "America/New_York", "Europe/London")}
+        seoul = clocks["Asia/Seoul"]
+        self.assertEqual(seoul.utcoffset(), timedelta(hours=9))
+        for zone in ("America/New_York", "Europe/London"):
+            clock = clocks[zone]
+            self.assertIsNotNone(clock.utcoffset(), zone)
+            ahead = seoul.utcoffset() - clock.utcoffset()
+            # the written local times differ by the same amount (the three calls are a few milliseconds apart)
+            written = seoul.replace(tzinfo=None) - clock.replace(tzinfo=None)
+            self.assertLess(abs(written - ahead), timedelta(seconds=5), zone)
 
 
 class FixtureTests(unittest.TestCase):
