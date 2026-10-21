@@ -23,6 +23,7 @@ assets are in `aml/`.
 | --- | --- | --- |
 | **SKT's NVFP4 checkpoint on one ND96amsr (8 x A100), TP8, native DSA (design doc 8.4)** | **Functional 4/4, tools 9/9, needles 9/9 up to 244,898 tokens. Same output speed as FP8 on 16 A100 with 1K inputs up to concurrency 32 (1.01-1.06x), 0.81-0.86x at 64-128, 0.64-0.98x with 8K-32K inputs. Tech report Fig. 7 conditions: 0.47-0.49x of one B200 node at 1K-4K inputs, about half per GPU instead of a quarter. 38-56% lower cost per output token** | Experts run W4A16 (A100 has no FP4 tensor cores); relies on a backport of vLLM 0.24 changes; KV cache 254K-273K tokens; full quality evaluation |
 | **Verification run, same 16 x A100, one allocation (design doc 8.1)** | **InfiniBand works: 20.6 GB/s between nodes, versus 0.35 over TCP. Tool calling 9/9 (needs `--enable-auto-tool-choice`). SKT's needle test 9/9 up to 252,728 tokens (native). Tech report Fig. 7 conditions: 0.43-0.51x of one B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K** | Batch-invariant mode and EAGLE3 are not available on A100 |
+| **Expert parallelism, same weights and benchmark for every layout (design doc 8.7)** | **`--enable-expert-parallel` is a switch: the EP size is DP x TP per pipeline stage. Five FP8 and two NVFP4 layouts serve native DSA without code changes, 4/4 functional, 9/9 tools. EP alone costs 5-8% throughput. TP16 + EP gives 0.83-0.98x of TP8 x PP2 at concurrency 32, 1.4x TPOT for one request and 0.46x the KV cache. Only DP2 x TP8 + EP is faster under load (1.12-1.36x output), at about 2x single-request TPOT and a 238,656-token context** | One sample per point; EPLB and DeepEP (no A100 build in the image) not tested; inputs up to 32K |
 | **Full 688B, native DSA, 2 x ND96amsr (16 x A100 80GB), TP8 x PP2, one endpoint** | **Served and measured**: 6/6 functional, reasoning, needles 12/12 up to 60K tokens; 50-812 output tok/s at concurrency 1-128; TPOT 19-21 ms from 1K to 32K context | Full quality evaluation, production SLA, bitwise determinism |
 | Same allocation, dense mode | Same functional results; 10-60% faster (61-898 tok/s), exact only up to 2,048 context tokens | Long-context retrieval: no needle found at 126K or 253K tokens (8.1) |
 | Real-weight 2-layer cut vs official Transformers FP32 sparse, 14,618 positions | Native stays at the BF16 floor beyond `index_topk` (0.0111 vs 0.0116 inside); dense drifts (0.0123, max 0.22) | Full-depth logit equivalence |
@@ -114,6 +115,11 @@ Fig. 7 sweep, TP16 and EAGLE3. Every multi-node template sets `IB_PROBE=1`,
 so NCCL uses InfiniBand when the probe confirms it.
 `nvfp4-a100-nd96.yml` serves SKT's NVFP4 checkpoint on one node with the
 capability port (`NVFP4_SM80_PORT=1`); run the watcher with `NODES=1`.
+`ep-compare-fp8-nd96.yml` (two nodes) and `ep-compare-nvfp4-nd96.yml` (one node)
+compare expert-parallel layouts on one matrix (`epmatrix` in `verify_suites.py`).
+These templates download `aml/src` from the pinned commit of this repository and
+check each file's SHA-256. Commit and push before rendering; `render_job.py`
+refuses an unpushed commit.
 Delete the resource group afterwards. Clusters scale to zero, but workspaces, storage and
 managed networks remain until deleted. Deleted workspace names stay reserved
 for 14 days (soft delete).

@@ -219,6 +219,37 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(calls[-1], "isl8192-c32")
         self.assertIn("isl8192-c32", data["aborted"])
 
+    def test_expert_parallel_evidence(self):
+        import re
+        text = (ROOT / "evidence" / "a100-expert-parallel-comparison.json").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text), "no host addresses")
+        evidence = json.loads(text)
+        expected = {"fp8": {"epc-fp8-tp8pp2": (None, 1), "epc-fp8-tp16ep16": (16, 1), "epc-fp8-tp8pp2ep8": (32, 1),
+                            "epc-fp8-tp16": (None, 1), "epc-fp8-dp2tp8ep16": (16, 2)},
+                    "nvfp4": {"epc-nvfp4-tp8": (None, 1), "epc-nvfp4-tp8ep8": (32, 1)}}
+        for kind, configs in expected.items():
+            job = evidence["jobs"][kind]
+            self.assertEqual(sorted(job["configs"]), sorted(configs))
+            for tag, (experts_per_gpu, engines) in configs.items():
+                with self.subTest(layout=tag):
+                    config = job["configs"][tag]
+                    self.assertEqual(config["phase"]["status"], "passed")
+                    self.assertFalse(config["eager_fallback"])
+                    self.assertEqual((config["functional"]["passed"], config["tools"]["passed"]), (4, 9))
+                    self.assertEqual(len(config["points"]), 6)
+                    self.assertTrue(all(p["returncode"] == 0 for p in config["points"].values()))
+                    self.assertEqual(config["engines"], engines)
+                    placement = config["parallel"]["expert_placement"]
+                    self.assertEqual(sorted({e["local_experts"] for e in placement}), [experts_per_gpu] if experts_per_gpu else [])
+        fp8 = evidence["jobs"]["fp8"]["configs"]
+        self.assertEqual(fp8["epc-fp8-dp2tp8ep16"]["max_model_len"]["auto_fit"], 238656)
+        self.assertIn("Using AgRsAll2AllManager all2all manager.", fp8["epc-fp8-dp2tp8ep16"]["parallel"]["dispatch"])
+        self.assertEqual(fp8["epc-fp8-tp16ep16"]["parallel"]["dispatch"], ["Using MoEPrepareAndFinalizeNoDPEPModular"])
+        ratio = (fp8["epc-fp8-dp2tp8ep16"]["points"]["isl8192-c32"]["output_throughput"]
+                 / fp8["epc-fp8-tp8pp2"]["points"]["isl8192-c32"]["output_throughput"])
+        self.assertAlmostEqual(ratio, 1.36, places=2)
+        self.assertIn("no expert-parallel size option", evidence["how_vllm_0_23_forms_ep"]["option"])
+
     def test_verification_plan(self):
         import re
         sys.path.insert(0, str(ROOT / "aml" / "src"))
