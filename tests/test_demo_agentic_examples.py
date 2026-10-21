@@ -184,7 +184,11 @@ class ChatButtonTests(unittest.TestCase):
 
 
 class TimeZoneExampleTests(unittest.TestCase):
-    """The first button asks for each city's local time and its offset from Seoul, computed from the tool result."""
+    """The first button asks for each city's local time and the UTC offset the tool returned, and for no difference.
+
+    A live check of the earlier wording had the model write a wrong subtraction (single sample), so the prompt leaves
+    nothing to subtract: the reader compares the three lines.
+    """
 
     def setUp(self):
         self.example = next(e for e in EXAMPLES if e.id == "time-zones")
@@ -199,24 +203,31 @@ class TimeZoneExampleTests(unittest.TestCase):
         for zone in ("Asia/Seoul", "America/New_York", "Europe/London"):
             self.assertIn(zone, example.prompt)
 
-    def test_it_asks_for_local_times_and_the_offset_from_seoul_and_nothing_about_meetings(self):
+    def test_it_asks_for_one_line_per_city_with_the_local_time_and_the_offset_the_tool_returned(self):
         prompt = self.example.prompt
-        self.assertIn("도시별 현지 시각을 한 줄씩", prompt)
-        self.assertIn("서울이 뉴욕과 런던보다 각각 몇 시간 빠른지", prompt)
+        self.assertIn("도시마다 한 줄씩 현지 시각과 도구가 돌려준 UTC 오프셋만 적어 줘.", prompt)
         for word in ("회의", "제안", "덜 불편"):
             self.assertNotIn(word, prompt)
 
-    def test_the_offset_comes_from_the_tool_result_and_the_prompt_fixes_no_number(self):
+    def test_it_asks_for_no_difference_between_cities_so_the_model_subtracts_nothing(self):
         prompt = self.example.prompt
-        self.assertIn("시차는 도구가 돌려준 현지 시각(UTC 오프셋 포함)의 차이로 계산해 줘.", prompt)
-        # summer time moves the offsets (London ends it on 2026-10-25, New York on 2026-11-01): no value is written
-        self.assertNotRegex(prompt, r"\d+\s*시간|[+-]\s*\d|UTC\s*[+-]")
+        self.assertIn("도시 간 시차는 적지 마.", prompt)
+        for word in ("몇 시간", "빠른지", "차이로", "계산해"):
+            self.assertNotIn(word, prompt)
+
+    def test_the_prompt_fixes_no_number_because_summer_time_moves_the_offsets(self):
+        # London ends summer time on 2026-10-25 and New York on 2026-11-01: no hour or offset is written
+        self.assertNotRegex(self.example.prompt, r"\d")
 
     @unittest.skipUnless(have_time_zones(), "this host has no IANA time zone data")
     def test_the_clock_tool_returns_local_times_that_carry_the_utc_offset(self):
         tool = next(tool for tool in Workspace().tools() if tool.name == "get_current_time")
-        clocks = {zone: datetime.fromisoformat(json.loads(tool.func(zone))["time"])
-                  for zone in ("Asia/Seoul", "America/New_York", "Europe/London")}
+        texts = {zone: json.loads(tool.func(zone))["time"]
+                 for zone in ("Asia/Seoul", "America/New_York", "Europe/London")}
+        for zone, text in texts.items():
+            # the offset is part of the returned text, so the answer can copy it instead of computing it
+            self.assertRegex(text, r"[+-]\d\d:\d\d$", zone)
+        clocks = {zone: datetime.fromisoformat(text) for zone, text in texts.items()}
         seoul = clocks["Asia/Seoul"]
         self.assertEqual(seoul.utcoffset(), timedelta(hours=9))
         for zone in ("America/New_York", "Europe/London"):
@@ -226,6 +237,74 @@ class TimeZoneExampleTests(unittest.TestCase):
             # the written local times differ by the same amount (the three calls are a few milliseconds apart)
             written = seoul.replace(tzinfo=None) - clock.replace(tzinfo=None)
             self.assertLess(abs(written - ahead), timedelta(seconds=5), zone)
+
+
+class PangyoLunchPlanExampleTests(unittest.TestCase):
+    """The lunch-plan button takes the date from the clock tool, leaves the weekday out and copies the addresses.
+
+    A live check of the earlier wording showed 'today' written as two different weekdays in one answer and the same
+    building number under different road names (single sample).
+    """
+
+    def setUp(self):
+        self.example = next(e for e in EXAMPLES if e.id == "pangyo-lunch-plan")
+
+    def test_it_keeps_the_forced_place_search_the_tool_flow_and_the_file_check(self):
+        example = self.example
+        self.assertEqual(example.forced, "web_iq_places")
+        self.assertEqual(example.tools, ("web_iq_places", "get_current_time", "write_file"))
+        self.assertEqual(example.files, ("lunch_plan.md",))
+        self.assertEqual(example.contains, (("lunch_plan.md", r"12\s*[:시]\s*30"),))
+        self.assertTrue(example.external)
+
+    def test_the_date_is_the_value_the_clock_tool_returned_and_no_weekday_is_written(self):
+        prompt = self.example.prompt
+        self.assertIn("get_current_time으로 오늘 날짜를 확인해", prompt)
+        self.assertIn("날짜는 도구가 돌려준 값을 그대로 쓰고 요일은 적지 마.", prompt)
+        self.assertIn("도구가 요일을 돌려줬다면 그 값만 그대로 써.", prompt)
+        # neither a weekday name nor a calendar year is fixed in the prompt: the date comes from the tool
+        self.assertNotRegex(prompt, r"[월화수목금토일]요일")
+        self.assertNotRegex(prompt, r"\d{4}")
+
+    def test_the_address_is_copied_from_the_search_result_together_with_name_and_source(self):
+        prompt = self.example.prompt
+        self.assertIn("식당 이름·주소·출처 URL을 함께 넣고", prompt)
+        self.assertIn("주소는 검색 결과의 주소 문자열을 그대로 옮겨 줘.", prompt)
+
+    @unittest.skipUnless(have_time_zones(), "this host has no IANA time zone data")
+    def test_the_clock_tool_returns_no_weekday_so_the_answer_has_none_to_copy(self):
+        tool = next(tool for tool in Workspace().tools() if tool.name == "get_current_time")
+        result = json.loads(tool.func("Asia/Seoul"))
+        # if the tool ever returns a weekday, the prompt's 'use the returned value' sentence starts to matter
+        self.assertEqual(sorted(result), ["time", "timezone"])
+        self.assertRegex(result["time"], r"^\d{4}-\d\d-\d\dT")
+        self.assertNotRegex(json.dumps(result, ensure_ascii=False), r"[월화수목금토일]요일|Mon|Tue|Wed|Thu|Fri|Sat|Sun")
+
+
+class CsvChartExampleTests(unittest.TestCase):
+    """The chart button shows the chart through the tool card only and keeps SVG text out of the answer.
+
+    A live check of the earlier wording had the final answer carry the SVG text in two of three runs (single sample).
+    """
+
+    def setUp(self):
+        self.example = next(e for e in EXAMPLES if e.id == "csv-chart")
+
+    def test_it_keeps_the_forced_file_write_the_chart_tool_and_the_answer_checks(self):
+        example = self.example
+        self.assertEqual(example.forced, "write_file")
+        self.assertEqual(example.tools, ("write_file", "chart_table"))
+        self.assertEqual(example.files, ("traffic.csv",))
+        self.assertEqual(example.artifacts, ("chart",))
+        self.assertEqual([pattern for source, pattern in example.contains if source == "answer"],
+                         ["2720", "453", "가상|시연용|예시"])
+
+    def test_the_prompt_sends_the_chart_to_the_tool_card_and_forbids_svg_text_in_the_answer(self):
+        prompt = self.example.prompt
+        self.assertIn("traffic.csv 파일에 저장하고", prompt)
+        self.assertIn("막대 차트로 보여 줘.", prompt)
+        self.assertIn("차트는 chart_table 도구 결과 카드에서 볼 수 있으니 답변에는 SVG 원문이나 코드를 붙이지 마.", prompt)
+        self.assertIn("시연용 가상 데이터라고 표시해 줘.", prompt)
 
 
 class FixtureTests(unittest.TestCase):

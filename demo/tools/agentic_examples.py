@@ -66,14 +66,16 @@ EXAMPLES = (
     Example(
         id="time-zones", label="세 도시 현재 시각", group="quick",
         prompt="서울(Asia/Seoul)·뉴욕(America/New_York)·런던(Europe/London)의 현재 시각을 get_current_time 도구로 "
-               "각각 확인해서 도시별 현지 시각을 한 줄씩 알려 주고, 서울이 뉴욕과 런던보다 각각 몇 시간 "
-               "빠른지도 알려 줘. 시차는 도구가 돌려준 현지 시각(UTC 오프셋 포함)의 차이로 계산해 줘.",
+               "각각 확인해서, 도시마다 한 줄씩 현지 시각과 도구가 돌려준 UTC 오프셋만 적어 줘. "
+               "도시 간 시차는 적지 마.",
         tools=("get_current_time",) * 3,
         args=(("get_current_time", "America/New_York"), ("get_current_time", "Europe/London")),
         calls=2, risk="Asia/Seoul은 기본값이라 인자가 비어 있을 수 있음, 서버의 시간대 데이터가 없으면 도구 오류. "
-                      "시차는 서머타임에 따라 바뀌므로(런던 2026-10-25, 뉴욕 2026-11-01 종료) 답을 그날의 시차와 "
-                      "직접 대조해야 하고 검증기는 시차 값을 보지 않음. 이전 문구(회의 시간대 제안)에서 시차 환산 "
-                      "오류가 나와(단일 표본) 현지 시각과 서울 기준 시차만 묻도록 좁힘"),
+                      "오프셋은 서머타임에 따라 바뀌므로(런던 2026-10-25, 뉴욕 2026-11-01 종료) 답의 현지 시각과 "
+                      "UTC 오프셋을 그날의 값과 직접 대조해야 하고 검증기는 그 값을 보지 않음. 이전 문구 두 개에서 "
+                      "시차 오류가 나와(단일 표본: 회의 시간대 제안은 환산 오류, 현지 시각의 차이로 계산하게 한 문구는 "
+                      "서울−런던 6시간 1회, 정답 8시간) 모델의 뺄셈을 없애려고 현지 시각과 UTC 오프셋만 적게 하고 "
+                      "시차는 적지 않게 함"),
     Example(
         id="plan-fee", label="요금제 총액 계산", group="quick",
         prompt="월 69000원 요금제를 24개월 쓰고 25% 할인을 받으면 총 얼마인지 계산기로 정확히 구하고, "
@@ -155,10 +157,15 @@ EXAMPLES = (
     Example(
         id="pangyo-lunch-plan", label="판교역 점심 일정", group="agent",
         prompt="Web IQ 장소 도구로 판교역 근처 점심 식당 두 곳을 실제로 검색하고, get_current_time으로 오늘 날짜를 확인해 "
-               "오늘 12시 30분 점심 일정을 lunch_plan.md에 기록해 줘. 식당 이름·주소·출처 URL을 함께 넣어 줘.",
+               "오늘 12시 30분 점심 일정을 lunch_plan.md에 기록해 줘. 날짜는 도구가 돌려준 값을 그대로 쓰고 "
+               "요일은 적지 마. 도구가 요일을 돌려줬다면 그 값만 그대로 써. 식당 이름·주소·출처 URL을 함께 넣고, "
+               "주소는 검색 결과의 주소 문자열을 그대로 옮겨 줘.",
         forced="web_iq_places", tools=("web_iq_places", "get_current_time", "write_file"),
         files=("lunch_plan.md",), contains=(("lunch_plan.md", r"12\s*[:시]\s*30"),),
-        sources=1, external=True, calls=4, risk="장소 색인의 판교 커버리지"),
+        sources=1, external=True, calls=4,
+        risk="장소 색인의 판교 커버리지. 이전 문구에서 같은 두 식당에 서로 다른 도로명(건물 번호는 같음)이 적히고 한 "
+             "답변에 '오늘'이 수요일과 금요일로 함께 적힌 실행이 있었음(단일 표본). 지금은 날짜를 도구 값 그대로 쓰고 "
+             "요일은 적지 않게, 주소는 검색 결과의 문자열 그대로 옮기게 함. 검증기는 요일과 주소를 보지 않음"),
     Example(
         id="code-fix-diff", label="코드 버그 수정과 diff", group="agent",
         prompt="첨부한 discount.py를 읽고 버그를 찾아 고친 뒤 같은 이름으로 저장하고, 원본과의 diff를 보여 줘. "
@@ -173,12 +180,14 @@ EXAMPLES = (
     Example(
         id="csv-chart", label="CSV 합계와 막대 차트", group="agent",
         prompt="월별 모바일 데이터 사용량(TB)을 1월 410, 2월 395, 3월 430, 4월 465, 5월 500, 6월 520으로 traffic.csv "
-               "파일에 저장하고, 합계와 월 평균을 정확히 계산한 뒤 막대 차트로 보여 줘. 시연용 가상 데이터라고 표시해 줘.",
+               "파일에 저장하고, 합계와 월 평균을 정확히 계산한 뒤 막대 차트로 보여 줘. 차트는 chart_table 도구 결과 "
+               "카드에서 볼 수 있으니 답변에는 SVG 원문이나 코드를 붙이지 마. 시연용 가상 데이터라고 표시해 줘.",
         forced="write_file", tools=("write_file", "chart_table"),
         any_of=(("analyze_table", "calculator"),),
         files=("traffic.csv",), artifacts=("chart",),
         contains=(("answer", r"2720"), ("answer", r"453"), ("answer", r"가상|시연용|예시")),
-        calls=4, risk="차트 열 이름이 CSV 머리글과 정확히 같아야 함"),
+        calls=4, risk="차트 열 이름이 CSV 머리글과 정확히 같아야 함. 이전 문구에서 3회 중 2회가 최종 답변에 SVG 원문을 "
+                      "붙였음(단일 표본). 지금은 붙이지 않게 했고 검증기는 답변 속 SVG 원문을 보지 않음"),
 )
 
 CONTRACT_PAGES = (
