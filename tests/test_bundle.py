@@ -148,6 +148,77 @@ class BundleTests(unittest.TestCase):
         verify = (ROOT / "aml" / "jobs" / "verify-remaining-nd96-hub.yml").read_text(encoding="utf-8")
         self.assertIn('AXK2_SRC_B64: "cGF5bG9hZA=="', render_job.render(verify, "cGF5bG9hZA=="))
 
+    def test_ep_compare_plan(self):
+        import re
+        from unittest import mock
+        sys.path.insert(0, str(ROOT / "aml"))
+        sys.path.insert(0, str(ROOT / "aml" / "src"))
+        try:
+            import render_job
+            import verify_suites
+        finally:
+            sys.path.pop(0)
+            sys.path.pop(0)
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        cases = dict(re.findall(r"^\s+(epc-[a-z0-9-]+)\) model=[^\n]*\n\s+args\+=\(([^)]*)\) ;;", entry, re.M))
+        expected = {"epc-fp8-tp8pp2": ("pp2", False), "epc-fp8-tp16ep16": ("tp16", True),
+                    "epc-fp8-tp8pp2ep8": ("pp2", True), "epc-fp8-tp16": ("tp16", False),
+                    "epc-fp8-dp2tp8ep16": ("dp2", True), "epc-nvfp4-tp8": ("tp8", False),
+                    "epc-nvfp4-tp8ep8": ("tp8", True)}
+        self.assertEqual(sorted(cases), sorted(expected))
+        for name, (layout, uses_ep) in expected.items():
+            with self.subTest(phase=name):
+                self.assertIn(f'"${{{layout}[@]}}"', cases[name])
+                self.assertEqual('"${ep[@]}"' in cases[name], uses_ep, "only the EP layouts set --enable-expert-parallel")
+                self.assertIn('"${epc[@]}"', cases[name])
+        self.assertIn("--data-parallel-size-local 1 --data-parallel-backend ray", entry)
+        self.assertIn("local -a ep=(--enable-expert-parallel) epc=(--scheduling-policy priority)", entry)
+        jobs = {"fp8": (ROOT / "aml" / "jobs" / "ep-compare-fp8-nd96.yml").read_text(encoding="utf-8"),
+                "nvfp4": (ROOT / "aml" / "jobs" / "ep-compare-nvfp4-nd96.yml").read_text(encoding="utf-8")}
+        for needle in ("instance_count: 2", 'IB_PROBE: "1"', 'TP: "8"', 'PP: "2"', 'FULL_MAX_NUM_SEQS: "64"',
+                       "hf:4237c6a60cec6ae449854870d01a42665a1166aa", "  timeout: 18000"):
+            self.assertIn(needle, jobs["fp8"])
+        for needle in ("instance_count: 1", "FULL_REPO: skt/A.X-K2-NVFP4", 'NVFP4_SM80_PORT: "1"', 'PP: "1"',
+                       'FULL_MAX_NUM_SEQS: "128"', "hf:9e2e804e80f8d1b3afba5d7938173cec1ed46b49", "  timeout: 10800"):
+            self.assertIn(needle, jobs["nvfp4"])
+        pin = {"AXK2_SRC_GIT": "owner/repo@" + "a" * 40, "AXK2_SRC_MANIFEST": "entry.sh:" + "b" * 64 + ",x.py:" + "c" * 64}
+        for kind, job in jobs.items():
+            with self.subTest(job=kind):
+                plan = re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split()
+                self.assertTrue(plan and all(p.startswith(f"epc-{kind}-") for p in plan), plan)
+                self.assertIn('FULL_MAX_MODEL_LEN: "-1"', job)
+                self.assertNotIn("NCCL_IB_DISABLE", job)
+                rendered = render_job.render(job, "cGF5bG9hZA==", pin)
+                self.assertIn(f'AXK2_SRC_GIT: "{pin["AXK2_SRC_GIT"]}"', rendered)
+                self.assertIn(f'AXK2_SRC_MANIFEST: "{pin["AXK2_SRC_MANIFEST"]}"', rendered)
+                self.assertNotIn("cGF5bG9hZA==", rendered)
+                self.assertIsNone(re.search(r"__AXK2_[A-Z0-9_]+__", rendered))
+                self.assertLess(len(rendered), 8_000, "AML caps the total docker argument size")
+                with self.assertRaisesRegex(ValueError, "AXK2_SRC_MANIFEST"):
+                    render_job.render(job, "cGF5bG9hZA==", dict(pin, AXK2_SRC_MANIFEST="x.py:${{y}}"))
+        plan = verify_suites.epmatrix_plan()
+        self.assertEqual([(p[1], p[3]) for p in plan], [(c, i) for i in (1024, 8192, 32768) for c in (1, 32)])
+        self.assertEqual(len({p[4] for p in plan}), len(plan), "a seed per point")
+        args = mock.Mock(base="http://x", out_dir="o", tag="t")
+        calls, results = [], {"isl8192-c32": 1}
+
+        def fake_bench(_, name, concurrency, prompts, isl, output, timeout, seed=2026):
+            calls.append(name)
+            return {"name": name, "returncode": results.get(name, 0)}
+
+        with mock.patch.object(verify_suites, "bench", fake_bench), mock.patch.object(verify_suites, "emit"), \
+                mock.patch.object(verify_suites, "server_healthy", return_value=True):
+            data = verify_suites.suite_epmatrix(args)
+        self.assertEqual(calls[:4], ["warmup-isl1024", "isl1024-c1", "isl1024-c32", "warmup-isl8192"])
+        self.assertEqual(len(data["points"]), 6)
+        self.assertNotIn("aborted", data)
+        calls.clear()
+        with mock.patch.object(verify_suites, "bench", fake_bench), mock.patch.object(verify_suites, "emit"), \
+                mock.patch.object(verify_suites, "server_healthy", return_value=False):
+            data = verify_suites.suite_epmatrix(args)
+        self.assertEqual(calls[-1], "isl8192-c32")
+        self.assertIn("isl8192-c32", data["aborted"])
+
     def test_verification_plan(self):
         import re
         sys.path.insert(0, str(ROOT / "aml" / "src"))

@@ -16,6 +16,8 @@ latency      The plan of the earlier 16-GPU FP8 latency/throughput table (client
              1 request at 1K/8K/32K input, 1K input at concurrency 1-128, 16K input at 4 and 16.
 functional   Short Korean/English/arithmetic/code checks.
 specstats    Speculative-decoding acceptance from /metrics.
+epmatrix     The expert-parallel comparison's matrix, identical for every layout: input 1K/8K/32K x
+             concurrency 1 and 32, 1,024 output tokens (TTFT, TPOT/ITL, throughput, peak KV use).
 
 Each suite is written to <out-dir>/<tag>.<suite>.json and reported as soon as it finishes.
 """
@@ -355,17 +357,17 @@ class MetricsSampler(threading.Thread):
 
 BENCH_KEYS = ["completed", "duration", "total_input_tokens", "total_output_tokens", "request_throughput",
               "output_throughput", "total_token_throughput", "max_output_tokens_per_s", "max_concurrent_requests",
-              "mean_ttft_ms", "median_ttft_ms", "p99_ttft_ms", "mean_tpot_ms", "median_tpot_ms", "p99_tpot_ms",
-              "median_itl_ms", "median_e2el_ms"]
+              "mean_ttft_ms", "median_ttft_ms", "p90_ttft_ms", "p99_ttft_ms", "mean_tpot_ms", "median_tpot_ms",
+              "p90_tpot_ms", "p99_tpot_ms", "mean_itl_ms", "median_itl_ms", "p99_itl_ms", "median_e2el_ms"]
 
 
-def bench(args, name, concurrency, prompts, input_len, output_len, timeout):
+def bench(args, name, concurrency, prompts, input_len, output_len, timeout, seed=2026):
     filename = f"bench-{args.tag}-{name}.json"
     command = ["vllm", "bench", "serve", "--backend", "openai", "--base-url", args.base,
                "--endpoint", "/v1/completions", "--model", MODEL, "--tokenizer", args.tokenizer,
                "--dataset-name", "random", "--random-input-len", str(input_len),
                "--random-output-len", str(output_len), "--num-prompts", str(prompts),
-               "--max-concurrency", str(concurrency), "--ignore-eos", "--seed", "2026",
+               "--max-concurrency", str(concurrency), "--ignore-eos", "--seed", str(seed),
                "--percentile-metrics", "ttft,tpot,itl,e2el", "--metric-percentiles", "50,90,99",
                "--save-result", "--result-dir", args.out_dir, "--result-filename", filename]
     sampler = MetricsSampler(args.base)
@@ -380,7 +382,8 @@ def bench(args, name, concurrency, prompts, input_len, output_len, timeout):
     sampler.done.set()
     sampler.join(10)
     record = {"name": name, "concurrency": concurrency, "num_prompts": prompts, "input_len": input_len,
-              "output_len": output_len, "returncode": returncode, "wall_seconds": round(time.time() - began, 1),
+              "output_len": output_len, "seed": seed, "returncode": returncode,
+              "wall_seconds": round(time.time() - began, 1),
               "peak_running_requests": sampler.peak["vllm:num_requests_running"],
               "peak_waiting_requests": sampler.peak["vllm:num_requests_waiting"],
               "peak_kv_cache_usage": round(sampler.peak["vllm:kv_cache_usage_perc"], 4)}
@@ -443,6 +446,62 @@ def suite_latency(args):
             "points": points}
 
 
+EPMATRIX_INPUTS = (1024, 8192, 32768)
+EPMATRIX_OUTPUT = 1024
+
+
+def epmatrix_plan():
+    """(name, concurrency, prompts, input tokens, seed, timeout seconds) of the expert-parallel comparison.
+    Each point has its own seed, so no point reuses another point's prompts from the prefix cache."""
+    plan = []
+    for isl in EPMATRIX_INPUTS:
+        for concurrency in (1, 32):
+            prompts = 4 if concurrency == 1 else 64 if isl <= 8192 else 32
+            timeout = 1200 if concurrency == 1 or isl <= 1024 else 1800 if isl <= 8192 else 2700
+            plan.append((f"isl{isl}-c{concurrency}", concurrency, prompts, isl, 2026 + isl // 1024 * 10 + concurrency,
+                         timeout))
+    return plan
+
+
+def server_healthy(base, wait=90):
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(base + "/health", timeout=10)
+            return True
+        except Exception:
+            time.sleep(5)
+    return False
+
+
+def suite_epmatrix(args):
+    """The same matrix for every layout: inputs 1K/8K/32K x concurrency 1 and 32, 1,024 output tokens.
+    Before the points of an input length, two discarded requests of that length (own seed) warm up
+    kernels whose shapes depend on it. A point that fails while the server stops answering ends the suite."""
+    points, warmups = [], []
+    for isl in EPMATRIX_INPUTS:
+        warm = bench(args, f"warmup-isl{isl}", 2, 2, isl, 64, 900, seed=7000 + isl // 1024)
+        warmups.append({k: warm.get(k) for k in ("name", "returncode", "wall_seconds")})
+        for name, concurrency, prompts, input_len, seed, timeout in epmatrix_plan():
+            if input_len != isl:
+                continue
+            record = bench(args, name, concurrency, prompts, input_len, EPMATRIX_OUTPUT, timeout, seed=seed)
+            points.append(record)
+            emit(args.out_dir, args.tag, f"epmatrix-{name}", record)
+            if record["returncode"] != 0 and not server_healthy(args.base):
+                return {"method": EPMATRIX_METHOD, "points": points, "warmups": warmups,
+                        "aborted": f"the server stopped answering /health after {name}"}
+    return {"method": EPMATRIX_METHOD, "points": points, "warmups": warmups}
+
+
+EPMATRIX_METHOD = ("vllm bench serve --dataset-name random --ignore-eos, the model's default sampling, inputs "
+                   "1K/8K/32K x max concurrency 1 (4 prompts) and 32 (64 prompts, 32 at 32K), 1,024 output tokens, "
+                   "a seed per point; server --max-num-batched-tokens 8192")
+EPMATRIX_SUMMARY_KEYS = ("name", "returncode", "completed", "request_throughput", "output_throughput",
+                         "total_token_throughput", "median_ttft_ms", "p90_ttft_ms", "median_tpot_ms", "p90_tpot_ms",
+                         "median_itl_ms", "peak_running_requests", "peak_waiting_requests", "peak_kv_cache_usage")
+
+
 def suite_functional(args):
     checks = [("ko_capital", "대한민국의 수도는 어디인가요? 도시 이름만 답하세요.", "서울"),
               ("en_multiply", "What is 17 multiplied by 23? Reply with only the number.", "391"),
@@ -478,7 +537,8 @@ def suite_specstats(args):
 
 SUITES = {"tools": suite_tools, "niah": suite_niah, "determinism": suite_determinism,
           "docsweep": suite_docsweep, "docsweep32k": suite_docsweep32k, "sweepsub": suite_sweepsub,
-          "latency": suite_latency, "functional": suite_functional, "specstats": suite_specstats}
+          "latency": suite_latency, "functional": suite_functional, "specstats": suite_specstats,
+          "epmatrix": suite_epmatrix}
 SUMMARY_KEYS = ("name", "returncode", "output_throughput", "total_token_throughput", "median_ttft_ms",
                 "median_tpot_ms", "ratio_total_vs_doc", "peak_running_requests")
 
@@ -504,9 +564,13 @@ def main():
             if "points" not in data:
                 emit(args.out_dir, args.tag, name, data)
             else:
-                summary = [{k: p.get(k) for k in SUMMARY_KEYS} for p in data["points"]]
-                emit(args.out_dir, args.tag, name, {"method": data["method"], "summary": summary,
-                                                    "suite_seconds": data["suite_seconds"]})
+                keys = EPMATRIX_SUMMARY_KEYS if name == "epmatrix" else SUMMARY_KEYS
+                summary = [{k: p.get(k) for k in keys} for p in data["points"]]
+                emit(args.out_dir, args.tag, name, {**{k: v for k, v in data.items() if k != "points"},
+                                                    "summary": summary})
+            if data.get("aborted"):
+                status = 1
+                break
         except Exception as exc:
             status = 1
             emit(args.out_dir, args.tag, f"{name}-error", {"error": f"{type(exc).__name__}: {exc}"[:2000],

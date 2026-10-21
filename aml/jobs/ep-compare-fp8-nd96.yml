@@ -1,0 +1,48 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-ep-experiment
+display_name: ep-compare-fp8-2xND96amsr-A100
+description: >-
+  Expert parallelism (EP) for the full FP8 A.X K2 on two 8xA100-80GB nodes, native DSA, weights
+  downloaded once. Five layouts are served one after another with the demo's parsers, priority
+  scheduling, 8,192 batched tokens, 64 sequences and the context auto-fitted to the KV cache, and each
+  runs the same functional, tool-call and epmatrix suites (input 1K/8K/32K x concurrency 1 and 32,
+  1,024 output tokens): the demo's TP8 x PP2 baseline, TP16 + EP (EP16), TP8 x PP2 + EP (EP8 per
+  stage), TP16 without EP, and DP2 x TP8 + EP (EP16, Ray data-parallel backend). vLLM 0.23 derives the
+  EP size from DP x TP per pipeline stage; there is no separate EP size option. NCCL uses InfiniBand
+  when the probe finds it. The scripts are downloaded from the pinned commit of this public repository
+  and checked file by file, because the embedded payload exceeds AML's docker argument limit.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: user_identity
+resources:
+  instance_count: 2
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_GIT: "__AXK2_SRC_GIT__"
+  AXK2_SRC_MANIFEST: "__AXK2_SRC_MANIFEST__"
+  PHASE_PLAN: "epc-fp8-tp8pp2 epc-fp8-tp16ep16 epc-fp8-tp8pp2ep8 epc-fp8-tp16 epc-fp8-dp2tp8ep16"
+  IB_PROBE: "1"
+  FULL_MAX_MODEL_LEN: "-1"
+  FULL_MAX_NUM_SEQS: "64"
+  FULL_GPU_MEM_UTIL: "0.90"
+  FULL_HEALTH_TIMEOUT: "1800"
+  DOWNLOAD_TIMEOUT: "5400"
+  RUN_KERNEL_TESTS: "0"
+  JOIN_TIMEOUT: "5400"
+  TP: "8"
+  PP: "2"
+command: >-
+  mkdir -p /tmp/axk2src && for try in 1 2 3 4 5 6; do python3 -c "import hashlib, os, sys, urllib.request as u;
+  repo, sha = os.environ['AXK2_SRC_GIT'].split('@'); items = [i.split(':') for i in os.environ['AXK2_SRC_MANIFEST'].split(',')];
+  data = dict((n, u.urlopen('https://raw.githubusercontent.com/' + repo + '/' + sha + '/aml/src/' + n, timeout=120).read()) for n, d in items);
+  bad = [n for n, d in items if hashlib.sha256(data[n]).hexdigest() != d]; bad and sys.exit('source digest mismatch: ' + ' '.join(bad));
+  [open('/tmp/axk2src/' + n, 'wb').write(data[n]) for n, d in items]" && break; sleep 20; done &&
+  test -f /tmp/axk2src/entry.sh && bash /tmp/axk2src/entry.sh none hf:4237c6a60cec6ae449854870d01a42665a1166aa
+limits:
+  timeout: 18000
