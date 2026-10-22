@@ -17,6 +17,12 @@ backported upstream vLLM change (section 8.4). Capacity comes from the
 separate Azure ML low-priority quota (300 vCPU per region). Deployment
 assets are in `aml/`.
 
+**Served configurations:** [docs/VLLM_CONFIGS.md](docs/VLLM_CONFIGS.md) lists
+every vLLM configuration served so far: the two demo profiles, the
+expert-parallel layouts and the earlier variants. For each it gives the exact
+flags, job template, context, KV capacity, start-up time and measured ratios,
+and it opens with the demo's operating status.
+
 ## Current status
 
 | Evidence | Result | What it does not prove |

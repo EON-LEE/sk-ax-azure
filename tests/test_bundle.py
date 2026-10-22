@@ -250,6 +250,41 @@ class BundleTests(unittest.TestCase):
         self.assertAlmostEqual(ratio, 1.36, places=2)
         self.assertIn("no expert-parallel size option", evidence["how_vllm_0_23_forms_ep"]["option"])
 
+    def test_vllm_config_catalog(self):
+        import re
+        catalog = (ROOT / "docs" / "VLLM_CONFIGS.md").read_text(encoding="utf-8")
+        self.assertIn("(docs/VLLM_CONFIGS.md)", (ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("(VLLM_CONFIGS.md)", (ROOT / "docs" / "SERVING_DESIGN.md").read_text(encoding="utf-8"))
+        self.assertIn("## Operating status (2026-10-22)", catalog)
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        plan_phases = set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M))
+        for template in ("ep-compare-fp8-nd96.yml", "ep-compare-nvfp4-nd96.yml", "verify-remaining-nd96-hub.yml",
+                         "nvfp4-a100-nd96.yml"):
+            job = (ROOT / "aml" / "jobs" / template).read_text(encoding="utf-8")
+            for phase in re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split():
+                with self.subTest(phase=phase):
+                    self.assertIn(f"`{phase}`", catalog)
+                    self.assertIn(phase, plan_phases)
+        for name in set(re.findall(r"`(?:aml/jobs/)?([a-z0-9-]+\.yml)`", catalog)):
+            with self.subTest(template=name):
+                self.assertTrue((ROOT / "aml" / "jobs" / name).is_file(), name)
+        for sha in ("4237c6a60cec6ae449854870d01a42665a1166aa", "9e2e804e80f8d1b3afba5d7938173cec1ed46b49",
+                    "24958e91737d760908f73a8af4b6e06080fc5c1d"):
+            self.assertIn(sha, catalog)
+        table = []
+        for line in catalog.splitlines() + [""]:
+            if line.startswith("|"):
+                table.append(line.count("|"))
+            elif table:
+                self.assertEqual(len(set(table)), 1, f"a table has rows with different cell counts: {table}")
+                table = []
+        for pattern in (r"\b(?!0\.0\.0\.0\b)\d{1,3}(?:\.\d{1,3}){3}\b",
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                        r"\b[a-z]+_[a-z]+_(?=[a-z0-9]*\d)[a-z0-9]{10}\b", r"\b\d{1,2}:\d{2}(?::\d{2})?Z?\b",
+                        r"azurewebsites\.net|azureml\.ms|\brg-[a-z0-9]|-mlw\b"):
+            with self.subTest(pattern=pattern):
+                self.assertIsNone(re.search(pattern, catalog), "no IDs, hosts or clock times in a public doc")
+
     def test_verification_plan(self):
         import re
         sys.path.insert(0, str(ROOT / "aml" / "src"))

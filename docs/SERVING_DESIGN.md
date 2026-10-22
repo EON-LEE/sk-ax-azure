@@ -2,7 +2,9 @@
 
 Snapshot: 2026-10-04. This supersedes the "blocked" conclusion in
 [the handoff](HANDOFF.md) for the A100 path. Results of each stage are in
-section 8 and in `evidence/`.
+section 8 and in `evidence/`. [VLLM_CONFIGS.md](VLLM_CONFIGS.md) collects every
+served vLLM configuration from this document in one catalog, with the demo's
+operating status.
 
 ## 1. Method review: what was wrong before
 
