@@ -2,7 +2,9 @@
 
 Snapshot: 2026-10-04. This supersedes the "blocked" conclusion in
 [the handoff](HANDOFF.md) for the A100 path. Results of each stage are in
-section 8 and in `evidence/`.
+section 8 and in `evidence/`. [VLLM_CONFIGS.md](VLLM_CONFIGS.md) collects every
+served vLLM configuration from this document in one catalog, with the demo's
+operating status.
 
 ## 1. Method review: what was wrong before
 
@@ -1180,6 +1182,149 @@ is recorded here as a pre-existing issue, and was not changed with this API
 because the hub and the demo chat are outside it. A fix would apply the same
 encodability check to the demo chat's request validation.
 
+## 8.7 Expert parallelism on A100 (2026-10-21, uksouth)
+
+Evidence: `evidence/a100-expert-parallel-comparison.json`. Templates:
+`aml/jobs/ep-compare-fp8-nd96.yml` (two nodes) and `aml/jobs/ep-compare-nvfp4-nd96.yml`
+(one node). The question was whether expert parallelism (EP) makes the A.X K2 deployment
+faster. Every layout ran the engine of sections 4 and 5b without changes; the layouts
+differ only in launch flags. The baselines were measured again in the same allocation, so
+the TP16 dense numbers of 8.1 are not reused.
+
+**How vLLM 0.23 forms expert parallelism** (read in the SKT fork `023bc760`):
+
+- `--enable-expert-parallel` (`-ep`) is a switch, not a size; there is no EP size option.
+  With the switch on, `FusedMoEParallelConfig.make` (`fused_moe/config.py`) gives every
+  MoE layer an EP size of DP x PCP x TP of its pipeline stage and sets its TP to 1. The
+  EP group holds the ranks of one stage across DP, PCP and TP (`parallel_state.py`,
+  rank order ExternalDP x DP x PP x PCP x TP). So "TP16 + EP16" is TP16 with the switch,
+  TP8 x PP2 gives EP8 in each stage, DP2 x TP8 gives EP16, and one-node TP8 gives EP8.
+- Only the 256 routed experts move. Attention keeps its TP (or DP) layout and the shared
+  expert stays TP-sharded. With the default linear placement, EP rank r owns experts
+  r x 256/EP to (r+1) x 256/EP - 1. The run logged EP rank 8 (second node) owning
+  experts 128-143 at EP16.
+- With DP = 1 nothing is dispatched. Every rank keeps all tokens, runs its own experts and
+  all-reduces the sum of routed and shared output over the TP group
+  (`MoEPrepareAndFinalizeNoDPEPModular`). That is the same collective as without EP. With
+  DP > 1, vLLM uses the default all2all backend, `allgather_reducescatter`
+  (`AgRsAll2AllManager`), and sequence-parallel MoE.
+- vLLM 0.23 removed the `pplx` and `naive` backends. The image ships DeepEP 1.2.1, but the
+  v0.23.0 Dockerfile builds it for `9.0a 10.0a` only, so it has no A100 kernels.
+- On A100 the experts run on Marlin in every layout (FP8 W8A16, NVFP4 W4A16), and
+  `MarlinExperts` takes the expert map.
+- `AXK2MoE` is built like DeepSeek-V3 (FusedMoE, top-8, EPLB and sequence-parallel
+  wiring), so EP needs no model change. Its 64 attention heads leave 4 per rank at TP16.
+  The ported sparse-MLA kernel masks heads in blocks of 16 and served correctly at 4
+  heads per rank.
+
+**Method.** Every layout used the same settings:
+
+- the same weights and native DSA, with the demo's parsers, priority scheduling and
+  8,192 batched tokens;
+- the context auto-fitted to the KV cache (`--max-model-len -1`);
+- 64 sequences at 0.90 GPU memory for FP8, and 128 at 0.92 for NVFP4.
+
+Each layout passed the 4 functional checks and the 9 tool-calling cases of 8.1. It then
+ran one matrix with `vllm bench serve`:
+
+- random dataset with `--ignore-eos`;
+- inputs of 1K, 8K and 32K tokens;
+- concurrency 1 (4 requests) and 32 (64 requests, 32 at 32K);
+- 1,024 output tokens and a seed per point;
+- warm-up requests before each input length;
+- one sample per point.
+
+**Layouts and capacity (FP8, 16 x A100).** Every layout started with CUDA graphs and
+passed 4/4 and 9/9.
+
+| Layout | EP size (experts per GPU) | Healthy after | KV cache tokens | Context | Weights / KV per GPU |
+| --- | --- | ---: | ---: | ---: | --- |
+| A. TP8 x PP2, the demo layout | none | 261 s | 673,792 | 262,144 | 42.3 / 25.0 GiB |
+| B. TP16 + EP | EP16 (16) | 231 s | 309,376 | 262,144 | 43.3 / 22.6 GiB |
+| C1. TP8 x PP2 + EP | EP8 per stage (32) | 151 s | 673,216 | 262,144 | 42.3 / 25.0 GiB |
+| B0. TP16 without EP (control for B) | none | 251 s | 310,080 | 262,144 | 43.3 / 22.6 GiB |
+| C2. DP2 x TP8 + EP (Ray data-parallel backend) | EP16 (16) | 221 s | 238,720 + 238,656 | 238,656 | 46.4 / 17.4 GiB |
+
+- TP16 replicates the MLA cache on 16 ranks, each holding all 61 layers, so it keeps 0.46x
+  of A's tokens.
+- DP2 keeps the attention weights of every layer on each 8-GPU replica. Each replica then
+  holds about 239K tokens, and the context shrinks to 238,656.
+- At 32K inputs and concurrency 32, the number of requests running at once was 20 for A
+  and C1, 9 for the TP16 layouts and 14 for C2 (7 per replica).
+
+**Speed (FP8).** Output tokens per second, with the ratio to A in brackets:
+
+| Layout | 1K, c1 | 1K, c32 | 8K, c1 | 8K, c32 | 32K, c1 | 32K, c32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A. TP8 x PP2 | 48 | 404 | 42 | 208 | 32 | 61 |
+| B. TP16 + EP | 33 (0.70) | 397 (0.98) | 30 (0.72) | 205 (0.98) | 22 (0.70) | 51 (0.83) |
+| C1. TP8 x PP2 + EP | 42 (0.88) | 373 (0.92) | 37 (0.89) | 191 (0.92) | 29 (0.91) | 56 (0.92) |
+| B0. TP16 | 38 (0.79) | 421 (1.04) | 34 (0.82) | 218 (1.04) | 25 (0.77) | 54 (0.89) |
+| C2. DP2 x TP8 + EP | 24 (0.50) | 454 (1.12) | 23 (0.54) | 284 (1.36) | 18 (0.56) | 72 (1.18) |
+
+Median TPOT / median TTFT. TPOT at 32K and c32 depends on how many requests fit, so read
+output tok/s there.
+
+| Layout | 1K, c1 | 1K, c32 | 8K, c1 | 8K, c32 | 32K, c1 | 32K, c32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A. TP8 x PP2 | 20.7 ms / 0.35 s | 72.6 / 6.2 | 21.5 / 2.5 | 142.9 / 9.8 | 22.7 / 8.9 | 262.3 / 213 |
+| B. TP16 + EP | 29.9 / 0.36 | 75.1 / 5.6 | 30.7 / 2.5 | 145.8 / 10.0 | 31.9 / 13.4 | 152.6 / 278 |
+| C1. TP8 x PP2 + EP | 23.5 / 0.38 | 79.2 / 6.8 | 24.3 / 2.7 | 156.5 / 10.8 | 25.6 / 9.3 | 284.5 / 229 |
+| B0. TP16 | 26.2 / 0.35 | 70.1 / 5.7 | 26.9 / 2.3 | 137.3 / 9.3 | 28.2 / 12.7 | 143.1 / 261 |
+| C2. DP2 x TP8 + EP | 41.3 / 0.51 | 66.8 / 5.5 | 41.8 / 2.7 | 98.9 / 15.4 | 42.7 / 14.0 | 154.5 / 213 |
+
+**NVFP4, one node.** TP8 + EP (EP8, 32 experts per GPU) started in 312 s against 442 s and
+passed 4/4 and 9/9. It held 253,120 KV tokens (TP8: 254,016) with the same 48.5 GiB of
+weights per GPU. It was slower at every point: 0.93-0.95x output tok/s, and 1.05-1.09x
+TPOT and TTFT. For example, at 1K and c32 TPOT was 69.2 ms against 65.7, and at 8K and
+c32 output was 175 tok/s against 188.
+
+**Findings.**
+
+- EP on its own never paid off. Turning it on in an otherwise identical layout cost 6%
+  of throughput at TP16 (B vs B0), 8% at TP8 x PP2 (C1 vs A) and 5-7% for one-node
+  NVFP4. At one request it cost 13-14% TPOT on two nodes and 8% on one.
+- TP16 + EP, the layout asked about, is no faster than the demo layout. With 32 requests
+  it reaches 0.98x up to 8K inputs and 0.83x at 32K. With one request it is 1.4x slower,
+  and it holds 0.46x of the KV cache. TP16 itself costs 24-26% TPOT at one request: every
+  layer's all-reduce crosses InfiniBand, because custom all-reduce is disabled when a group
+  spans nodes.
+- DP2 x TP8 + EP is the only EP layout that beat the demo layout under load: 1.12x, 1.36x
+  and 1.18x output tok/s at 1K, 8K and 32K, and 0.69x TPOT at 8K. It pays with about 2x
+  TPOT for a lone request, 1.56x TTFT at 8K and c32, and a context of 238,656 instead of
+  262,144.
+- The DP/EP lock-step, which SKT avoided because it hung in their long-context
+  evaluation (section 1), did not hang here, but only inputs up to 32K were tested.
+
+**Interpretation (not measured).** On average TP and EP read the same share of the
+activated expert weights per rank. TP slices every activated expert over all ranks. EP
+gives whole experts to the ranks that routing picks, so a step waits for the busiest rank.
+That imbalance would explain the steady EP penalty. Per-rank expert load was not measured,
+and EPLB (`--enable-eplb` with redundant experts) was not tried. C2 gains under load
+because attention runs as two independent TP8 groups over NVLink, each with half the
+requests. It loses with one request because every MoE layer then gathers and scatters
+over InfiniBand while the idle replica runs dummy steps.
+
+**Decision for the demo.** Keep TP8 x PP2 for FP8 and TP8 for NVFP4. They give the lowest
+latency for single chats, the full 262,144-token context and the most KV cache.
+DP2 x TP8 + EP suits only throughput-bound batch serving that accepts higher single-request
+latency and contexts up to 238,656 tokens. TP16 + EP has no advantage here.
+
+**Cost.** The FP8 job ran 3 h 2 min on two nodes and the NVFP4 job 1 h 29 min on one, 7.5
+node-hours in all. Counting node preparation and release, it was at most about 8.2. That is
+about USD 97-105 at the Spot meter; the actual bill was not checked. Both jobs were queued
+before the demo stopped. AML did not hand them the freed nodes: it released all three and
+allocated new ones, which took about ten minutes. There was no preemption.
+
+**Limits.**
+
+- One sample per point; a repeat could change differences of a few percent.
+- Random prompts only, concurrency 1 and 32, inputs up to 32K tokens.
+- Not tested: EPLB, `--enable-ep-weight-filter`, round-robin placement and DeepEP.
+- Quality was checked only with the functional and tool-calling suites.
+- vLLM's `info_once` writes the rank and expert-placement lines on one rank per node. The
+  rest of the mapping follows from the source.
+
 ## 9. Known limits and next steps
 
 - Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
@@ -1248,9 +1393,11 @@ encodability check to the demo chat's request validation.
 - KV capacity limits long inputs. The BF16 MLA cache is replicated on every
   TP rank, so the 16 GPUs hold about 674K tokens: 20 concurrent 32K requests,
   10 at 64K, 5 at 120K. Add data-parallel replicas (another 2-node group per
-  replica) to serve more long requests. Data-parallel attention with expert
-  parallelism avoids the replication but was not tested. The one-node NVFP4
-  variant holds 254,016-272,960 tokens (8.4).
+  replica) to serve more long requests. DP2 x TP8 + EP (8.7) holds two pools of
+  about 239K tokens and a 238,656-token context, because each replica still
+  replicates its cache over 8 TP ranks. Data-parallel attention without TP
+  (DP16 x TP1 + EP), which would avoid the replication, was not tested. The
+  one-node NVFP4 variant holds 254,016-272,960 tokens (8.4).
 - Output is not bitwise reproducible across identical requests, and vLLM
   0.23's batch-invariant mode cannot start on A100 for this FP8 MoE model.
   Exact reproducibility needs FP8-capable GPUs (compute capability 8.9 or
@@ -1267,8 +1414,9 @@ encodability check to the demo chat's request validation.
 - Hub downloads of 694 GB can stall (observed once at 68%); the watchdog in
   `stage_weights.py` restarts and resumes. Production should stage the
   weights once into same-region storage or an image cache.
-- Further throughput tuning (expert parallelism, data-parallel replicas,
-  `fastsafetensors` loading) is out of scope for this proof.
+- Expert parallelism was measured (8.7). On A100 it beat the demo layouts only
+  as DP2 x TP8 + EP under load, at twice the single-request latency. Data-parallel
+  replicas and `fastsafetensors` loading are still out of scope for this proof.
 - The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
   registration. Its open items are listed at the end of 8.6: the cause of one
   unexplained Foundry `model_error`, the prompt-size differences, how Foundry

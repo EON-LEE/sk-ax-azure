@@ -1,0 +1,2319 @@
+{
+ "title": "Expert parallelism (EP) for A.X K2 on A100: same weights, native DSA, same benchmark, layouts side by side",
+ "date": "2026-10-21",
+ "region": "uksouth",
+ "branch": "eonlee-msdemo-axk2-expert-parallel-experiment",
+ "harness_commit": "75316c5abde8ae864148abb89825d566588c6c39",
+ "templates": [
+  "aml/jobs/ep-compare-fp8-nd96.yml",
+  "aml/jobs/ep-compare-nvfp4-nd96.yml"
+ ],
+ "engine": "docker.io/vllm/vllm-openai:v0.23.0-cu129 + SKT-AI/vllm axk2-v0.23.0 @ 023bc760 overlay + DSA port (PR #38476) + Ampere MLA dtype fix; NVFP4 also the SM80 capability port. No vLLM code or dependency was changed for this experiment: every layout differs only in launch flags.",
+ "weights": {
+  "fp8": "skt/A.X-K2 @ 4237c6a60cec6ae449854870d01a42665a1166aa (same files as 2287ca45)",
+  "nvfp4": "skt/A.X-K2-NVFP4 @ 9e2e804e80f8d1b3afba5d7938173cec1ed46b49"
+ },
+ "hardware": {
+  "fp8": "2 x Standard_ND96amsr_A100_v4 (16 x A100 80GB), Spot, InfiniBand between the nodes",
+  "nvfp4": "1 x Standard_ND96amsr_A100_v4 (8 x A100 80GB), Spot"
+ },
+ "how_vllm_0_23_forms_ep": {
+  "option": "--enable-expert-parallel (-ep) is a boolean; there is no expert-parallel size option (vllm/engine/arg_utils.py, vllm/config/parallel.py).",
+  "size": "FusedMoEParallelConfig.make (vllm/model_executor/layers/fused_moe/config.py): EP is used when DP x PCP x TP > 1 and the flag is set; ep_size = DP x PCP x TP of the pipeline stage and the MoE layer's TP becomes 1. The EP group holds the ranks of one pipeline stage across DP, PCP and TP (vllm/distributed/parallel_state.py; rank layout ExternalDP x DP x PP x PCP x TP).",
+  "layouts": {
+   "TP16 + EP": "EP16, 16 of 256 routed experts per GPU",
+   "TP8 x PP2 + EP": "EP8 per stage, 32 per GPU",
+   "DP2 x TP8 + EP": "EP16, 16 per GPU",
+   "TP8 + EP (one node)": "EP8, 32 per GPU"
+  },
+  "unchanged_by_ep": "Attention keeps its TP (or DP) layout; the shared expert stays TP-sharded (AXK2MoE.shared_experts = DeepseekV2MLP, reduce_results=False).",
+  "placement": "linear by default: EP rank r owns experts [r*256/EP, (r+1)*256/EP).",
+  "dispatch_dp1": "With DP = 1 no all2all runs (use_all2all_kernels = dp_size > 1 and use_ep): MoEPrepareAndFinalizeNoDPEPModular; each rank computes its own experts for all tokens and the sum of routed and shared output is all-reduced over the TP group (fused_moe/runner/moe_runner.py), the same collective as without EP.",
+  "dispatch_dp2": "With DP > 1 the default --all2all-backend allgather_reducescatter (AgRsAll2AllManager, MoEPrepareAndFinalizeNaiveDPEPModular) and sequence-parallel MoE apply. vLLM 0.23 removed the pplx and naive backends.",
+  "deepep": "The image ships deep_ep 1.2.1 and nixl 1.2.0 (no pplx-kernels), but the vLLM v0.23.0 Dockerfile builds DeepEP with TORCH_CUDA_ARCH_LIST='9.0a 10.0a', so it has no SM80 kernels.",
+  "moe_kernels_sm80": "FP8 experts: MARLIN (W8A16); NVFP4 experts: MARLIN (W4A16). MarlinExperts accepts the expert map (excludes only the FlashInfer NVLink all2all kernels).",
+  "model": "AXK2MoE is DeepSeek-V3 style: FusedMoE with 256 routed experts, top-8, grouped top-k 8/4, one shared expert, EPLB and sequence-parallel wiring. 64 attention heads: TP16 leaves 4 per rank; the ported sparse-MLA Triton kernel masks heads in blocks of 16 (its tests cover 16-128 heads) and served correctly at 4.",
+  "logging": "vLLM's info_once logs only on each node's first rank (scope 'local', vllm/logger.py), so the rank-assignment and expert-placement lines below are one per node; they match the derived layout."
+ },
+ "method": {
+  "same_for_every_layout": [
+   "native DSA (TRITON_MLA_SPARSE + Triton indexer), same weights",
+   "demo flags: --tool-call-parser hermes --enable-auto-tool-choice --reasoning-parser deepseek_v3 --scheduling-policy priority --max-num-batched-tokens 8192",
+   "--max-model-len -1 (auto-fit: the full 262,144 when the KV cache holds it)",
+   "FP8: --max-num-seqs 64, --gpu-memory-utilization 0.90; NVFP4: 128 and 0.92 (the demo values)"
+  ],
+  "suites": "functional (4 checks), tools (the 9 cases of 8.1), epmatrix: vllm bench serve --dataset-name random --ignore-eos, the model's default sampling, inputs 1K/8K/32K x max concurrency 1 (4 requests) and 32 (64 requests, 32 at 32K), 1,024 output tokens, a seed per point, two discarded warm-up requests per input length; one sample per point",
+  "baseline": "measured again in the same allocation (layout A for FP8, D for NVFP4); the earlier TP16 dense results (8.1) are not used",
+  "order": {
+   "fp8": [
+    "A TP8 x PP2",
+    "B TP16 + EP",
+    "C1 TP8 x PP2 + EP",
+    "B0 TP16",
+    "C2 DP2 x TP8 + EP (Ray data-parallel backend)"
+   ],
+   "nvfp4": [
+    "D TP8",
+    "E TP8 + EP"
+   ]
+  }
+ },
+ "capacity_and_cost": {
+  "capacity": "Both jobs were queued before the demo was stopped. AML did not hand the freed nodes to the queued jobs: it released all three and allocated three new Spot nodes, which took about ten minutes; then both jobs ran without preemption.",
+  "job_runtime": {
+   "fp8": "3 h 2 min on 2 nodes (6.07 node-hours)",
+   "nvfp4": "1 h 29 min on 1 node (1.48 node-hours)"
+  },
+  "node_hours": "7.5 node-hours of job runtime; at most about 8.2 including node preparation before the jobs started and the idle release after them",
+  "cost_usd_estimate": "about 97-105 at the Spot meter of USD 12.89 per node-hour; actual billing not checked",
+  "release": "Both jobs completed; their nodes were released or taken by the queued demo jobs."
+ },
+ "findings": [
+  "Every layout started without code changes, with CUDA graphs and native DSA, and passed 4/4 functional checks and 9/9 tool-calling cases.",
+  "One request at a time, no EP layout matched the demo layout: median TPOT 20.7-22.7 ms for A, +12-14% with EP8 per stage (C1), +40-44% for TP16 + EP (B), +88-99% for DP2 x TP8 + EP (C2). TP16 alone (B0) costs +24-26%: its all-reduces cross InfiniBand on every layer (custom all-reduce is disabled across nodes).",
+  "At concurrency 32 only DP2 x TP8 + EP beat the demo layout: output 1.12x (1K), 1.36x (8K) and 1.18x (32K input), median TPOT 0.92x and 0.69x at 1K and 8K, but median TTFT 1.56x at 8K. TP16 + EP was 0.98x, 0.98x and 0.83x; TP8 x PP2 + EP 0.92x at every length; TP16 without EP 1.04x, 1.04x and 0.89x.",
+  "Turning EP on in an otherwise identical layout always cost throughput: 6% for TP16 (B vs B0) and 8% for TP8 x PP2 (C1 vs A) at concurrency 32, 13-14% TPOT at one request; one-node NVFP4 TP8 + EP (E) was 0.93-0.95x of TP8 (D) at every point.",
+  "KV capacity: 673,792 tokens for A and 673,216 for C1; 309,376-310,080 for the TP16 layouts (0.46x: the MLA cache is replicated on every TP rank and each rank holds all 61 layers); two pools of 238,720 and 238,656 for DP2 x TP8, whose context shrank to 238,656 because each replica holds the attention weights of all layers (46.4 GiB weights per GPU). At 32K inputs and concurrency 32: 20 requests running for A and C1, 9 for the TP16 layouts, 14 for DP2.",
+  "NVFP4 one node: D and E both hold about 254K tokens (auto-fitted context 254,016 and 253,120) and 48.5 GiB of weights per GPU."
+ ],
+ "interpretation_not_measured": [
+  "Per rank, TP and EP read the same share of the activated expert weights on average, but TP spreads every activated expert over all ranks while EP gives whole experts to the ranks routing picks; a step waits for the busiest rank. This imbalance fits the constant EP penalty; per-rank expert load was not measured and EPLB (--enable-eplb with redundant experts) was not tried.",
+  "DP2 x TP8 + EP wins with many requests because attention runs as two independent TP8 groups over NVLink with half the requests each, and it loses with one request because every MoE layer then gathers and scatters over InfiniBand while the idle replica runs dummy steps in lock-step."
+ ],
+ "limits": [
+  "One sample per point; differences of a few percent are within what a repeat could change (not measured).",
+  "Random prompts with --ignore-eos, concurrency 1 and 32 only, 1,024 output tokens; no real workload.",
+  "Not tested: EPLB, --enable-ep-weight-filter, round-robin expert placement, DeepEP (no SM80 build), concurrency above 32, contexts above 32K.",
+  "DP2 x TP8 + EP serves at most 238,656 tokens of context, not 262,144.",
+  "Quality was checked only with the functional and tool-calling suites.",
+  "Rank and expert-placement lines come from one rank per node; the rest of the mapping is derived from the vLLM source."
+ ],
+ "jobs": {
+  "fp8": {
+   "status": "FINISHED",
+   "packages": {
+    "vllm": "0.23.0+cu129",
+    "transformers": "5.12.0",
+    "triton": "3.6.0",
+    "flashinfer-python": "0.6.12",
+    "nvidia-nccl-cu12": "2.28.9",
+    "huggingface-hub": "1.19.0",
+    "hf-xet": "1.5.1",
+    "deep_ep": "1.2.1+73b6ea4",
+    "pplx-kernels": null,
+    "nixl": "1.2.0"
+   },
+   "gpus": [
+    "NVIDIA A100-SXM4-80GB"
+   ],
+   "ib_probe": {
+    "node0": {
+     "tcp": {
+      "transport": "Socket",
+      "gpudirect_rdma": false,
+      "send_recv_GBps": 0.33,
+      "all_reduce_algbw_GBps": 0.37,
+      "round_trip_us": 271.0
+     },
+     "ib": {
+      "transport": "IB",
+      "gpudirect_rdma": true,
+      "send_recv_GBps": 20.22,
+      "all_reduce_algbw_GBps": 18.06,
+      "round_trip_us": 121.2
+     }
+    },
+    "node1": {
+     "tcp": {
+      "transport": "Socket",
+      "gpudirect_rdma": false,
+      "send_recv_GBps": 0.33,
+      "all_reduce_algbw_GBps": 0.37,
+      "round_trip_us": 270.9
+     },
+     "ib": {
+      "transport": "IB",
+      "gpudirect_rdma": true,
+      "send_recv_GBps": 19.85,
+      "all_reduce_algbw_GBps": 18.06,
+      "round_trip_us": 121.2
+     }
+    }
+   },
+   "download_seconds": [
+    "744",
+    "712"
+   ],
+   "phases": [
+    {
+     "phase": "full_download",
+     "status": "passed",
+     "seconds": 747,
+     "note": ""
+    },
+    {
+     "phase": "epc-fp8-tp8pp2",
+     "status": "passed",
+     "seconds": 1820,
+     "note": ""
+    },
+    {
+     "phase": "epc-fp8-tp16ep16",
+     "status": "passed",
+     "seconds": 2024,
+     "note": ""
+    },
+    {
+     "phase": "epc-fp8-tp8pp2ep8",
+     "status": "passed",
+     "seconds": 1817,
+     "note": ""
+    },
+    {
+     "phase": "epc-fp8-tp16",
+     "status": "passed",
+     "seconds": 1927,
+     "note": ""
+    },
+    {
+     "phase": "epc-fp8-dp2tp8ep16",
+     "status": "passed",
+     "seconds": 1860,
+     "note": ""
+    }
+   ],
+   "configs": {
+    "epc-fp8-tp8pp2": {
+     "layout": "A. TP8 x PP2 (no EP, demo layout)",
+     "phase": {
+      "phase": "epc-fp8-tp8pp2",
+      "status": "passed",
+      "seconds": 1820,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 261,
+      "nccl_ib": "ib"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 262144,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       },
+       {
+        "node": "node1",
+        "rank": 8,
+        "world": 16,
+        "dp": 0,
+        "pp": 1,
+        "tp": 0,
+        "ep": "0"
+       }
+      ],
+      "expert_placement": [],
+      "moe_backend": [
+       "Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU']."
+      ],
+      "dispatch": [
+       "Using MoEPrepareAndFinalizeNoDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod"
+      ],
+      "custom_allreduce": [],
+      "auto_fit": [
+       "Auto-fit max_model_len: full model context length 262144 fits in available GPU memory"
+      ],
+      "kv_cache_tokens": [
+       673792
+      ],
+      "max_concurrency": [
+       "262,144 tokens per request: 2.57x"
+      ],
+      "model_loading_gib": {
+       "node0": [
+        42.28
+       ],
+       "node1": [
+        42.18
+       ]
+      },
+      "kv_cache_gib": {
+       "node1": [
+        24.39
+       ],
+       "node0": [
+        24.98
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node1",
+        "seconds": 13,
+        "gib": 0.54
+       },
+       {
+        "node": "node0",
+        "seconds": 14,
+        "gib": 0.54
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       73655,
+       73655,
+       73655,
+       73655,
+       73655,
+       73655,
+       73655,
+       73655
+      ],
+      "node1": [
+       74121,
+       74131,
+       74123,
+       74121,
+       74123,
+       74099,
+       74123,
+       74123
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      1 Channel 01/0 : 1[7] -> 0[7] [send] via NET/IB/7/GDRDMA\n      1 Channel 01/0 : 1[7] -> 0[7] [receive] via NET/IB/7/GDRDMA\n      1 Channel 01/0 : 1[6] -> 0[6] [send] via NET/IB/6/GDRDMA\n      1 Channel 01/0 : 1[6] -> 0[6] [receive] via NET/IB/6/GDRDMA\n      1 Channel 01/0 : 1[5] -> 0[5] [send] via NET/IB/5/GDRDMA\n      1 Channel 01/0 : 1[5] -> 0[5] [receive] via NET/IB/5/GDRDMA\n      1 Channel 01/0 : 1[4] -> 0[4] [send] via NET/IB/4/GDRDMA\n      1 Channel 01/0 : 1[4] -> 0[4] [receive] via NET/IB/4/GDRDMA\n      1 Channel 01/0 : 1[3] -> 0[3] [send] via NET/IB/3/GDRDMA\n      1 Channel 01/0 : 1[3] -> 0[3] [receive] via NET/IB/3/GDRDMA",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 13.7
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 18.2
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 35.9
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 86.18685195399985,
+       "request_throughput": 0.04641079131344655,
+       "output_throughput": 47.52465030496927,
+       "total_token_throughput": 95.04930060993854,
+       "mean_ttft_ms": 360.3896592499609,
+       "median_ttft_ms": 346.17508849987644,
+       "p90_ttft_ms": 391.7728618000183,
+       "p99_ttft_ms": 407.62830238006245,
+       "mean_tpot_ms": 20.709691699169156,
+       "median_tpot_ms": 20.709650334310936,
+       "p90_tpot_ms": 20.711081999218038,
+       "p99_tpot_ms": 20.711369594349968,
+       "median_itl_ms": 20.707423999965613,
+       "median_e2el_ms": 21530.98535299989,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.003,
+       "returncode": 0,
+       "wall_seconds": 97.8,
+       "seed": 2037
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 162.11229715499985,
+       "request_throughput": 0.394788064342879,
+       "output_throughput": 404.2629778871081,
+       "total_token_throughput": 808.5259557742162,
+       "mean_ttft_ms": 5769.5822012499675,
+       "median_ttft_ms": 6207.11936649991,
+       "p90_ttft_ms": 9800.927415499791,
+       "p99_ttft_ms": 9802.25565729983,
+       "mean_tpot_ms": 73.5412281593964,
+       "median_tpot_ms": 72.56774283724354,
+       "p90_tpot_ms": 76.58656793098712,
+       "p99_tpot_ms": 78.54192702339195,
+       "median_itl_ms": 70.13761749999503,
+       "median_e2el_ms": 80877.47909900008,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 23.0,
+       "peak_kv_cache_usage": 0.0973,
+       "returncode": 0,
+       "wall_seconds": 174.3,
+       "seed": 2068
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 97.80676388899974,
+       "request_throughput": 0.0408969670496365,
+       "output_throughput": 41.87849425882778,
+       "total_token_throughput": 376.90644832945003,
+       "mean_ttft_ms": 2481.381892749937,
+       "median_ttft_ms": 2473.9084944999377,
+       "p90_ttft_ms": 2498.6502409999503,
+       "p99_ttft_ms": 2507.5901002999444,
+       "mean_tpot_ms": 21.47600416764416,
+       "median_tpot_ms": 21.47614862316695,
+       "p90_tpot_ms": 21.480931487683215,
+       "p99_tpot_ms": 21.481671849061602,
+       "median_itl_ms": 21.483837000005224,
+       "median_e2el_ms": 24440.83570399971,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0137,
+       "returncode": 0,
+       "wall_seconds": 109.9,
+       "seed": 2107
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 314.62890222199985,
+       "request_throughput": 0.20341424309087175,
+       "output_throughput": 208.29618492505267,
+       "total_token_throughput": 1874.6656643254742,
+       "mean_ttft_ms": 26083.35740087506,
+       "median_ttft_ms": 9845.939308000197,
+       "p90_ttft_ms": 65478.41960820016,
+       "p99_ttft_ms": 78617.25624659003,
+       "mean_tpot_ms": 127.95214018795816,
+       "median_tpot_ms": 142.93250927321623,
+       "p90_tpot_ms": 143.73874789960894,
+       "p99_tpot_ms": 150.19794895566,
+       "median_itl_ms": 78.06343049992392,
+       "median_e2el_ms": 156545.56024649992,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 0.4377,
+       "returncode": 0,
+       "wall_seconds": 331.3,
+       "seed": 2138
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 128.4404016200001,
+       "request_throughput": 0.031142848741895712,
+       "output_throughput": 31.89027711170121,
+       "total_token_throughput": 1052.3791446861399,
+       "mean_ttft_ms": 8858.906243249861,
+       "median_ttft_ms": 8860.729470999786,
+       "p90_ttft_ms": 8873.784291499851,
+       "p99_ttft_ms": 8875.17194974981,
+       "mean_tpot_ms": 22.728142525171123,
+       "median_tpot_ms": 22.731577537634504,
+       "p90_tpot_ms": 22.734740419257175,
+       "p99_tpot_ms": 22.73591815952112,
+       "median_itl_ms": 22.762280000279134,
+       "median_e2el_ms": 32105.76209399983,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0502,
+       "returncode": 0,
+       "wall_seconds": 141.6,
+       "seed": 2347
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 536.705095714,
+       "request_throughput": 0.05962305976884594,
+       "output_throughput": 61.05401320329824,
+       "total_token_throughput": 2014.7824357088418,
+       "mean_ttft_ms": 238628.90646259376,
+       "median_ttft_ms": 213492.6252,
+       "p90_ttft_ms": 442889.9705854999,
+       "p99_ttft_ms": 477918.68117989996,
+       "mean_tpot_ms": 219.90698293453696,
+       "median_tpot_ms": 262.31154718670587,
+       "p90_tpot_ms": 289.26899271202365,
+       "p99_tpot_ms": 302.4850355766274,
+       "median_itl_ms": 69.07386199986831,
+       "median_e2el_ms": 481837.3379720001,
+       "peak_running_requests": 20.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 0.9998,
+       "returncode": 0,
+       "wall_seconds": 559.1,
+       "seed": 2378
+      }
+     },
+     "engines": 1,
+     "suite_errors": null
+    },
+    "epc-fp8-tp16ep16": {
+     "layout": "B. TP16 + EP (EP16)",
+     "phase": {
+      "phase": "epc-fp8-tp16ep16",
+      "status": "passed",
+      "seconds": 2024,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 231,
+      "nccl_ib": "ib"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 262144,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       },
+       {
+        "node": "node1",
+        "rank": 8,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 8,
+        "ep": "8"
+       }
+      ],
+      "expert_placement": [
+       {
+        "node": "node0",
+        "ep_rank": 0,
+        "ep_size": 16,
+        "strategy": "linear",
+        "local_experts": 16,
+        "global_experts": 256,
+        "global_ids": "0-15"
+       },
+       {
+        "node": "node1",
+        "ep_rank": 8,
+        "ep_size": 16,
+        "strategy": "linear",
+        "local_experts": 16,
+        "global_experts": 256,
+        "global_ids": "128-143"
+       }
+      ],
+      "moe_backend": [
+       "Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU']."
+      ],
+      "dispatch": [
+       "Using MoEPrepareAndFinalizeNoDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod"
+      ],
+      "custom_allreduce": [
+       "Custom allreduce is disabled because this process group spans across nodes."
+      ],
+      "auto_fit": [
+       "Auto-fit max_model_len: full model context length 262144 fits in available GPU memory"
+      ],
+      "kv_cache_tokens": [
+       309376
+      ],
+      "max_concurrency": [
+       "262,144 tokens per request: 1.18x"
+      ],
+      "model_loading_gib": {
+       "node1": [
+        43.26
+       ],
+       "node0": [
+        43.26
+       ]
+      },
+      "kv_cache_gib": {
+       "node0": [
+        22.57
+       ],
+       "node1": [
+        22.57
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node0",
+        "seconds": 24,
+        "gib": 1.5
+       },
+       {
+        "node": "node1",
+        "seconds": 24,
+        "gib": 1.5
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       74219,
+       74213,
+       74219,
+       74219,
+       74213,
+       74207,
+       74195,
+       74217
+      ],
+      "node1": [
+       74197,
+       74213,
+       74219,
+       74219,
+       74213,
+       74207,
+       74213,
+       74213
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      2 Channel 15/0 : 5[5] -> 13[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 5[5] -> 13[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 4[4] -> 13[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 4[4] -> 13[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 13[5] -> 5[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 13[5] -> 5[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 12[4] -> 5[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 12[4] -> 5[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 14/0 : 5[5] -> 12[4] [send] via NET/IB/4/GDRDMA\n      2 Channel 14/0 : 5[5] -> 12[4] [receive] via NET/IB/4/GDRDMA",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 14.1
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 19.3
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 41.2
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 123.70909052800016,
+       "request_throughput": 0.03233392132241603,
+       "output_throughput": 33.10993543415402,
+       "total_token_throughput": 66.21987086830804,
+       "mean_ttft_ms": 364.8435755000037,
+       "median_ttft_ms": 358.6883680000028,
+       "p90_ttft_ms": 383.9493809000942,
+       "p99_ttft_ms": 391.8179117901263,
+       "mean_tpot_ms": 29.874961137829747,
+       "median_tpot_ms": 29.877761204300896,
+       "p90_tpot_ms": 29.881732343597122,
+       "p99_tpot_ms": 29.882335046676324,
+       "median_itl_ms": 29.87269950017435,
+       "median_e2el_ms": 30916.767356499804,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0066,
+       "returncode": 0,
+       "wall_seconds": 135.1,
+       "seed": 2037
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 164.90290568399996,
+       "request_throughput": 0.38810716969803966,
+       "output_throughput": 397.4217417707926,
+       "total_token_throughput": 794.8434835415852,
+       "mean_ttft_ms": 5246.520501453127,
+       "median_ttft_ms": 5615.785137999865,
+       "p90_ttft_ms": 8793.149719599933,
+       "p99_ttft_ms": 8795.039933309972,
+       "mean_tpot_ms": 75.42307201973364,
+       "median_tpot_ms": 75.06165207869006,
+       "p90_tpot_ms": 78.38053326041039,
+       "p99_tpot_ms": 79.93735788875848,
+       "median_itl_ms": 72.14101099998516,
+       "median_e2el_ms": 82359.71818649978,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 23.0,
+       "peak_kv_cache_usage": 0.2119,
+       "returncode": 0,
+       "wall_seconds": 176.9,
+       "seed": 2068
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 135.56065422100073,
+       "request_throughput": 0.029507086868132932,
+       "output_throughput": 30.215256952968122,
+       "total_token_throughput": 271.9373125767131,
+       "mean_ttft_ms": 2533.3249324996814,
+       "median_ttft_ms": 2521.72700050005,
+       "p90_ttft_ms": 2557.4648122995313,
+       "p99_ttft_ms": 2570.0985899293573,
+       "mean_tpot_ms": 30.651563984604195,
+       "median_tpot_ms": 30.652112037145894,
+       "p90_tpot_ms": 30.655224159140243,
+       "p99_tpot_ms": 30.655560952864604,
+       "median_itl_ms": 30.657729500035202,
+       "median_e2el_ms": 33878.63759399988,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0298,
+       "returncode": 0,
+       "wall_seconds": 147.4,
+       "seed": 2107
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 320.3156787499993,
+       "request_throughput": 0.1998028952243417,
+       "output_throughput": 204.5981647097259,
+       "total_token_throughput": 1841.3834823875331,
+       "mean_ttft_ms": 26495.321967781223,
+       "median_ttft_ms": 10025.419172000056,
+       "p90_ttft_ms": 66624.69383310019,
+       "p99_ttft_ms": 80004.59918626964,
+       "mean_tpot_ms": 130.2802862173601,
+       "median_tpot_ms": 145.78939369159312,
+       "p90_tpot_ms": 146.1692746037146,
+       "p99_tpot_ms": 152.90840727591413,
+       "median_itl_ms": 79.46617700008574,
+       "median_e2el_ms": 159198.96222950047,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 0.9534,
+       "returncode": 0,
+       "wall_seconds": 337.3,
+       "seed": 2138
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 184.003943101,
+       "request_throughput": 0.021738664577445468,
+       "output_throughput": 22.26039252730416,
+       "total_token_throughput": 734.5929534010372,
+       "mean_ttft_ms": 13385.014649250252,
+       "median_ttft_ms": 13383.788577500127,
+       "p90_ttft_ms": 13397.71038609997,
+       "p99_ttft_ms": 13400.69900610999,
+       "mean_tpot_ms": 31.882405782013553,
+       "median_tpot_ms": 31.883607225317405,
+       "p90_tpot_ms": 31.890741814857954,
+       "p99_tpot_ms": 31.891249699374185,
+       "median_itl_ms": 31.90809450006782,
+       "median_e2el_ms": 45998.376718000145,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.1092,
+       "returncode": 0,
+       "wall_seconds": 197.1,
+       "seed": 2347
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 644.7460278219996,
+       "request_throughput": 0.04963194594327071,
+       "output_throughput": 50.823112645909205,
+       "total_token_throughput": 1677.1627173150039,
+       "mean_ttft_ms": 294947.37931174994,
+       "median_ttft_ms": 277605.27140150045,
+       "p90_ttft_ms": 555656.5967967999,
+       "p99_ttft_ms": 591179.30318093,
+       "mean_tpot_ms": 139.42707374456265,
+       "median_tpot_ms": 152.58505815542537,
+       "p90_tpot_ms": 156.9222872346042,
+       "p99_tpot_ms": 159.16735974599197,
+       "median_itl_ms": 57.13944099989021,
+       "median_e2el_ms": 433774.99721000047,
+       "peak_running_requests": 9.0,
+       "peak_waiting_requests": 31.0,
+       "peak_kv_cache_usage": 0.9832,
+       "returncode": 0,
+       "wall_seconds": 667.4,
+       "seed": 2378
+      }
+     },
+     "engines": 1,
+     "suite_errors": null
+    },
+    "epc-fp8-tp8pp2ep8": {
+     "layout": "C1. TP8 x PP2 + EP (EP8 per stage)",
+     "phase": {
+      "phase": "epc-fp8-tp8pp2ep8",
+      "status": "passed",
+      "seconds": 1817,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 151,
+      "nccl_ib": "ib"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 262144,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       },
+       {
+        "node": "node1",
+        "rank": 8,
+        "world": 16,
+        "dp": 0,
+        "pp": 1,
+        "tp": 0,
+        "ep": "0"
+       }
+      ],
+      "expert_placement": [
+       {
+        "node": "node0",
+        "ep_rank": 0,
+        "ep_size": 8,
+        "strategy": "linear",
+        "local_experts": 32,
+        "global_experts": 256,
+        "global_ids": "0-31"
+       },
+       {
+        "node": "node1",
+        "ep_rank": 0,
+        "ep_size": 8,
+        "strategy": "linear",
+        "local_experts": 32,
+        "global_experts": 256,
+        "global_ids": "0-31"
+       }
+      ],
+      "moe_backend": [
+       "Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU']."
+      ],
+      "dispatch": [
+       "Using MoEPrepareAndFinalizeNoDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod"
+      ],
+      "custom_allreduce": [],
+      "auto_fit": [
+       "Auto-fit max_model_len: full model context length 262144 fits in available GPU memory"
+      ],
+      "kv_cache_tokens": [
+       673216
+      ],
+      "max_concurrency": [
+       "262,144 tokens per request: 2.57x"
+      ],
+      "model_loading_gib": {
+       "node0": [
+        42.27
+       ],
+       "node1": [
+        42.17
+       ]
+      },
+      "kv_cache_gib": {
+       "node1": [
+        24.4
+       ],
+       "node0": [
+        24.96
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node0",
+        "seconds": 12,
+        "gib": 0.56
+       },
+       {
+        "node": "node1",
+        "seconds": 12,
+        "gib": 0.56
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       73645,
+       73645,
+       73645,
+       73645,
+       73645,
+       73645,
+       73645,
+       73645
+      ],
+      "node1": [
+       74099,
+       74099,
+       74099,
+       74077,
+       74099,
+       74099,
+       74099,
+       74113
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      1 Channel 01/0 : 1[7] -> 0[7] [send] via NET/IB/7/GDRDMA\n      1 Channel 01/0 : 1[7] -> 0[7] [receive] via NET/IB/7/GDRDMA\n      1 Channel 01/0 : 1[6] -> 0[6] [send] via NET/IB/6/GDRDMA\n      1 Channel 01/0 : 1[6] -> 0[6] [receive] via NET/IB/6/GDRDMA\n      1 Channel 01/0 : 1[5] -> 0[5] [send] via NET/IB/5/GDRDMA\n      1 Channel 01/0 : 1[5] -> 0[5] [receive] via NET/IB/5/GDRDMA\n      1 Channel 01/0 : 1[4] -> 0[4] [send] via NET/IB/4/GDRDMA\n      1 Channel 01/0 : 1[4] -> 0[4] [receive] via NET/IB/4/GDRDMA\n      1 Channel 01/0 : 1[3] -> 0[3] [send] via NET/IB/3/GDRDMA\n      1 Channel 01/0 : 1[3] -> 0[3] [receive] via NET/IB/3/GDRDMA",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 14.3
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 18.7
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 37.6
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 97.7712261429997,
+       "request_throughput": 0.0409118322209606,
+       "output_throughput": 41.893716194263654,
+       "total_token_throughput": 83.78743238852731,
+       "mean_ttft_ms": 396.34039450015734,
+       "median_ttft_ms": 384.380787000282,
+       "p90_ttft_ms": 424.5643353999185,
+       "p99_ttft_ms": 438.26028573977965,
+       "mean_tpot_ms": 23.50540569843586,
+       "median_tpot_ms": 23.5048188675463,
+       "p90_tpot_ms": 23.509570344672145,
+       "p99_tpot_ms": 23.51077846085954,
+       "median_itl_ms": 23.503887499373377,
+       "median_e2el_ms": 24433.755766000104,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.003,
+       "returncode": 0,
+       "wall_seconds": 109.4,
+       "seed": 2037
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 175.90750843899968,
+       "request_throughput": 0.3638275623817024,
+       "output_throughput": 372.55942387886324,
+       "total_token_throughput": 745.1188477577265,
+       "mean_ttft_ms": 5781.181686562505,
+       "median_ttft_ms": 6800.92576800007,
+       "p90_ttft_ms": 9673.737094299668,
+       "p99_ttft_ms": 9675.196139910167,
+       "mean_tpot_ms": 80.27210762183826,
+       "median_tpot_ms": 79.19297827028372,
+       "p90_tpot_ms": 83.37347827116284,
+       "p99_tpot_ms": 85.25819350776098,
+       "median_itl_ms": 76.67335850010204,
+       "median_e2el_ms": 87782.06507100003,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 23.0,
+       "peak_kv_cache_usage": 0.0974,
+       "returncode": 0,
+       "wall_seconds": 188.2,
+       "seed": 2068
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 110.17926006000016,
+       "request_throughput": 0.0363044732540564,
+       "output_throughput": 37.17578061215375,
+       "total_token_throughput": 334.58202550938375,
+       "mean_ttft_ms": 2713.970610500155,
+       "median_ttft_ms": 2705.8640955001465,
+       "p90_ttft_ms": 2737.3833455999375,
+       "p99_ttft_ms": 2749.4695764600237,
+       "mean_tpot_ms": 24.272288474828816,
+       "median_tpot_ms": 24.271249728250115,
+       "p90_tpot_ms": 24.2746031984358,
+       "p99_tpot_ms": 24.275777057086845,
+       "median_itl_ms": 24.273542500395706,
+       "median_e2el_ms": 27535.254033,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0137,
+       "returncode": 0,
+       "wall_seconds": 122.0,
+       "seed": 2107
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 343.01417491899974,
+       "request_throughput": 0.18658121057275,
+       "output_throughput": 191.059159626496,
+       "total_token_throughput": 1719.532436638464,
+       "mean_ttft_ms": 28597.774854718708,
+       "median_ttft_ms": 10825.97772600002,
+       "p90_ttft_ms": 71912.52135990009,
+       "p99_ttft_ms": 86360.40723167016,
+       "mean_tpot_ms": 139.3224196056483,
+       "median_tpot_ms": 156.4955107341154,
+       "p90_tpot_ms": 156.65697465708703,
+       "p99_tpot_ms": 163.86442133793705,
+       "median_itl_ms": 84.40778749945821,
+       "median_e2el_ms": 170524.2091064997,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 0.4381,
+       "returncode": 0,
+       "wall_seconds": 359.8,
+       "seed": 2138
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 141.82784175199959,
+       "request_throughput": 0.028203207145987647,
+       "output_throughput": 28.88008411749135,
+       "total_token_throughput": 953.0427758772146,
+       "mean_ttft_ms": 9319.507498250232,
+       "median_ttft_ms": 9323.433444999864,
+       "p90_ttft_ms": 9326.344767100272,
+       "p99_ttft_ms": 9327.221771110417,
+       "mean_tpot_ms": 25.54949623264912,
+       "median_tpot_ms": 25.55075313978483,
+       "p90_tpot_ms": 25.556150999804647,
+       "p99_tpot_ms": 25.556323499980667,
+       "median_itl_ms": 25.582632500118052,
+       "median_e2el_ms": 35456.15267050016,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0502,
+       "returncode": 0,
+       "wall_seconds": 155.0,
+       "seed": 2347
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 581.4960936379994,
+       "request_throughput": 0.05503046426296556,
+       "output_throughput": 56.351195405276734,
+       "total_token_throughput": 1859.5894483741322,
+       "mean_ttft_ms": 257453.0984825001,
+       "median_ttft_ms": 229495.11544400046,
+       "p90_ttft_ms": 478711.14678100025,
+       "p99_ttft_ms": 516333.46492670954,
+       "mean_tpot_ms": 238.7748705158846,
+       "median_tpot_ms": 284.5282018401756,
+       "p90_tpot_ms": 313.60348791202273,
+       "p99_tpot_ms": 327.6322388395309,
+       "median_itl_ms": 76.53530600009617,
+       "median_e2el_ms": 520567.46592650004,
+       "peak_running_requests": 20.0,
+       "peak_waiting_requests": 31.0,
+       "peak_kv_cache_usage": 0.9997,
+       "returncode": 0,
+       "wall_seconds": 604.2,
+       "seed": 2378
+      }
+     },
+     "engines": 1,
+     "suite_errors": null
+    },
+    "epc-fp8-tp16": {
+     "layout": "B0. TP16 (no EP)",
+     "phase": {
+      "phase": "epc-fp8-tp16",
+      "status": "passed",
+      "seconds": 1927,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 251,
+      "nccl_ib": "ib"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 262144,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       },
+       {
+        "node": "node1",
+        "rank": 8,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 8,
+        "ep": "8"
+       }
+      ],
+      "expert_placement": [],
+      "moe_backend": [
+       "Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU']."
+      ],
+      "dispatch": [
+       "Using MoEPrepareAndFinalizeNoDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod"
+      ],
+      "custom_allreduce": [
+       "Custom allreduce is disabled because this process group spans across nodes."
+      ],
+      "auto_fit": [
+       "Auto-fit max_model_len: full model context length 262144 fits in available GPU memory"
+      ],
+      "kv_cache_tokens": [
+       310080
+      ],
+      "max_concurrency": [
+       "262,144 tokens per request: 1.18x"
+      ],
+      "model_loading_gib": {
+       "node0": [
+        43.27
+       ],
+       "node1": [
+        43.27
+       ]
+      },
+      "kv_cache_gib": {
+       "node0": [
+        22.62
+       ],
+       "node1": [
+        22.62
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node0",
+        "seconds": 26,
+        "gib": 1.46
+       },
+       {
+        "node": "node1",
+        "seconds": 26,
+        "gib": 1.46
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       74185,
+       74179,
+       74185,
+       74185,
+       74179,
+       74173,
+       74219,
+       74179
+      ],
+      "node1": [
+       74185,
+       74179,
+       74225,
+       74225,
+       74179,
+       74213,
+       74195,
+       74219
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      2 Channel 15/0 : 5[5] -> 13[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 5[5] -> 13[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 4[4] -> 13[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 4[4] -> 13[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 13[5] -> 5[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 13[5] -> 5[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 12[4] -> 5[5] [send] via NET/IB/5/GDRDMA\n      2 Channel 15/0 : 12[4] -> 5[5] [receive] via NET/IB/5/GDRDMA\n      2 Channel 14/0 : 5[5] -> 12[4] [send] via NET/IB/4/GDRDMA\n      2 Channel 14/0 : 5[5] -> 12[4] [receive] via NET/IB/4/GDRDMA",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 14.4
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 18.3
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 39.8
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 108.45578056399972,
+       "request_throughput": 0.03688139054644119,
+       "output_throughput": 37.76654391955578,
+       "total_token_throughput": 75.53308783911156,
+       "mean_ttft_ms": 354.39019750015177,
+       "median_ttft_ms": 345.88879300008557,
+       "p90_ttft_ms": 377.034593299959,
+       "p99_ttft_ms": 388.39620652998747,
+       "mean_tpot_ms": 26.157638351172817,
+       "median_tpot_ms": 26.15946768181806,
+       "p90_tpot_ms": 26.16393663919831,
+       "p99_tpot_ms": 26.165525703215938,
+       "median_itl_ms": 26.148229499995068,
+       "median_e2el_ms": 27105.997409500105,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0066,
+       "returncode": 0,
+       "wall_seconds": 120.3,
+       "seed": 2037
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 155.51856040099938,
+       "request_throughput": 0.41152644311378755,
+       "output_throughput": 421.40307774851846,
+       "total_token_throughput": 842.8061554970369,
+       "mean_ttft_ms": 4861.316728484425,
+       "median_ttft_ms": 5736.4324979998855,
+       "p90_ttft_ms": 8111.644834300114,
+       "p99_ttft_ms": 8112.9909816399695,
+       "mean_tpot_ms": 71.20349731540195,
+       "median_tpot_ms": 70.10520575806389,
+       "p90_tpot_ms": 73.78501375053752,
+       "p99_tpot_ms": 75.40549645016628,
+       "median_itl_ms": 68.18956450024416,
+       "median_e2el_ms": 77632.91722199983,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 23.0,
+       "peak_kv_cache_usage": 0.2114,
+       "returncode": 0,
+       "wall_seconds": 167.9,
+       "seed": 2068
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 119.65690731599989,
+       "request_throughput": 0.033428910120804546,
+       "output_throughput": 34.231203963703855,
+       "total_token_throughput": 308.08083567333466,
+       "mean_ttft_ms": 2348.220316999914,
+       "median_ttft_ms": 2342.033154499859,
+       "p90_ttft_ms": 2367.343020199496,
+       "p99_ttft_ms": 2377.0662591193923,
+       "mean_tpot_ms": 26.945990883675595,
+       "median_tpot_ms": 26.942763077712915,
+       "p90_tpot_ms": 26.957539187878776,
+       "p99_tpot_ms": 26.96306331292257,
+       "median_itl_ms": 26.945780500227556,
+       "median_e2el_ms": 29915.40968449999,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0297,
+       "returncode": 0,
+       "wall_seconds": 131.3,
+       "seed": 2107
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 301.1267567349996,
+       "request_throughput": 0.2125350822156328,
+       "output_throughput": 217.635924188808,
+       "total_token_throughput": 1958.7233176992718,
+       "mean_ttft_ms": 24599.99007165608,
+       "median_ttft_ms": 9297.77326600015,
+       "p90_ttft_ms": 61844.215066599834,
+       "p99_ttft_ms": 74252.62629010978,
+       "mean_tpot_ms": 122.78422547678412,
+       "median_tpot_ms": 137.28662385288393,
+       "p90_tpot_ms": 137.47948622248308,
+       "p99_tpot_ms": 143.82848326087014,
+       "median_itl_ms": 75.71512199956487,
+       "median_e2el_ms": 149669.83779049997,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 0.9513,
+       "returncode": 0,
+       "wall_seconds": 317.9,
+       "seed": 2138
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 166.1713483120002,
+       "request_throughput": 0.024071538448912837,
+       "output_throughput": 24.649255371686746,
+       "total_token_throughput": 813.4254272656626,
+       "mean_ttft_ms": 12658.52141150026,
+       "median_ttft_ms": 12655.28965249996,
+       "p90_ttft_ms": 12677.175976500257,
+       "p99_ttft_ms": 12680.878903650464,
+       "mean_tpot_ms": 28.23463992277567,
+       "median_tpot_ms": 28.238351404691716,
+       "p90_tpot_ms": 28.247276198141385,
+       "p99_tpot_ms": 28.249121760575104,
+       "median_itl_ms": 28.254721500161395,
+       "median_e2el_ms": 41543.123139499585,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.109,
+       "returncode": 0,
+       "wall_seconds": 179.8,
+       "seed": 2347
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 604.7873400520002,
+       "request_throughput": 0.05291116047046985,
+       "output_throughput": 54.181028321761126,
+       "total_token_throughput": 1787.973934618117,
+       "mean_ttft_ms": 277262.7123595938,
+       "median_ttft_ms": 261229.14777150072,
+       "p90_ttft_ms": 521770.65791709983,
+       "p99_ttft_ms": 555395.3996015406,
+       "mean_tpot_ms": 130.6848221783968,
+       "median_tpot_ms": 143.11445404936504,
+       "p90_tpot_ms": 147.25708532893418,
+       "p99_tpot_ms": 149.36040294329328,
+       "median_itl_ms": 52.93969499962259,
+       "median_e2el_ms": 407642.3185745007,
+       "peak_running_requests": 9.0,
+       "peak_waiting_requests": 31.0,
+       "peak_kv_cache_usage": 0.981,
+       "returncode": 0,
+       "wall_seconds": 628.0,
+       "seed": 2378
+      }
+     },
+     "engines": 1,
+     "suite_errors": null
+    },
+    "epc-fp8-dp2tp8ep16": {
+     "layout": "C2. DP2 x TP8 + EP (EP16)",
+     "phase": {
+      "phase": "epc-fp8-dp2tp8ep16",
+      "status": "passed",
+      "seconds": 1860,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 221,
+      "nccl_ib": "ib"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 238656,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 16,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       },
+       {
+        "node": "node1",
+        "rank": 8,
+        "world": 16,
+        "dp": 1,
+        "pp": 0,
+        "tp": 0,
+        "ep": "8"
+       }
+      ],
+      "expert_placement": [
+       {
+        "node": "node0",
+        "ep_rank": 0,
+        "ep_size": 16,
+        "strategy": "linear",
+        "local_experts": 16,
+        "global_experts": 256,
+        "global_ids": "0-15"
+       },
+       {
+        "node": "node1",
+        "ep_rank": 8,
+        "ep_size": 16,
+        "strategy": "linear",
+        "local_experts": 16,
+        "global_experts": 256,
+        "global_ids": "128-143"
+       }
+      ],
+      "moe_backend": [
+       "Using MARLIN Fp8 MoE backend out of potential backends: ['AITER', 'FLASHINFER_TRTLLM', 'FLASHINFER_CUTLASS', 'DEEPGEMM', 'TRITON', 'MARLIN', 'BATCHED_DEEPGEMM', 'BATCHED_TRITON', 'XPU', 'CPU']."
+      ],
+      "dispatch": [
+       "Using AgRsAll2AllManager all2all manager.",
+       "Using MoEPrepareAndFinalizeNaiveDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for Fp8LinearMethod"
+      ],
+      "custom_allreduce": [],
+      "auto_fit": [
+       "Auto-fit max_model_len: reduced from 262144 to 238720 to fit in available GPU memory (17.42 GiB available for KV cache)",
+       "Auto-fit max_model_len: reduced from 262144 to 238656 to fit in available GPU memory (17.41 GiB available for KV cache)"
+      ],
+      "kv_cache_tokens": [
+       238720,
+       238656
+      ],
+      "max_concurrency": [
+       "238,720 tokens per request: 1.00x",
+       "238,656 tokens per request: 1.00x"
+      ],
+      "model_loading_gib": {
+       "node0": [
+        46.39
+       ],
+       "node1": [
+        46.39
+       ]
+      },
+      "kv_cache_gib": {
+       "node1": [
+        17.42
+       ],
+       "node0": [
+        17.42
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node1",
+        "seconds": 24,
+        "gib": 1.72
+       },
+       {
+        "node": "node0",
+        "seconds": 26,
+        "gib": 1.72
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       75013,
+       75013,
+       75015,
+       75015,
+       74993,
+       74959,
+       75013,
+       75013
+      ],
+      "node1": [
+       75015,
+       75015,
+       75019,
+       75015,
+       74997,
+       74993,
+       75013,
+       75015
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>\n      1 Channel 15/0 : 5[5] -> 13[5] [send] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 5[5] -> 13[5] [receive] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 4[4] -> 13[5] [send] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 4[4] -> 13[5] [receive] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 13[5] -> 5[5] [send] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 13[5] -> 5[5] [receive] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 12[4] -> 5[5] [send] via NET/IB/5/GDRDMA\n      1 Channel 15/0 : 12[4] -> 5[5] [receive] via NET/IB/5/GDRDMA\n      1 Channel 14/0 : 5[5] -> 12[4] [send] via NET/IB/4/GDRDMA\n      1 Channel 14/0 : 5[5] -> 12[4] [receive] via NET/IB/4/GDRDMA",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 15.3
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 19.6
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 34.6
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 171.02732718900006,
+       "request_throughput": 0.023388075261093523,
+       "output_throughput": 23.949389067359768,
+       "total_token_throughput": 47.898778134719535,
+       "mean_ttft_ms": 502.5417445003768,
+       "median_ttft_ms": 514.5834790000663,
+       "p90_ttft_ms": 522.7103919007277,
+       "p99_ttft_ms": 525.4404528912528,
+       "mean_tpot_ms": 41.3038638739,
+       "median_tpot_ms": 41.311075971651306,
+       "p90_tpot_ms": 41.416453183968486,
+       "p99_tpot_ms": 41.431771209306135,
+       "median_itl_ms": 41.286467499958235,
+       "median_e2el_ms": 42746.675060499,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0043,
+       "returncode": 0,
+       "wall_seconds": 182.6,
+       "seed": 2037,
+       "peak_kv_cache_usage_sum_over_engines": 0.0086
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 144.2295583949999,
+       "request_throughput": 0.4437370585627386,
+       "output_throughput": 454.3867479682443,
+       "total_token_throughput": 908.7734959364886,
+       "mean_ttft_ms": 4863.53719557809,
+       "median_ttft_ms": 5509.835128499617,
+       "p90_ttft_ms": 7550.234419900698,
+       "p99_ttft_ms": 7560.370317130291,
+       "mean_tpot_ms": 65.69091197983866,
+       "median_tpot_ms": 66.80208468377334,
+       "p90_tpot_ms": 71.03384834457452,
+       "p99_tpot_ms": 73.95007109113382,
+       "median_itl_ms": 64.64756599962129,
+       "median_e2el_ms": 72089.38279349968,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 7.0,
+       "peak_kv_cache_usage": 0.1373,
+       "returncode": 0,
+       "wall_seconds": 157.0,
+       "seed": 2068,
+       "peak_kv_cache_usage_sum_over_engines": 0.2746
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 182.0312318790002,
+       "request_throughput": 0.02197425111454984,
+       "output_throughput": 22.501633141299035,
+       "total_token_throughput": 202.51469827169132,
+       "mean_ttft_ms": 2728.5228575001383,
+       "median_ttft_ms": 2741.4723299998514,
+       "p90_ttft_ms": 2746.798210000634,
+       "p99_ttft_ms": 2746.921951000877,
+       "mean_tpot_ms": 41.81715037878847,
+       "median_tpot_ms": 41.82080219892516,
+       "p90_tpot_ms": 41.895705635192094,
+       "p99_tpot_ms": 41.91436280780208,
+       "median_itl_ms": 41.81534399958764,
+       "median_e2el_ms": 45524.152979500286,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0193,
+       "returncode": 0,
+       "wall_seconds": 194.3,
+       "seed": 2107,
+       "peak_kv_cache_usage_sum_over_engines": 0.0386
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 231.06856481500108,
+       "request_throughput": 0.2769740663393132,
+       "output_throughput": 283.6214439314567,
+       "total_token_throughput": 2552.5929953831105,
+       "mean_ttft_ms": 21842.8138143436,
+       "median_ttft_ms": 15391.419484499238,
+       "p90_ttft_ms": 45097.02486169972,
+       "p99_ttft_ms": 51457.615650170555,
+       "mean_tpot_ms": 91.37035757140468,
+       "median_tpot_ms": 98.90911786314813,
+       "p90_tpot_ms": 102.42116682952108,
+       "p99_tpot_ms": 109.38706952101582,
+       "median_itl_ms": 61.95422650034743,
+       "median_e2el_ms": 115113.5429015003,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 28.0,
+       "peak_kv_cache_usage": 0.6179,
+       "returncode": 0,
+       "wall_seconds": 247.6,
+       "seed": 2138,
+       "peak_kv_cache_usage_sum_over_engines": 1.2359
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 230.67112001699934,
+       "request_throughput": 0.01734070567527144,
+       "output_throughput": 17.756882611477955,
+       "total_token_throughput": 585.9771261787726,
+       "mean_ttft_ms": 13951.037905000703,
+       "median_ttft_ms": 13967.153607501132,
+       "p90_ttft_ms": 13997.516410799835,
+       "p99_ttft_ms": 14002.251898679406,
+       "mean_tpot_ms": 42.733526780790996,
+       "median_tpot_ms": 42.73850225317597,
+       "p90_tpot_ms": 42.75588007214026,
+       "p99_tpot_ms": 42.75597442011688,
+       "median_itl_ms": 42.76135950021853,
+       "median_e2el_ms": 57678.28285900032,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0708,
+       "returncode": 0,
+       "wall_seconds": 243.6,
+       "seed": 2347,
+       "peak_kv_cache_usage_sum_over_engines": 0.1416
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 453.3862204870002,
+       "request_throughput": 0.0705800012307995,
+       "output_throughput": 72.27392126033868,
+       "total_token_throughput": 2385.039401591176,
+       "mean_ttft_ms": 193826.77984125007,
+       "median_ttft_ms": 212995.83587899906,
+       "p90_ttft_ms": 378780.1763193005,
+       "p99_ttft_ms": 406102.3009550604,
+       "mean_tpot_ms": 134.99021535404432,
+       "median_tpot_ms": 154.49445949657863,
+       "p90_tpot_ms": 159.1835437156401,
+       "p99_tpot_ms": 162.84657123450532,
+       "median_itl_ms": 59.79220750032255,
+       "median_e2el_ms": 374864.5095515003,
+       "peak_running_requests": 14.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 0.9913,
+       "returncode": 0,
+       "wall_seconds": 475.9,
+       "seed": 2378,
+       "peak_kv_cache_usage_sum_over_engines": 1.9826
+      }
+     },
+     "engines": 2,
+     "suite_errors": null
+    }
+   }
+  },
+  "nvfp4": {
+   "status": "FINISHED",
+   "packages": {
+    "vllm": "0.23.0+cu129",
+    "transformers": "5.12.0",
+    "triton": "3.6.0",
+    "flashinfer-python": "0.6.12",
+    "nvidia-nccl-cu12": "2.28.9",
+    "huggingface-hub": "1.19.0",
+    "hf-xet": "1.5.1",
+    "deep_ep": "1.2.1+73b6ea4",
+    "pplx-kernels": null,
+    "nixl": "1.2.0"
+   },
+   "gpus": [
+    "NVIDIA A100-SXM4-80GB"
+   ],
+   "ib_probe": {},
+   "download_seconds": [
+    "459"
+   ],
+   "phases": [
+    {
+     "phase": "full_download",
+     "status": "passed",
+     "seconds": 466,
+     "note": ""
+    },
+    {
+     "phase": "epc-nvfp4-tp8",
+     "status": "passed",
+     "seconds": 2163,
+     "note": ""
+    },
+    {
+     "phase": "epc-nvfp4-tp8ep8",
+     "status": "passed",
+     "seconds": 2122,
+     "note": ""
+    }
+   ],
+   "configs": {
+    "epc-nvfp4-tp8": {
+     "layout": "D. NVFP4 TP8 (no EP, demo layout)",
+     "phase": {
+      "phase": "epc-nvfp4-tp8",
+      "status": "passed",
+      "seconds": 2163,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 442,
+      "nccl_ib": "tcp"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 254016,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 8,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       }
+      ],
+      "expert_placement": [],
+      "moe_backend": [
+       "Using 'MARLIN' NvFp4 MoE backend out of potential backends: ['FLASHINFER_TRTLLM', 'FLASHINFER_CUTEDSL', 'FLASHINFER_CUTEDSL_BATCHED', 'FLASHINFER_CUTLASS', 'VLLM_CUTLASS', 'MARLIN', 'EMULATION']."
+      ],
+      "dispatch": [
+       "Using MoEPrepareAndFinalizeNoDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for ModelOptFp8LinearMethod"
+      ],
+      "custom_allreduce": [],
+      "auto_fit": [
+       "Auto-fit max_model_len: reduced from 262144 to 254016 to fit in available GPU memory (18.53 GiB available for KV cache)"
+      ],
+      "kv_cache_tokens": [
+       254016
+      ],
+      "max_concurrency": [
+       "254,016 tokens per request: 1.00x"
+      ],
+      "model_loading_gib": {
+       "node0": [
+        48.54
+       ]
+      },
+      "kv_cache_gib": {
+       "node0": [
+        18.53
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node0",
+        "seconds": 43,
+        "gib": 1.84
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       75795,
+       75795,
+       75795,
+       75795,
+       75795,
+       75795,
+       75795,
+       75795
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 15.0
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 19.4
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 44.7
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 84.79408364799997,
+       "request_throughput": 0.04717310250801145,
+       "output_throughput": 48.30525696820372,
+       "total_token_throughput": 96.61051393640744,
+       "mean_ttft_ms": 349.84585999995943,
+       "median_ttft_ms": 339.5215084999563,
+       "p90_ttft_ms": 369.50839960002213,
+       "p99_ttft_ms": 380.8062223600359,
+       "mean_tpot_ms": 20.37861669159332,
+       "median_tpot_ms": 20.377653175464214,
+       "p90_tpot_ms": 20.38136921173023,
+       "p99_tpot_ms": 20.382550388621762,
+       "median_itl_ms": 20.37812250011939,
+       "median_e2el_ms": 21185.860706999847,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0081,
+       "returncode": 0,
+       "wall_seconds": 97.7,
+       "seed": 2037
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 147.29930913099997,
+       "request_throughput": 0.43448947844746433,
+       "output_throughput": 444.9172259302035,
+       "total_token_throughput": 889.834451860407,
+       "mean_ttft_ms": 5452.963210140645,
+       "median_ttft_ms": 6171.735163999983,
+       "p90_ttft_ms": 9168.71235600006,
+       "p99_ttft_ms": 9170.807870360048,
+       "mean_tpot_ms": 66.61595248654386,
+       "median_tpot_ms": 65.7197592526881,
+       "p90_tpot_ms": 69.7293236221896,
+       "p99_tpot_ms": 71.36594470212128,
+       "median_itl_ms": 63.25834550000309,
+       "median_e2el_ms": 73552.1610420002,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 23.0,
+       "peak_kv_cache_usage": 0.2581,
+       "returncode": 0,
+       "wall_seconds": 161.0,
+       "seed": 2068
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 96.67658601199992,
+       "request_throughput": 0.04137506468736394,
+       "output_throughput": 42.368066239860674,
+       "total_token_throughput": 381.31259615874603,
+       "mean_ttft_ms": 2547.176374250057,
+       "median_ttft_ms": 2537.6884335000796,
+       "p90_ttft_ms": 2567.8644120001536,
+       "p99_ttft_ms": 2579.038362000151,
+       "mean_tpot_ms": 21.135590704789728,
+       "median_tpot_ms": 21.13462537487775,
+       "p90_tpot_ms": 21.13785564662744,
+       "p99_tpot_ms": 21.13901270219937,
+       "median_itl_ms": 21.141798999906314,
+       "median_e2el_ms": 24160.385256999914,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0363,
+       "returncode": 0,
+       "wall_seconds": 109.9,
+       "seed": 2107
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 348.6561575139999,
+       "request_throughput": 0.18356193808919077,
+       "output_throughput": 187.96742460333135,
+       "total_token_throughput": 1691.7068214299823,
+       "mean_ttft_ms": 37379.77660045313,
+       "median_ttft_ms": 20477.48065100018,
+       "p90_ttft_ms": 73015.5795927,
+       "p99_ttft_ms": 158462.00691729994,
+       "mean_tpot_ms": 120.27329323558159,
+       "median_tpot_ms": 134.0749749486801,
+       "p90_tpot_ms": 135.09754332912985,
+       "p99_tpot_ms": 185.61072497051813,
+       "median_itl_ms": 69.77084499999364,
+       "median_e2el_ms": 155056.92726400026,
+       "peak_running_requests": 30.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 1.0,
+       "returncode": 0,
+       "wall_seconds": 366.6,
+       "seed": 2138
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 149.77866530000028,
+       "request_throughput": 0.026706073204672845,
+       "output_throughput": 27.347018961584993,
+       "total_token_throughput": 902.4516257323048,
+       "mean_ttft_ms": 14524.095720249989,
+       "median_ttft_ms": 14526.346720499987,
+       "p90_ttft_ms": 14532.263514400029,
+       "p99_ttft_ms": 14534.380352740049,
+       "mean_tpot_ms": 22.404976201368562,
+       "median_tpot_ms": 22.40379709139779,
+       "p90_tpot_ms": 22.409859229618725,
+       "p99_tpot_ms": 22.411710739970683,
+       "median_itl_ms": 22.431931500250357,
+       "median_e2el_ms": 37444.336020500035,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.1331,
+       "returncode": 0,
+       "wall_seconds": 164.0,
+       "seed": 2347
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 647.3634351649998,
+       "request_throughput": 0.049431275017631865,
+       "output_throughput": 50.61762561805503,
+       "total_token_throughput": 1670.381645395816,
+       "mean_ttft_ms": 310039.92851631244,
+       "median_ttft_ms": 317850.1066204999,
+       "p90_ttft_ms": 567453.279891,
+       "p99_ttft_ms": 612615.8706832101,
+       "mean_tpot_ms": 107.66338043108502,
+       "median_tpot_ms": 115.03982302590424,
+       "p90_tpot_ms": 121.76053728005847,
+       "p99_tpot_ms": 122.17682800715536,
+       "median_itl_ms": 37.662689499939006,
+       "median_e2el_ms": 437840.15900700004,
+       "peak_running_requests": 7.0,
+       "peak_waiting_requests": 31.0,
+       "peak_kv_cache_usage": 0.9315,
+       "returncode": 0,
+       "wall_seconds": 670.9,
+       "seed": 2378
+      }
+     },
+     "engines": 1,
+     "suite_errors": null
+    },
+    "epc-nvfp4-tp8ep8": {
+     "layout": "E. NVFP4 TP8 + EP (EP8)",
+     "phase": {
+      "phase": "epc-nvfp4-tp8ep8",
+      "status": "passed",
+      "seconds": 2122,
+      "note": ""
+     },
+     "startup": {
+      "seconds_to_healthy": 312,
+      "nccl_ib": "tcp"
+     },
+     "eager_fallback": false,
+     "compiled_failure_tail": null,
+     "failure_tail": null,
+     "max_model_len": {
+      "auto_fit": 253120,
+      "max_num_batched_tokens": 8192
+     },
+     "parallel": {
+      "ranks": [
+       {
+        "node": "node0",
+        "rank": 0,
+        "world": 8,
+        "dp": 0,
+        "pp": 0,
+        "tp": 0,
+        "ep": "0"
+       }
+      ],
+      "expert_placement": [
+       {
+        "node": "node0",
+        "ep_rank": 0,
+        "ep_size": 8,
+        "strategy": "linear",
+        "local_experts": 32,
+        "global_experts": 256,
+        "global_ids": "0-31"
+       }
+      ],
+      "moe_backend": [
+       "Using 'MARLIN' NvFp4 MoE backend out of potential backends: ['FLASHINFER_TRTLLM', 'FLASHINFER_CUTEDSL', 'FLASHINFER_CUTEDSL_BATCHED', 'FLASHINFER_CUTLASS', 'VLLM_CUTLASS', 'MARLIN', 'EMULATION']."
+      ],
+      "dispatch": [
+       "Using MoEPrepareAndFinalizeNoDPEPModular"
+      ],
+      "attention": [
+       "DeepGEMM not supported on this platform; using Triton fallback for sparse attention indexer.",
+       "Using TRITON_MLA_SPARSE attention backend out of potential backends: ['TRITON_MLA_SPARSE'].",
+       "Using FLASH_ATTN MLA prefill backend."
+      ],
+      "linear": [
+       "Selected MarlinFP8ScaledMMLinearKernel for ModelOptFp8LinearMethod"
+      ],
+      "custom_allreduce": [],
+      "auto_fit": [
+       "Auto-fit max_model_len: reduced from 262144 to 253120 to fit in available GPU memory (18.47 GiB available for KV cache)"
+      ],
+      "kv_cache_tokens": [
+       253120
+      ],
+      "max_concurrency": [
+       "253,120 tokens per request: 1.00x"
+      ],
+      "model_loading_gib": {
+       "node0": [
+        48.54
+       ]
+      },
+      "kv_cache_gib": {
+       "node0": [
+        18.47
+       ]
+      },
+      "graph_capture": [
+       {
+        "node": "node0",
+        "seconds": 40,
+        "gib": 1.89
+       }
+      ],
+      "errors": 0
+     },
+     "gpu_memory_used_mib": {
+      "node0": [
+       75739,
+       75771,
+       75771,
+       75739,
+       75771,
+       75771,
+       75771,
+       75739
+      ]
+     },
+     "nccl_transport_lines": "      8 NET/IB : Using [0]mlx5_ib0:1/IB [1]mlx5_ib1:1/IB [2]mlx5_ib2:1/IB [3]mlx5_ib3:1/IB [4]mlx5_ib4:1/IB [5]mlx5_ib5:1/IB [6]mlx5_ib6:1/IB [7]mlx5_ib7:1/IB [RO]; OOB eth0:<redacted><0>",
+     "functional": {
+      "passed": 4,
+      "total": 4,
+      "failed_cases": []
+     },
+     "tools": {
+      "passed": 9,
+      "total": 9,
+      "failed_cases": []
+     },
+     "epmatrix_aborted": null,
+     "epmatrix_warmups": [
+      {
+       "name": "warmup-isl1024",
+       "returncode": 0,
+       "wall_seconds": 15.0
+      },
+      {
+       "name": "warmup-isl8192",
+       "returncode": 0,
+       "wall_seconds": 20.1
+      },
+      {
+       "name": "warmup-isl32768",
+       "returncode": 0,
+       "wall_seconds": 46.3
+      }
+     ],
+     "points": {
+      "isl1024-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 91.56353313399995,
+       "request_throughput": 0.043685513905914304,
+       "output_throughput": 44.73396623965625,
+       "total_token_throughput": 89.4679324793125,
+       "mean_ttft_ms": 380.80259474986633,
+       "median_ttft_ms": 370.35872949968507,
+       "p90_ttft_ms": 399.90084629980635,
+       "p99_ttft_ms": 411.21462632982906,
+       "mean_tpot_ms": 22.003721547165306,
+       "median_tpot_ms": 22.002974575268933,
+       "p90_tpot_ms": 22.00642038866084,
+       "p99_tpot_ms": 22.007615976109467,
+       "median_itl_ms": 22.005378999892855,
+       "median_e2el_ms": 22881.957083500085,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0081,
+       "returncode": 0,
+       "wall_seconds": 104.5,
+       "seed": 2037
+      },
+      "isl1024-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 155.57673608400046,
+       "request_throughput": 0.4113725587188339,
+       "output_throughput": 421.2455001280859,
+       "total_token_throughput": 842.4910002561718,
+       "mean_ttft_ms": 5705.939346109346,
+       "median_ttft_ms": 6749.814917999629,
+       "p90_ttft_ms": 9524.47015839989,
+       "p99_ttft_ms": 9526.258049840093,
+       "mean_tpot_ms": 70.41029741165693,
+       "median_tpot_ms": 69.16029741153501,
+       "p90_tpot_ms": 73.41799379697,
+       "p99_tpot_ms": 75.38942689068419,
+       "median_itl_ms": 66.84413849961857,
+       "median_e2el_ms": 77617.97403099967,
+       "peak_running_requests": 32.0,
+       "peak_waiting_requests": 23.0,
+       "peak_kv_cache_usage": 0.259,
+       "returncode": 0,
+       "wall_seconds": 169.0,
+       "seed": 2068
+      },
+      "isl8192-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 104.27236442499998,
+       "request_throughput": 0.0383610750754298,
+       "output_throughput": 39.28174087724012,
+       "total_token_throughput": 353.53566789516105,
+       "mean_ttft_ms": 2775.532986749795,
+       "median_ttft_ms": 2765.155386999595,
+       "p90_ttft_ms": 2801.550134900026,
+       "p99_ttft_ms": 2813.3369246901566,
+       "mean_tpot_ms": 22.76863321505386,
+       "median_tpot_ms": 22.765824164711738,
+       "p90_tpot_ms": 22.775764031769366,
+       "p99_tpot_ms": 22.778802443646235,
+       "median_itl_ms": 22.776234000048134,
+       "median_e2el_ms": 26059.268635499848,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.0364,
+       "returncode": 0,
+       "wall_seconds": 117.3,
+       "seed": 2107
+      },
+      "isl8192-c32": {
+       "completed": 64,
+       "num_prompts": 64,
+       "duration": 374.42670458199973,
+       "request_throughput": 0.17092797927286715,
+       "output_throughput": 175.03025077541596,
+       "total_token_throughput": 1575.2722569787436,
+       "mean_ttft_ms": 41251.845405312466,
+       "median_ttft_ms": 22313.146763000077,
+       "p90_ttft_ms": 79674.62408230023,
+       "p99_ttft_ms": 170822.49783831974,
+       "mean_tpot_ms": 127.92384129678338,
+       "median_tpot_ms": 143.00506747507336,
+       "p90_tpot_ms": 144.43516738093874,
+       "p99_tpot_ms": 200.15422137701856,
+       "median_itl_ms": 73.73427200036531,
+       "median_e2el_ms": 166131.40854450013,
+       "peak_running_requests": 30.0,
+       "peak_waiting_requests": 30.0,
+       "peak_kv_cache_usage": 1.0,
+       "returncode": 0,
+       "wall_seconds": 392.5,
+       "seed": 2138
+      },
+      "isl32768-c1": {
+       "completed": 4,
+       "num_prompts": 4,
+       "duration": 160.46949351900003,
+       "request_throughput": 0.024926856265838397,
+       "output_throughput": 25.52510081621852,
+       "total_token_throughput": 842.3283269352112,
+       "mean_ttft_ms": 15462.536646999979,
+       "median_ttft_ms": 15465.464938999958,
+       "p90_ttft_ms": 15474.31188460041,
+       "p99_ttft_ms": 15475.093930960293,
+       "mean_tpot_ms": 24.10027262756616,
+       "median_tpot_ms": 24.101615854838684,
+       "p90_tpot_ms": 24.104263529521205,
+       "p99_tpot_ms": 24.104729302218978,
+       "median_itl_ms": 24.128825499701634,
+       "median_e2el_ms": 40121.41795849994,
+       "peak_running_requests": 1.0,
+       "peak_waiting_requests": 0.0,
+       "peak_kv_cache_usage": 0.1335,
+       "returncode": 0,
+       "wall_seconds": 175.2,
+       "seed": 2347
+      },
+      "isl32768-c32": {
+       "completed": 32,
+       "num_prompts": 32,
+       "duration": 691.1706496439992,
+       "request_throughput": 0.04629826225474449,
+       "output_throughput": 47.40942054885836,
+       "total_token_throughput": 1564.5108781123258,
+       "mean_ttft_ms": 330787.2842185313,
+       "median_ttft_ms": 339223.3951789999,
+       "p90_ttft_ms": 605568.2039324003,
+       "p99_ttft_ms": 653783.11130051,
+       "mean_tpot_ms": 115.00873736699654,
+       "median_tpot_ms": 122.82303985923762,
+       "p90_tpot_ms": 129.987763378006,
+       "p99_tpot_ms": 130.5047800618477,
+       "median_itl_ms": 40.481115500369924,
+       "median_e2el_ms": 467259.120319,
+       "peak_running_requests": 7.0,
+       "peak_waiting_requests": 31.0,
+       "peak_kv_cache_usage": 0.9347,
+       "returncode": 0,
+       "wall_seconds": 714.8,
+       "seed": 2378
+      }
+     },
+     "engines": 1,
+     "suite_errors": null
+    }
+   }
+  }
+ }
+}

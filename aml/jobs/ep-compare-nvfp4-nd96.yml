@@ -1,0 +1,46 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+experiment_name: axk2-ep-experiment
+display_name: ep-compare-nvfp4-1xND96amsr-A100
+description: >-
+  Expert parallelism (EP) for the official skt/A.X-K2-NVFP4 on one 8xA100-80GB node with the SM80 Marlin
+  port (NVFP4 experts W4A16, FP8 layers W8A16), native DSA. The demo's TP8 layout and TP8 +
+  --enable-expert-parallel (EP8: each GPU holds 32 of the 256 routed experts) are served one after the
+  other with the demo's parsers, priority scheduling, 8,192 batched tokens, 128 sequences and the
+  context auto-fitted to the KV cache, and each runs the same functional, tool-call and epmatrix suites
+  (input 1K/8K/32K x concurrency 1 and 32, 1,024 output tokens). The scripts are downloaded from the
+  pinned commit of this public repository and checked file by file.
+compute: azureml:a100-nd96-lp
+environment:
+  image: docker.io/vllm/vllm-openai:v0.23.0-cu129
+identity:
+  type: user_identity
+resources:
+  instance_count: 1
+  shm_size: 256g
+distribution:
+  type: pytorch
+  process_count_per_instance: 1
+environment_variables:
+  AXK2_SRC_GIT: "__AXK2_SRC_GIT__"
+  AXK2_SRC_MANIFEST: "__AXK2_SRC_MANIFEST__"
+  FULL_REPO: skt/A.X-K2-NVFP4
+  NVFP4_SM80_PORT: "1"
+  PHASE_PLAN: "epc-nvfp4-tp8 epc-nvfp4-tp8ep8"
+  FULL_MAX_MODEL_LEN: "-1"
+  FULL_MAX_NUM_SEQS: "128"
+  FULL_GPU_MEM_UTIL: "0.92"
+  FULL_HEALTH_TIMEOUT: "1800"
+  DOWNLOAD_TIMEOUT: "3600"
+  RUN_KERNEL_TESTS: "0"
+  TP: "8"
+  PP: "1"
+command: >-
+  mkdir -p /tmp/axk2src && for try in 1 2 3 4 5 6; do python3 -c "import hashlib, os, sys, urllib.request as u;
+  repo, sha = os.environ['AXK2_SRC_GIT'].split('@'); items = [i.split(':') for i in os.environ['AXK2_SRC_MANIFEST'].split(',')];
+  data = dict((n, u.urlopen('https://raw.githubusercontent.com/' + repo + '/' + sha + '/aml/src/' + n, timeout=120).read()) for n, d in items);
+  bad = [n for n, d in items if hashlib.sha256(data[n]).hexdigest() != d]; bad and sys.exit('source digest mismatch: ' + ' '.join(bad));
+  [open('/tmp/axk2src/' + n, 'wb').write(data[n]) for n, d in items]" && break; sleep 20; done &&
+  test -f /tmp/axk2src/entry.sh && bash /tmp/axk2src/entry.sh none hf:9e2e804e80f8d1b3afba5d7938173cec1ed46b49
+limits:
+  timeout: 10800

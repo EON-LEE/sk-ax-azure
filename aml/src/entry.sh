@@ -108,7 +108,8 @@ print(json.dumps({
   "node_rank": $RANK, "nnodes": $NNODES, "gpus": gpus,
   "torch": torch.__version__, "torch_cuda": torch.version.cuda,
   "capability": list(torch.cuda.get_device_capability(0)),
-  "packages": {p: v(p) for p in ("vllm", "transformers", "triton", "flashinfer-python", "nvidia-nccl-cu12", "huggingface-hub", "hf-xet")},
+  "packages": {p: v(p) for p in ("vllm", "transformers", "triton", "flashinfer-python", "nvidia-nccl-cu12", "huggingface-hub", "hf-xet",
+                                 "deep_ep", "pplx-kernels", "nixl")},
   "infiniband_devices": sorted(os.listdir("/dev/infiniband")) if os.path.isdir("/dev/infiniband") else [],
   "disk_free_gb": round(shutil.disk_usage(os.getcwd()).free / 2**30, 1),
   "mem_total_gb": round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30, 1),
@@ -358,6 +359,100 @@ server_facts() {
 
 failure_tail() { grep -v "NCCL INFO" "$OUT/vllm-$1.log" | tail -c 7600; }
 
+# parallel_facts <tag>: the layout vLLM built (DP/PP/TP/EP rank and node of every worker, the experts
+# each EP rank owns) and the MoE, dispatch, attention and linear kernels, KV cache and per-GPU memory
+# it chose, read from the server log. Node labels: node0 is the head, the others follow by address.
+parallel_facts() {
+  python3 - "$OUT/vllm-$1.log" "$NODE_IP" "$OUT/ray-nodes.json" <<'EOF'
+import json, os, re, sys
+log, head, nodes_file = sys.argv[1:4]
+ips = [head]
+if os.path.exists(nodes_file):
+    ips += sorted({n["ip"] for n in json.load(open(nodes_file))} - {head})
+
+def node(line):
+    found = re.search(r"\bip=([\d.]+)", line)
+    return f"node{ips.index(found.group(1))}" if found and found.group(1) in ips else "node0"
+
+kinds = {"moe_backend": r"MoE backend", "dispatch": r"PrepareAndFinalize|AllGather\+ReduceScatter|[Aa]ll2[Aa]ll",
+         "attention": r"attention backend|attention indexer|MLA prefill backend", "linear": r"LinearKernel for",
+         "custom_allreduce": r"[Cc]ustom all-?reduce", "auto_fit": r"Auto-fit max_model_len"}
+ranks, experts, lines = {}, {}, {k: [] for k in kinds}
+numbers = {"kv_cache_tokens": [], "max_concurrency": [], "model_loading_gib": {}, "kv_cache_gib": {},
+           "graph_capture": [], "errors": 0}
+for line in open(log, errors="replace"):
+    if "NCCL INFO" in line:
+        continue
+    m = re.search(r"rank (\d+) in world size (\d+) is assigned as DP rank (\d+), PP rank (\d+), PCP rank (\d+), "
+                  r"TP rank (\d+), EP rank (\S+), EPLB rank", line)
+    if m:
+        rank, world, dp, pp, _, tp, ep = m.groups()
+        ranks[(int(dp), int(rank))] = {"node": node(line), "rank": int(rank), "world": int(world), "dp": int(dp),
+                                       "pp": int(pp), "tp": int(tp), "ep": ep.rstrip(",")}
+    m = re.search(r"\[EP Rank (\d+)/(\d+)\] Expert parallelism is enabled\. Expert placement strategy: (\w+)\. "
+                  r"Local/global number of experts: (\d+)/(\d+)\. Experts local to global index map: (.*?)\.?\s*$", line)
+    if m:
+        ids = sorted(int(pair.split("->")[1]) for pair in m.group(6).split(", ") if "->" in pair)
+        spans = []
+        for value in ids:
+            if spans and value == spans[-1][1] + 1:
+                spans[-1][1] = value
+            else:
+                spans.append([value, value])
+        experts[(node(line), int(m.group(1)), m.group(6))] = {
+            "node": node(line), "ep_rank": int(m.group(1)), "ep_size": int(m.group(2)), "strategy": m.group(3),
+            "local_experts": int(m.group(4)), "global_experts": int(m.group(5)),
+            "global_ids": ",".join(f"{a}-{b}" if a != b else str(a) for a, b in spans)[:200]}
+    message = re.sub(r"^.*?\[[\w./-]+:\d+\] ", "", line.strip())
+    for kind, pattern in kinds.items():
+        if re.search(pattern, line) and message[:300] not in lines[kind] and len(lines[kind]) < 6:
+            lines[kind].append(message[:300])
+    for key, pattern in (("kv_cache_tokens", r"GPU KV cache size: ([\d,]+) tokens"),
+                         ("max_concurrency", r"Maximum concurrency for ([\d,]+ tokens per request: [\d.]+x)")):
+        m = re.search(pattern, line)
+        if m:
+            numbers[key].append(int(m.group(1).replace(",", "")) if key == "kv_cache_tokens" else m.group(1))
+    for key, pattern in (("model_loading_gib", r"Model loading took ([\d.]+) GiB"),
+                         ("kv_cache_gib", r"Available KV cache memory: ([\d.]+) GiB")):
+        m = re.search(pattern, line)
+        if m:
+            numbers[key].setdefault(node(line), []).append(float(m.group(1)))
+    m = re.search(r"Graph capturing finished in (\d+) secs?, took ([\d.]+) GiB", line)
+    if m and len(numbers["graph_capture"]) < 20:
+        numbers["graph_capture"].append({"node": node(line), "seconds": int(m.group(1)), "gib": float(m.group(2))})
+    numbers["errors"] += bool(re.search(r"\bERROR\b|Traceback", line))
+print(json.dumps({"nodes": len(ips), "ranks": sorted(ranks.values(), key=lambda r: (r["dp"], r["rank"])),
+                  "expert_placement": sorted(experts.values(), key=lambda e: (e["node"], e["ep_rank"])),
+                  **lines, **numbers}))
+EOF
+}
+
+# gpu_snapshot: memory and utilisation of every GPU on every node of the Ray cluster (node0 = head).
+gpu_snapshot() {
+  python3 - "$NODE_IP" <<'EOF' 2>/dev/null | tail -n 1
+import json, sys
+
+def smi():
+    import subprocess
+    out = subprocess.run(["nvidia-smi", "--query-gpu=index,memory.used,memory.total,utilization.gpu",
+                          "--format=csv,noheader,nounits"], capture_output=True, text=True).stdout
+    return [[int(float(v)) for v in row.split(",")] for row in out.strip().splitlines()]
+
+head, result = sys.argv[1], {"columns": ["gpu", "memory_used_mib", "memory_total_mib", "utilization_pct"]}
+try:
+    import ray
+    ray.init(address="auto", logging_level="ERROR")
+    ips = [head] + sorted({n["NodeManagerAddress"] for n in ray.nodes() if n["Alive"]} - {head})
+    probe = ray.remote(num_cpus=0)(smi)
+    for index, values in enumerate(ray.get([probe.options(resources={f"node:{ip}": 0.001}).remote() for ip in ips],
+                                           timeout=180)):
+        result[f"node{index}"] = values
+except Exception as exc:
+    result.update({"node0": smi(), "ray_error": str(exc)[:300]})
+print(json.dumps(result))
+EOF
+}
+
 stop_server() {
   [ -n "$SERVER_PID" ] || return 0
   kill -INT "$SERVER_PID" 2>/dev/null
@@ -461,6 +556,12 @@ nccl_transport() {
 # node, TP8 without Ray; --max-model-len -1 lets vLLM fit the longest context its KV cache holds.
 # nvfp4-tp8-b2048 keeps vLLM's A100 default of 2048 batched tokens, the setting of the earlier
 # 16-GPU FP8 latency/throughput table, so that table is also compared under equal settings.
+# epc-*: the expert-parallel comparison (aml/jobs/ep-compare-*.yml). Every layout serves the same weights
+# in native DSA with the demo's parsers, priority scheduling and 8,192 batched tokens, the context
+# auto-fitted to the KV cache (FULL_MAX_MODEL_LEN=-1), and runs the same functional, tool and epmatrix
+# suites. vLLM 0.23 has no expert-parallel size option: --enable-expert-parallel makes each MoE layer
+# expert parallel over the DP x TP ranks of its pipeline stage (FusedMoEParallelConfig.make), so
+# TP16 = EP16, TP8 x PP2 = EP8 per stage, DP2 x TP8 = EP16, and the one-node TP8 = EP8.
 plan_phase() {
   local name=$1 began model len seqs suites bi=0 rc batched=8192
   began=$(date +%s)
@@ -468,6 +569,10 @@ plan_phase() {
   local -a pp2=(--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray)
   local -a tp16=(--tensor-parallel-size 16 --pipeline-parallel-size 1 --distributed-executor-backend ray)
   local -a tp8=(--tensor-parallel-size 8 --pipeline-parallel-size 1 --distributed-executor-backend mp)
+  local -a dp2=(--tensor-parallel-size 8 --pipeline-parallel-size 1 --data-parallel-size 2
+                --data-parallel-size-local 1 --data-parallel-backend ray)
+  local -a ep=(--enable-expert-parallel) epc=(--scheduling-policy priority)
+  local epc_suites=functional,tools,epmatrix
   case "$name" in
     native-pp2) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS
                 suites=tools,niah,determinism,docsweep; args+=("${pp2[@]}") ;;
@@ -483,6 +588,20 @@ plan_phase() {
                suites=functional,tools,latency,docsweep32k,niah; args+=("${tp8[@]}") ;;
     nvfp4-tp8-b2048) model=$FULL_NATIVE; len=-1; seqs=$FULL_MAX_NUM_SEQS; suites=latency; batched=2048
                      args+=("${tp8[@]}") ;;
+    epc-fp8-tp8pp2) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                    args+=("${pp2[@]}" "${epc[@]}") ;;
+    epc-fp8-tp16ep16) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                      args+=("${tp16[@]}" "${ep[@]}" "${epc[@]}") ;;
+    epc-fp8-tp8pp2ep8) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                       args+=("${pp2[@]}" "${ep[@]}" "${epc[@]}") ;;
+    epc-fp8-tp16) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                  args+=("${tp16[@]}" "${epc[@]}") ;;
+    epc-fp8-dp2tp8ep16) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                        args+=("${dp2[@]}" "${ep[@]}" "${epc[@]}") ;;
+    epc-nvfp4-tp8) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                   args+=("${tp8[@]}" "${epc[@]}") ;;
+    epc-nvfp4-tp8ep8) model=$FULL_NATIVE; len=$FULL_MAX_MODEL_LEN; seqs=$FULL_MAX_NUM_SEQS; suites=$epc_suites
+                      args+=("${tp8[@]}" "${ep[@]}" "${epc[@]}") ;;
     *) phase_result "$name" failed "$began" "unknown phase"; return 1 ;;
   esac
   args+=(--max-num-batched-tokens "$batched")
@@ -490,14 +609,20 @@ plan_phase() {
     phase_result "$name" failed "$began" "EAGLE3 drafter not downloaded"; return 1
   fi
   [ "$bi" = 1 ] && export VLLM_BATCH_INVARIANT=1
+  [[ "$name" == epc-* ]] && report "node0.$name.gpu_before" --text "$(gpu_snapshot)"
   if ! serve "$name" "$FULL_HEALTH_TIMEOUT" "$model" "$len" "$seqs" "$FULL_GPU_MEM_UTIL" "${args[@]}"; then
     unset VLLM_BATCH_INVARIANT
+    [[ "$name" == epc-* ]] && report "node0.$name.parallel" --text "$(parallel_facts "$name")"
     phase_result "$name" failed "$began" "server never became healthy"; return 1
   fi
   report "node0.$name.facts" --text "$(server_facts "$name" | tail -c 7600)"
   report "node0.$name.engine_config" --text "$(engine_config "$name")"
   report "node0.$name.nccl" --text "$(nccl_transport "$name")"
   report "node0.$name.startup" --text "{\"seconds_to_healthy\": $(cat "$OUT/startup-$name.seconds"), \"nccl_ib\": \"$IB_MODE\"}"
+  if [[ "$name" == epc-* ]]; then
+    report "node0.$name.parallel" --text "$(parallel_facts "$name")"
+    report "node0.$name.gpu" --text "$(gpu_snapshot)"
+  fi
   if [ "$len" = -1 ]; then
     len=$(python3 -c "import json, urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/v1/models', timeout=30))['data'][0]['max_model_len'])" 2>/dev/null)
     report "node0.$name.max_model_len" --text "{\"auto_fit\": ${len:-null}, \"max_num_batched_tokens\": $batched}"
