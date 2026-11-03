@@ -10,6 +10,11 @@ AML caps the total size of a job's docker arguments (environment plus command); 
 RunHistory details). The demo job therefore carries no payload: it downloads the same tarball from the
 frontend (GET /api/link/src with its job token) and checks it against AXK2_SRC_SHA256.
 
+Templates with __AXK2_SRC_GIT__ carry no payload either: they download aml/src from this public repository
+at the pinned commit (raw.githubusercontent.com, the host the overlay already fetches from) and check every
+file against __AXK2_SRC_MANIFEST__ (name:sha256 of the git blob). Rendering refuses unless aml/src is
+committed and that commit is on the remote.
+
 usage: python aml/render_job.py aml/jobs/<template>.yml [more templates...]
 writes: aml/jobs/.rendered/<template>.yml
 The demo template also needs AXK2_LINK_URL and AXK2_LINK_TOKEN in the environment; the demo
@@ -21,6 +26,7 @@ import hashlib
 import io
 import os
 import re
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -29,23 +35,43 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).resolve().parent
 PLACEHOLDER = "__AXK2_SRC_B64__"
 SRC_URL = "__AXK2_SRC_URL__"
+SRC_GIT = "__AXK2_SRC_GIT__"
 LINK = ("AXK2_LINK_URL", "AXK2_LINK_TOKEN")
-SAFE = re.compile(r"[A-Za-z0-9._~:/?=&%+-]+")  # URL/token characters; no quotes, $ or braces (AML expressions)
+SAFE = re.compile(r"[A-Za-z0-9._~:/?=&%+,@-]+")  # URL/token characters; no quotes, $ or braces (AML expressions)
+
+
+def src_files():
+    return [path for path in sorted((HERE / "src").iterdir()) if path.is_file() and path.suffix in {".py", ".sh", ".json"}]
 
 
 def payload():
     buffer = io.BytesIO()
     with gzip.GzipFile(fileobj=buffer, mode="wb", filename="", mtime=0) as compressed:
         with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as tar:
-            for path in sorted((HERE / "src").iterdir()):
-                if not path.is_file() or path.suffix not in {".py", ".sh", ".json"}:
-                    continue
+            for path in src_files():
                 data = path.read_bytes().replace(b"\r\n", b"\n")
                 info = tarfile.TarInfo(path.name)
                 info.size, info.mtime = len(data), 0
                 info.mode = 0o755 if path.suffix == ".sh" else 0o644
                 tar.addfile(info, io.BytesIO(data))
     return base64.b64encode(buffer.getvalue()).decode()
+
+
+def git_pin():
+    """(owner/repo@commit, name:sha256,...) of aml/src at HEAD, which must be committed and pushed."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(HERE.parent), *args], capture_output=True, check=True).stdout
+    commit = git("rev-parse", "HEAD").decode().strip()
+    if git("status", "--porcelain", "--", "aml/src").strip():
+        raise ValueError("aml/src has uncommitted changes")
+    if not git("branch", "-r", "--contains", commit).strip():
+        raise ValueError(f"commit {commit} is not on the remote; push it first")
+    found = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$", git("remote", "get-url", "origin").decode().strip())
+    if not found:
+        raise ValueError("origin is not a GitHub repository")
+    names = [path.name for path in src_files()]
+    manifest = ",".join(f"{name}:{hashlib.sha256(git('show', f'{commit}:aml/src/{name}')).hexdigest()}" for name in names)
+    return f"{found.group(1)}@{commit}", manifest
 
 
 def digest(encoded):
@@ -61,8 +87,8 @@ def src_url(link_url):
 
 def render(text, encoded, values=None):
     """Fills the payload (or its digest) and __NAME__ for every NAME in values; refuses to leave any behind."""
-    if PLACEHOLDER not in text and SRC_URL not in text:
-        raise ValueError(f"the template has neither {PLACEHOLDER} nor {SRC_URL}")
+    if PLACEHOLDER not in text and SRC_URL not in text and SRC_GIT not in text:
+        raise ValueError(f"the template has none of {PLACEHOLDER}, {SRC_URL} or {SRC_GIT}")
     text = text.replace(PLACEHOLDER, encoded).replace("__AXK2_SRC_SHA256__", digest(encoded))
     values = dict(values or {})
     if SRC_URL in text and "AXK2_SRC_URL" not in values and values.get("AXK2_LINK_URL"):
@@ -84,13 +110,16 @@ def main(templates):
     target_dir.mkdir(exist_ok=True)
     for template in map(Path, templates):
         try:
-            text = render(template.read_text(encoding="utf-8"), encoded, values)
-        except ValueError as error:
+            source = template.read_text(encoding="utf-8")
+            pinned = dict(zip(("AXK2_SRC_GIT", "AXK2_SRC_MANIFEST"), git_pin())) if SRC_GIT in source else {}
+            text = render(source, encoded, {**values, **pinned})
+        except (ValueError, subprocess.CalledProcessError) as error:
             raise SystemExit(f"{template}: {error}")
         target = target_dir / template.name
         target.write_text(text, encoding="utf-8", newline="\n")
-        carried = len(encoded) if PLACEHOLDER in template.read_text(encoding="utf-8") else 0
-        print(f"{target} ({carried} base64 chars embedded, {len(text)} chars)")
+        carried = len(encoded) if PLACEHOLDER in source else 0
+        pin = f", scripts from {pinned['AXK2_SRC_GIT']}" if pinned else ""
+        print(f"{target} ({carried} base64 chars embedded, {len(text)} chars{pin})")
 
 
 if __name__ == "__main__":

@@ -148,6 +148,143 @@ class BundleTests(unittest.TestCase):
         verify = (ROOT / "aml" / "jobs" / "verify-remaining-nd96-hub.yml").read_text(encoding="utf-8")
         self.assertIn('AXK2_SRC_B64: "cGF5bG9hZA=="', render_job.render(verify, "cGF5bG9hZA=="))
 
+    def test_ep_compare_plan(self):
+        import re
+        from unittest import mock
+        sys.path.insert(0, str(ROOT / "aml"))
+        sys.path.insert(0, str(ROOT / "aml" / "src"))
+        try:
+            import render_job
+            import verify_suites
+        finally:
+            sys.path.pop(0)
+            sys.path.pop(0)
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        cases = dict(re.findall(r"^\s+(epc-[a-z0-9-]+)\) model=[^\n]*\n\s+args\+=\(([^)]*)\) ;;", entry, re.M))
+        expected = {"epc-fp8-tp8pp2": ("pp2", False), "epc-fp8-tp16ep16": ("tp16", True),
+                    "epc-fp8-tp8pp2ep8": ("pp2", True), "epc-fp8-tp16": ("tp16", False),
+                    "epc-fp8-dp2tp8ep16": ("dp2", True), "epc-nvfp4-tp8": ("tp8", False),
+                    "epc-nvfp4-tp8ep8": ("tp8", True)}
+        self.assertEqual(sorted(cases), sorted(expected))
+        for name, (layout, uses_ep) in expected.items():
+            with self.subTest(phase=name):
+                self.assertIn(f'"${{{layout}[@]}}"', cases[name])
+                self.assertEqual('"${ep[@]}"' in cases[name], uses_ep, "only the EP layouts set --enable-expert-parallel")
+                self.assertIn('"${epc[@]}"', cases[name])
+        self.assertIn("--data-parallel-size-local 1 --data-parallel-backend ray", entry)
+        self.assertIn("local -a ep=(--enable-expert-parallel) epc=(--scheduling-policy priority)", entry)
+        jobs = {"fp8": (ROOT / "aml" / "jobs" / "ep-compare-fp8-nd96.yml").read_text(encoding="utf-8"),
+                "nvfp4": (ROOT / "aml" / "jobs" / "ep-compare-nvfp4-nd96.yml").read_text(encoding="utf-8")}
+        for needle in ("instance_count: 2", 'IB_PROBE: "1"', 'TP: "8"', 'PP: "2"', 'FULL_MAX_NUM_SEQS: "64"',
+                       "hf:4237c6a60cec6ae449854870d01a42665a1166aa", "  timeout: 18000"):
+            self.assertIn(needle, jobs["fp8"])
+        for needle in ("instance_count: 1", "FULL_REPO: skt/A.X-K2-NVFP4", 'NVFP4_SM80_PORT: "1"', 'PP: "1"',
+                       'FULL_MAX_NUM_SEQS: "128"', "hf:9e2e804e80f8d1b3afba5d7938173cec1ed46b49", "  timeout: 10800"):
+            self.assertIn(needle, jobs["nvfp4"])
+        pin = {"AXK2_SRC_GIT": "owner/repo@" + "a" * 40, "AXK2_SRC_MANIFEST": "entry.sh:" + "b" * 64 + ",x.py:" + "c" * 64}
+        for kind, job in jobs.items():
+            with self.subTest(job=kind):
+                plan = re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split()
+                self.assertTrue(plan and all(p.startswith(f"epc-{kind}-") for p in plan), plan)
+                self.assertIn('FULL_MAX_MODEL_LEN: "-1"', job)
+                self.assertNotIn("NCCL_IB_DISABLE", job)
+                rendered = render_job.render(job, "cGF5bG9hZA==", pin)
+                self.assertIn(f'AXK2_SRC_GIT: "{pin["AXK2_SRC_GIT"]}"', rendered)
+                self.assertIn(f'AXK2_SRC_MANIFEST: "{pin["AXK2_SRC_MANIFEST"]}"', rendered)
+                self.assertNotIn("cGF5bG9hZA==", rendered)
+                self.assertIsNone(re.search(r"__AXK2_[A-Z0-9_]+__", rendered))
+                self.assertLess(len(rendered), 8_000, "AML caps the total docker argument size")
+                with self.assertRaisesRegex(ValueError, "AXK2_SRC_MANIFEST"):
+                    render_job.render(job, "cGF5bG9hZA==", dict(pin, AXK2_SRC_MANIFEST="x.py:${{y}}"))
+        plan = verify_suites.epmatrix_plan()
+        self.assertEqual([(p[1], p[3]) for p in plan], [(c, i) for i in (1024, 8192, 32768) for c in (1, 32)])
+        self.assertEqual(len({p[4] for p in plan}), len(plan), "a seed per point")
+        args = mock.Mock(base="http://x", out_dir="o", tag="t")
+        calls, results = [], {"isl8192-c32": 1}
+
+        def fake_bench(_, name, concurrency, prompts, isl, output, timeout, seed=2026):
+            calls.append(name)
+            return {"name": name, "returncode": results.get(name, 0)}
+
+        with mock.patch.object(verify_suites, "bench", fake_bench), mock.patch.object(verify_suites, "emit"), \
+                mock.patch.object(verify_suites, "server_healthy", return_value=True):
+            data = verify_suites.suite_epmatrix(args)
+        self.assertEqual(calls[:4], ["warmup-isl1024", "isl1024-c1", "isl1024-c32", "warmup-isl8192"])
+        self.assertEqual(len(data["points"]), 6)
+        self.assertNotIn("aborted", data)
+        calls.clear()
+        with mock.patch.object(verify_suites, "bench", fake_bench), mock.patch.object(verify_suites, "emit"), \
+                mock.patch.object(verify_suites, "server_healthy", return_value=False):
+            data = verify_suites.suite_epmatrix(args)
+        self.assertEqual(calls[-1], "isl8192-c32")
+        self.assertIn("isl8192-c32", data["aborted"])
+
+    def test_expert_parallel_evidence(self):
+        import re
+        text = (ROOT / "evidence" / "a100-expert-parallel-comparison.json").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text), "no host addresses")
+        evidence = json.loads(text)
+        expected = {"fp8": {"epc-fp8-tp8pp2": (None, 1), "epc-fp8-tp16ep16": (16, 1), "epc-fp8-tp8pp2ep8": (32, 1),
+                            "epc-fp8-tp16": (None, 1), "epc-fp8-dp2tp8ep16": (16, 2)},
+                    "nvfp4": {"epc-nvfp4-tp8": (None, 1), "epc-nvfp4-tp8ep8": (32, 1)}}
+        for kind, configs in expected.items():
+            job = evidence["jobs"][kind]
+            self.assertEqual(sorted(job["configs"]), sorted(configs))
+            for tag, (experts_per_gpu, engines) in configs.items():
+                with self.subTest(layout=tag):
+                    config = job["configs"][tag]
+                    self.assertEqual(config["phase"]["status"], "passed")
+                    self.assertFalse(config["eager_fallback"])
+                    self.assertEqual((config["functional"]["passed"], config["tools"]["passed"]), (4, 9))
+                    self.assertEqual(len(config["points"]), 6)
+                    self.assertTrue(all(p["returncode"] == 0 for p in config["points"].values()))
+                    self.assertEqual(config["engines"], engines)
+                    placement = config["parallel"]["expert_placement"]
+                    self.assertEqual(sorted({e["local_experts"] for e in placement}), [experts_per_gpu] if experts_per_gpu else [])
+        fp8 = evidence["jobs"]["fp8"]["configs"]
+        self.assertEqual(fp8["epc-fp8-dp2tp8ep16"]["max_model_len"]["auto_fit"], 238656)
+        self.assertIn("Using AgRsAll2AllManager all2all manager.", fp8["epc-fp8-dp2tp8ep16"]["parallel"]["dispatch"])
+        self.assertEqual(fp8["epc-fp8-tp16ep16"]["parallel"]["dispatch"], ["Using MoEPrepareAndFinalizeNoDPEPModular"])
+        ratio = (fp8["epc-fp8-dp2tp8ep16"]["points"]["isl8192-c32"]["output_throughput"]
+                 / fp8["epc-fp8-tp8pp2"]["points"]["isl8192-c32"]["output_throughput"])
+        self.assertAlmostEqual(ratio, 1.36, places=2)
+        self.assertIn("no expert-parallel size option", evidence["how_vllm_0_23_forms_ep"]["option"])
+
+    def test_vllm_config_catalog(self):
+        import re
+        catalog = (ROOT / "docs" / "VLLM_CONFIGS.md").read_text(encoding="utf-8")
+        self.assertIn("(docs/VLLM_CONFIGS.md)", (ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("(VLLM_CONFIGS.md)", (ROOT / "docs" / "SERVING_DESIGN.md").read_text(encoding="utf-8"))
+        self.assertIn("## Operating status (2026-10-22)", catalog)
+        entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
+        plan_phases = set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M))
+        for template in ("ep-compare-fp8-nd96.yml", "ep-compare-nvfp4-nd96.yml", "verify-remaining-nd96-hub.yml",
+                         "nvfp4-a100-nd96.yml"):
+            job = (ROOT / "aml" / "jobs" / template).read_text(encoding="utf-8")
+            for phase in re.search(r'PHASE_PLAN: "([^"]+)"', job).group(1).split():
+                with self.subTest(phase=phase):
+                    self.assertIn(f"`{phase}`", catalog)
+                    self.assertIn(phase, plan_phases)
+        for name in set(re.findall(r"`(?:aml/jobs/)?([a-z0-9-]+\.yml)`", catalog)):
+            with self.subTest(template=name):
+                self.assertTrue((ROOT / "aml" / "jobs" / name).is_file(), name)
+        for sha in ("4237c6a60cec6ae449854870d01a42665a1166aa", "9e2e804e80f8d1b3afba5d7938173cec1ed46b49",
+                    "24958e91737d760908f73a8af4b6e06080fc5c1d"):
+            self.assertIn(sha, catalog)
+        table = []
+        for line in catalog.splitlines() + [""]:
+            if line.startswith("|"):
+                table.append(line.count("|"))
+            elif table:
+                self.assertEqual(len(set(table)), 1, f"a table has rows with different cell counts: {table}")
+                table = []
+        for pattern in (r"\b(?!0\.0\.0\.0\b)\d{1,3}(?:\.\d{1,3}){3}\b",
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                        r"\b[a-z]+_[a-z]+_(?=[a-z0-9]*\d)[a-z0-9]{10}\b", r"\b\d{1,2}:\d{2}(?::\d{2})?Z?\b",
+                        r"azurewebsites\.net|azureml\.ms|\brg-[a-z0-9]|-mlw\b"):
+            with self.subTest(pattern=pattern):
+                self.assertIsNone(re.search(pattern, catalog), "no IDs, hosts or clock times in a public doc")
+
     def test_verification_plan(self):
         import re
         sys.path.insert(0, str(ROOT / "aml" / "src"))
