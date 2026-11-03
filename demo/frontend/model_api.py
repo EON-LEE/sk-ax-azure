@@ -15,7 +15,7 @@ chunks pass through unchanged (minus reasoning and the usage chunk unless asked 
 built from the same chunks, and the upstream request is built from an allow-list: a caller cannot set vLLM
 extensions such as chat_template_kwargs, guided_* or priority. A tool name that differs from a declared one only
 by "mcp_" parts becomes the declared one. Nothing in a request or response body, no header and no key is ever
-logged: one JSON line per request carries counts and timings only.
+logged: one JSON line per request carries counts, lengths, flags and timings only.
 """
 import asyncio
 import collections
@@ -493,11 +493,47 @@ def declared_name(name, declared):
     return same.pop() if len(same) == 1 else name
 
 
+class Watch:
+    """What the log says of a response's tool calls: counts, lengths and flags, never a name or any text."""
+    MARKS = ("<tool_call>", "</tool_call>")  # hermes' tags, left in the text when its parser did not take the call
+
+    def __init__(self, tools):
+        self.tools, self.names, self.repaired, self.marked, self.tail = tools, {}, set(), False, ""
+
+    def see(self, delta):
+        """Note one stream delta before a name in it is replaced. Nothing here changes the delta or raises."""
+        text, calls = delta.get("content"), delta.get("tool_calls")
+        if isinstance(text, str) and not self.marked:
+            text = self.tail + text
+            self.marked, self.tail = any(mark in text for mark in self.MARKS), text[-11:]  # a tag may be cut in two
+        for call in calls if isinstance(calls, list) else ():
+            if not isinstance(call, dict):
+                continue
+            index = call.get("index")
+            index = index if type(index) is int else 0
+            function = call.get("function") if isinstance(call.get("function"), dict) else {}
+            name, so_far = function.get("name"), self.names.setdefault(index, "")
+            if isinstance(name, str) and name and name != so_far:  # a name is put together as Synth.call does
+                self.names[index] = so_far + name
+                if self.tools and declared_name(name, self.tools) != name:
+                    self.repaired.add(index)
+
+    def summary(self, finish):
+        """The log's `tool_calls`: how many calls were parsed, what each name looked like (as the model wrote it,
+        before a replacement), whether the finish reason says "tool_calls" with no call, and whether a tag is left."""
+        names = [{"len": len(name), "declared": name in self.tools, "repaired": index in self.repaired,
+                  "mcp_parts": name.count("mcp_"), "functions_prefix": name.startswith("functions."),
+                  "has_dot": "." in name} for index, name in sorted(self.names.items())[:8]]
+        return {"count": len(self.names), "names": names,
+                "finish_without_calls": finish == "tool_calls" and not self.names, "marker_in_text": self.marked}
+
+
 class Events:
     """Whole SSE events out of the link's text, plus what the log and the non-stream answer need."""
 
     def __init__(self, ctx, tools=()):
         self.ctx, self.tools = ctx, frozenset(tools)
+        self.watch = ctx.watch = Watch(self.tools)
         self.buffer, self.done, self.finish, self.usage = "", False, None, None
 
     def rename(self, calls):
@@ -564,6 +600,7 @@ class Events:
                     if key in delta:
                         del delta[key]
                         trimmed = True
+                self.watch.see(delta)
                 renamed = self.rename(delta.get("tool_calls")) or renamed
                 if delta.get("content") or delta.get("tool_calls"):
                     self.ctx.token()
@@ -640,7 +677,7 @@ class Synth:
 
 # ------------------------------------------------------------------------------------ one request
 class Context:
-    """What a request leaves in the log: counts and timings, never any content."""
+    """What a request leaves in the log: counts, lengths, flags and timings, never any content."""
 
     def __init__(self, request_id, profile):
         self.request_id, self.profile = request_id, profile
@@ -648,6 +685,7 @@ class Context:
         self.prompt_tokens = self.completion_tokens = self.finish_reason = self.queue = self.ttft = None
         self.dropped = []
         self.repairs = collections.deque(maxlen=8)
+        self.watch = None  # the Watch of the response, once vLLM's answer is being read
         self.started, self.logged = time.monotonic(), False
 
     def token(self):
@@ -669,6 +707,8 @@ class Context:
             record["dropped_fields"] = self.dropped
         if self.repairs:
             record["tool_name_repairs"] = list(self.repairs)
+        if self.watch:
+            record["tool_calls"] = self.watch.summary(self.finish_reason)
         try:
             LOG.info(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
         except Exception:

@@ -18,7 +18,7 @@ try:
 finally:
     del sys.path[:1]
 
-api, ASK, Reply, LOG_KEYS = units.api, support.ASK, support.Reply, failures.LOG_KEYS
+api, ASK, Reply, ANSWERED_KEYS = units.api, support.ASK, support.Reply, failures.ANSWERED_KEYS
 SEARCH = "mcp___mcp_example_service___generic_search_lookup"  # a declared name, 49 characters
 SEARCH_LOST = "mcp___example_service___generic_search_lookup"  # without one "mcp_", 45 characters
 SEARCH_EXTRA = "mcp_mcp___example_service___generic_search_lookup"  # one "mcp_" more than SEARCH_LOST
@@ -350,13 +350,13 @@ class LogRecordTests(unittest.TestCase):
         _, _, _, ctx = run("".join(hermes(SEARCH_LOST)), [SEARCH])
         line, record = self.logged(ctx)
         self.assertEqual(record["tool_name_repairs"], [{"emitted_len": 45, "declared_len": 49}])
-        self.assertEqual(set(record), LOG_KEYS | {"tool_name_repairs"})
+        self.assertEqual(set(record), ANSWERED_KEYS | {"tool_name_repairs"})
         for secret in (SEARCH, SEARCH_LOST, "unique-arg-4417"):
             self.assertNotIn(secret, line)
 
     def test_a_call_without_a_repair_leaves_no_key(self):
         _, _, _, ctx = run("".join(hermes(SEARCH)), [SEARCH])
-        self.assertEqual(set(self.logged(ctx)[1]), LOG_KEYS)
+        self.assertEqual(set(self.logged(ctx)[1]), ANSWERED_KEYS)
 
     def test_a_long_run_of_repairs_keeps_the_line_short(self):
         calls = [{"index": i, "id": f"call-{i}", "type": "function",
@@ -425,21 +425,21 @@ class ToolNameApiTests(failures.FailureCase):
                 answer = await self.ask(blocks, declared, stream=True)
                 self.assertEqual(answer.text, "".join(blocks))
         records = await self.logged(len(cases) * 2)
-        self.assertTrue(all(set(record) == LOG_KEYS for record in records), records)
+        self.assertTrue(all(set(record) == ANSWERED_KEYS for record in records), records)
 
     async def test_a_name_that_is_not_a_string_arrives_as_it_was_sent(self):
         start = {"index": 0, "id": "call-1", "type": "function", "function": {"name": 7, "arguments": "{}"}}
         blocks = wire(units.chunk({"tool_calls": [start]}), units.chunk({}, "tool_calls"), "[DONE]")
         answer = await self.ask(blocks, [SEARCH], stream=True)
         self.assertEqual(answer.text, "".join(blocks))
-        self.assertEqual(set((await self.logged(1))[0]), LOG_KEYS)
+        self.assertEqual(set((await self.logged(1))[0]), ANSWERED_KEYS)
 
     async def test_the_log_has_lengths_only(self):
         for stream in (False, True):
             await self.ask(hermes(SEARCH_LOST), [SEARCH], stream=stream)
         records = await self.logged(2)
         for record in records:
-            self.assertEqual(set(record), LOG_KEYS | {"tool_name_repairs"})
+            self.assertEqual(set(record), ANSWERED_KEYS | {"tool_name_repairs"})
             self.assertEqual(record["tool_name_repairs"], [{"emitted_len": 45, "declared_len": 49}])
         logged = sys.stdout.getvalue()
         for secret in (SEARCH, SEARCH_LOST, "unique-arg-4417"):
