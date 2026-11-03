@@ -852,11 +852,14 @@ set vLLM extensions such as `chat_template_kwargs`, `guided_*` or `priority`.
 - Stream: vLLM's `data:` chunks pass through unchanged and the stream ends with
   `data: [DONE]`; there are no `event:` lines. vLLM always gets
   `include_usage`; the final usage chunk is removed unless the caller asked for
-  it. `reasoning_content` is removed. When the first token takes longer than
-  ten seconds, the response starts (HTTP 200) and `: keepalive` comment lines
-  follow every ten seconds of silence. A failure after the first byte is an
-  error object in a `data:` chunk followed by `[DONE]`; before that it is an
-  ordinary HTTP error.
+  it. `reasoning_content` is removed. A tool call whose name is not declared
+  but differs from exactly one declared name only by `mcp_` parts gets that
+  declared name (a non-stream answer, built from the same chunks, gets it too);
+  only that chunk is re-serialized as compact JSON. When the first token takes
+  longer than ten seconds, the response starts (HTTP 200) and `: keepalive`
+  comment lines follow every ten seconds of silence. A failure after the first
+  byte is an error object in a `data:` chunk followed by `[DONE]`; before that
+  it is an ordinary HTTP error.
 - Non-stream: one `chat.completion` JSON built from vLLM's chunks, with
   `tool_calls` deltas merged by index, `function.arguments` as a JSON string,
   `finish_reason` (`stop`, `length` or `tool_calls`) and `usage`.
@@ -923,8 +926,10 @@ its default, and a number outside its allowed range is clamped.
 **Logs.** One JSON line per request on stdout (logger `axk2.model_api`):
 `request_id`, `profile`, `route`, `stream`, `status`, `prompt_tokens`,
 `completion_tokens`, `ttft_ms`, `queue_ms`, `total_ms`, `finish_reason`, a short
-`error` code and `dropped_fields` (names only). Prompts, answers, headers, keys
-and caller addresses are never logged.
+`error` code, `dropped_fields` (names only) and, only when a tool name was
+replaced, `tool_name_repairs` (lengths only, never the names: `emitted_len` of
+the name the model sent and `declared_len` of the declared name; 8 entries at
+most). Prompts, answers, headers, keys and caller addresses are never logged.
 
 **Foundry's request.** Traces at the API Management gateway show what a Foundry
 agent sends: `POST {base}/chat/completions` with no query string (no
@@ -1008,9 +1013,11 @@ independent evidence that those turns used this model. Prompt tokens differ, by
 repeats. One reading is that Foundry's usage counts only the input of the last
 model request in a turn, while vLLM counts all of them, so that the difference
 is the input of the first request. The same difference in all three repeats
-fits that reading, but it is a guess and has not been checked: the counter was
-sampled every 12 seconds, which cannot separate the first request from the
-second.
+fits that reading, but it was not checked directly: the counter was sampled
+every 12 seconds, which cannot separate the first request from the second. A
+later measurement fits the reading too: the first model request of a
+successful run has 482 tokens at vLLM (see "Replay of the captured request"
+below), and 482 plus the 4 seen in the first turn is 486.
 
 **An unexplained Foundry `model_error`.** One run of an FP8 agent with an MCP
 tool (approval `never`) ended in a Foundry 500 `model_error` ("The model
@@ -1022,8 +1029,11 @@ Management gateway recorded a 200 from the backend after 1.1 seconds. Foundry
 did not retry. In Foundry's trace the span of the tool run was named
 differently from the spans of successful runs (details: the Foundry BYOM
 README, `demo/foundry-byom/README.md`, section 9). One guess is that the model
-wrote a tool name with a prefix such as `functions.`, which did not match the
-declared name. It rests on that one span and has not been verified.
+wrote a tool name that did not match the declared one, so that Foundry did not
+treat the call as an MCP call. A trace does not show the name the model wrote:
+in the traces of successful runs the tool name also differs from the declared
+name (it has an `mcp_` form), so a trace holds the name after Foundry's own
+conversion. The guess has not been verified.
 
 The same agent definition, with no `temperature` and the same prompt, was then
 run three more times from Foundry through the Responses API, one call after
@@ -1054,13 +1064,14 @@ activation state as before, and the queue was empty.
 
 The prompt sizes do not agree. The failed request had 482 tokens at vLLM. The
 reconstruction used in the replays had 472 in every call, so the replays are
-not token-identical to the failed request. For the three Foundry retests the
-counters suggest about 486 tokens for the first model request of a turn (see
-"Evidence that K2 answers"): about 14 more than the reconstruction and 4 more
-than the failed request. That figure is an estimate. It rests on a guess about
-how Foundry counts input. The first turn above also shows a difference of 4
-that is not explained, so the 4-token gap to the failed request may come from
-the counting and not from the requests.
+not token-identical to the failed request. The exact body of a successful
+run's first model request, taken later (see "Replay of the captured request"
+below), also has 482 tokens at vLLM, the same as the failed request. That
+replaces the earlier estimate of about 486 for the first request of the Foundry
+retests. The 486 in "Evidence that K2 answers" fits 482, measured for a
+successful run of the same agent, plus the difference of 4 that Foundry's input
+count showed in a turn with one request. This was not checked directly, and the
+cause of the difference of 4 is not known.
 
 What these results show: the error was not reproduced, and its cause is not
 known. The 44 direct replays (29 at temperature 1.0, 15 at 0.3) had no
@@ -1075,7 +1086,38 @@ the stream analysis below shows the few ways in which the model API changes a
 stream. Setting `temperature` to 0.3 on the agent is a precaution that needs
 no redeployment: 15 of 15 direct replays and 2 of 2 Foundry runs at that
 value were clean. Those counts are not statistical evidence that it prevents
-the error.
+the error. The counts of Foundry runs in this paragraph are those at the time
+of the 44 replays; later runs, including a second failure, are counted in
+section 9 of the Foundry BYOM README (`demo/foundry-byom/README.md`).
+
+**Replay of the captured request.** A successful Foundry run of the same agent
+as the failed run left a gateway trace, and the exact body of its first model
+request was taken from it (2,333 bytes). It has 482 prompt tokens at vLLM, the
+same count as the failed request; the reconstruction above had 472. The body
+was sent unchanged, directly to the FP8 route (not through API Management or
+Foundry), 100 times at temperature 1.0, and 100 more times with only the value
+of `temperature` changed to 0.3. The calls were sequential, at least 3 seconds
+apart, and none was retried. The two series ran one after the other, not
+interleaved. Every call returned HTTP 200, and no stream had an `error` chunk.
+
+| Temperature | Calls | Declared tool name | Name with one `mcp_` missing | Text only |
+| --- | --- | --- | --- | --- |
+| 1.0 | 100 | 91 | 3 | 6 |
+| 0.3 | 100 | 100 | 0 | 0 |
+
+The 3 near names had 45 characters, not the 49 of the declared name:
+`mcp___<label>___<tool>` in place of `mcp___mcp_<label>___<tool>`. The model
+API sent them as it received them; the tool-name replacement in the table of
+stream shapes below was added after this replay. The responses that did not
+carry the declared tool name were 9 of 100 at 1.0 (3 near names and 6 text
+only) and 0 of 100 at 0.3. The difference in near names alone, 3 against 0, is
+within what chance can produce; the difference in all responses without the
+declared name, 9 against 0, is unlikely to be chance. Because the two series
+ran one after the other, a change between them cannot be ruled out. The replays
+show that the model can return a name other than the declared one, here with
+one `mcp_` missing. They do not show whether such a name causes the Foundry
+`model_error`: the replayed body comes from a successful run and the body of
+the failed response was not kept, so any link between the two is a guess.
 
 **Stream shapes (offline analysis).** To see what the model API can add to a
 stream that Foundry might call invalid, 69 synthetic upstream streams were fed
@@ -1087,30 +1129,39 @@ is an ordinary HTTP error, not a stream.
 
 | The upstream stream has | The model API sends | Responsible |
 | --- | --- | --- |
-| Tool-call `arguments` that are not valid JSON or are cut off (`finish_reason` `length`); a tool name that was not declared, misspelled or prefixed (for example `functions.`); an empty answer; text mixed with tool calls; `tool_calls` with no call, or a call with `stop`; a missing `id`, `type` or `index`; a repeated `finish_reason`; a usage chunk in an odd place when the caller asked for usage | The same bytes | Model |
+| Tool-call `arguments` that are not valid JSON or are cut off (`finish_reason` `length`); a tool name that was not declared, misspelled or prefixed (for example `functions.`), except the case of the `mcp_` row below; an empty answer; text mixed with tool calls; `tool_calls` with no call, or a call with `stop`; a missing `id`, `type` or `index`; a repeated `finish_reason`; a usage chunk in an odd place when the caller asked for usage | The same bytes | Model |
 | U+FFFD, `\u0000` or `\ud800` escapes, invalid UTF-8 bytes, a multi-byte character split across reads | The same bytes | Model |
 | A usage chunk (empty `choices`) that the caller did not ask for | Nothing: the chunk is removed | Model API, by design |
 | `reasoning_content` | A chunk with only reasoning is dropped; with other delta fields it is re-serialized as compact JSON | Model API, by design |
+| A tool name that is not declared and equals exactly one declared name once every `mcp_` is removed from both | The declared name in its place; the chunk is re-serialized as compact JSON | Model API, by design |
 | No `[DONE]`, a second `[DONE]`, events after it, `event:`, `id:` or `retry:` lines, CRLF | One `[DONE]` at the end, the rest dropped, CRLF as LF | Model API, by design |
 | No data for ten seconds or more before the first chunk | `: keepalive` comment lines, which the OpenAI Python SDK ignores | Model API, by design |
 | An upstream error event, an end without `finish_reason`, a lost link, the time limit, an upstream 4xx after the response started, a raw NUL byte in a JSON string | A `data:` chunk with an `error` object, then `[DONE]`, in an HTTP 200 response; the log's `error` field is set (limit 7) | Model API |
 | An upstream 4xx before any byte | An ordinary HTTP error with the OpenAI error body | Model API |
 | `reasoning_content` and an unpaired surrogate escape in the same chunk | An `internal_error` chunk, then `[DONE]` (limit 8) | Model API, a defect |
 
-The model API never changes tool names, arguments, `finish_reason`, ids or
-indexes, and it does not validate or retry them: a malformed tool call from the
-model reaches Foundry as it is, because the stream passes through unchanged by
-design. The `error` chunk has no `choices`. The OpenAI Python SDK raises
-`APIError` on it and ignores comment lines; how Foundry's parser treats either
-is not known.
+The `mcp_` row is not part of the offline analysis above;
+`tests/test_demo_model_api_tool_names.py` covers it. Its effect with the real
+model and with Foundry is not verified: only local tests with fakes have been
+run.
+
+The model API changes a tool name only in the `mcp_` case above. It never
+changes arguments, `finish_reason`, ids or indexes, and it does not validate or
+retry tool calls: any other malformed tool call from the model reaches Foundry
+as it is, because the stream otherwise passes through unchanged by design. The
+`error` chunk has no `choices`. The OpenAI Python SDK raises `APIError` on it
+and ignores comment lines; how Foundry's parser treats either is not known.
 
 To tell the model's output from a fault of the model API, find the request's
 `x-request-id` in the model API's log line. A `status` of 200 with an empty
 `error` means the stream was the model's own output, apart from the changes
-marked "by design" above. A `finish_reason` of `length`, or `completion_tokens`
-near the token cap, means an answer that was cut off. A `status` of 200 with a
-non-empty `error` (for example `upstream_error`, `backend_unavailable`,
-`timeout` or `internal_error`) means the model API sent an error chunk.
+marked "by design" above. A `tool_name_repairs` key in the line means that the
+model API changed a tool name in that request, and that the name the model sent
+differed from the declared name; the line holds lengths only, never the names.
+A `finish_reason` of `length`, or `completion_tokens` near the token cap, means
+an answer that was cut off. A `status` of 200 with a non-empty `error` (for
+example `upstream_error`, `backend_unavailable`, `timeout` or `internal_error`)
+means the model API sent an error chunk.
 
 **Known limits.**
 
@@ -1159,11 +1210,15 @@ non-empty `error` (for example `upstream_error`, `backend_unavailable`,
 
 - What caused the one Foundry `model_error`: the model's output, how Foundry
   read the stream, or a difference in the request. It was not reproduced in 44
-  direct replays or in 3 Foundry retests.
-- Why the prompt sizes differ: 482 tokens in the failed request, 472 in the
-  replay reconstruction and about 486 (an estimate) in the successful Foundry
-  requests; and how Foundry counts input tokens for a turn with more than one
-  model request.
+  direct replays or in 3 Foundry retests. In replays of the captured request
+  the model returned a name with one `mcp_` missing in 3 of 100 calls at
+  temperature 1.0 and in 0 of 100 at 0.3; whether such a name causes the error
+  has not been checked.
+- What the tool-name replacement does with the real model and with Foundry: it
+  was tested only locally, with fakes.
+- Why Foundry's input count is 4 below vLLM's for the same request, and
+  whether Foundry counts only the last model request of a turn. The figures
+  fit (482 + 4 = 486 in the retests) but were not checked directly.
 - How Foundry's parser treats an `error` chunk in a stream, and a tool call
   whose `arguments` are not valid JSON.
 - What the Foundry console shows for this connection: the model setting, the
@@ -1271,8 +1326,9 @@ encodability check to the demo chat's request validation.
   `fastsafetensors` loading) is out of scope for this proof.
 - The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
   registration. Its open items are listed at the end of 8.6: the cause of one
-  unexplained Foundry `model_error`, the prompt-size differences, how Foundry
-  handles a stream error chunk and malformed tool arguments, console
-  visibility and the Web IQ tool with a real key. Its latency and load are not
-  measured; do that with the customer's scenario once the connection is
-  complete.
+  unexplained Foundry `model_error`, what the tool-name replacement does with
+  the real model and with Foundry, why Foundry's input count is 4 below
+  vLLM's, how Foundry handles a stream error chunk and malformed tool
+  arguments, console visibility and the Web IQ tool with a real key. Its
+  latency and load are not measured; do that with the customer's scenario once
+  the connection is complete.
