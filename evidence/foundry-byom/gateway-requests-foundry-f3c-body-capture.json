@@ -1,0 +1,415 @@
+{
+  "observedAt": "2026-10-20T06:19:42Z",
+  "window": {
+    "start": "2026-10-20T05:49:30Z",
+    "end": "2026-10-20T05:53:30Z"
+  },
+  "includeSmoke": false,
+  "capped": [],
+  "summary": {
+    "requests": 5,
+    "smokeLeftOut": 0,
+    "callers": {
+      "other": 5
+    },
+    "status": {
+      "200": 5
+    },
+    "answeredBy": {
+      "backend": 5
+    },
+    "gapsSecondsBetweenCallerRequests": [
+      3.83,
+      72.23,
+      66.51,
+      3.3
+    ],
+    "identicalShapes": false,
+    "gatewayOverheadMs": {
+      "min": 1.6,
+      "max": 147.3
+    },
+    "tracedRequests": 5,
+    "clientCredentialsForwarded": 0,
+    "authorizationInjected": 5,
+    "callerSideSpans": {
+      "chat": {
+        "count": 3,
+        "status": {
+          "0": 3
+        }
+      },
+      "execute_tool": {
+        "count": 2,
+        "status": {
+          "0": 2
+        },
+        "tools": {
+          "mcp_microsoft_learn.microsoft_docs_search": 2
+        },
+        "resultKey": {
+          "present": 2,
+          "absent": 0
+        }
+      },
+      "invoke_agent": {
+        "count": 3,
+        "status": {
+          "0": 3
+        }
+      }
+    },
+    "otherTraceRows": 0
+  },
+  "requests": [
+    {
+      "at": "2026-10-20T05:50:14.211Z",
+      "operation": "773775b7",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 1377.4,
+      "requestSize": 3978,
+      "responseSize": 6198,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 1230.1
+      },
+      "gatewayOverheadMs": 147.3,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 2,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 384,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 0.0
+    },
+    {
+      "at": "2026-10-20T05:50:18.038Z",
+      "operation": "773775b7",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 2180.5,
+      "requestSize": 48282,
+      "responseSize": 20587,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 2178.3
+      },
+      "gatewayOverheadMs": 2.2,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 4,
+        "roles": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 342,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 3.83
+    },
+    {
+      "at": "2026-10-20T05:51:30.263Z",
+      "operation": "c7d11058",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 3220.6,
+      "requestSize": 3984,
+      "responseSize": 33715,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 3219.0
+      },
+      "gatewayOverheadMs": 1.6,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 2,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 384,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 76.05
+    },
+    {
+      "at": "2026-10-20T05:52:36.777Z",
+      "operation": "2afc219f",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 1222.4,
+      "requestSize": 3982,
+      "responseSize": 6198,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 1220.6
+      },
+      "gatewayOverheadMs": 1.8,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 2,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 384,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 142.57
+    },
+    {
+      "at": "2026-10-20T05:52:40.081Z",
+      "operation": "2afc219f",
+      "call": "POST /fp8/v1/chat/completions",
+      "url": {
+        "path": "/fp8/v1/chat/completions",
+        "queryNames": [],
+        "apiVersion": null
+      },
+      "subscription": "foundry-byom",
+      "caller": "other",
+      "status": "200",
+      "gatewayMs": 2799.3,
+      "requestSize": 48288,
+      "responseSize": 27377,
+      "backend": {
+        "call": "POST /v1/chat/completions",
+        "status": "200",
+        "ms": 2797.4
+      },
+      "gatewayOverheadMs": 1.9,
+      "answeredBy": "backend",
+      "shape": {
+        "backendPath": "/v1/chat/completions",
+        "userAgent": "",
+        "model": "ax-k2-fp8",
+        "stream": true,
+        "fields": [
+          "messages",
+          "stream",
+          "max_completion_tokens",
+          "stream_options",
+          "model",
+          "temperature",
+          "top_p",
+          "tools",
+          "parallel_tool_calls",
+          "tool_choice"
+        ],
+        "tokenLimit": [
+          "max_completion_tokens"
+        ],
+        "messages": 4,
+        "roles": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "tools": [
+          "mcp___mcp_microsoft_learn___microsoft_docs_search"
+        ],
+        "toolCount": 1,
+        "toolChoice": "\"auto\"",
+        "hasToolChoice": true,
+        "parameters": {
+          "max_completion_tokens": 342,
+          "parallel_tool_calls": false,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      },
+      "clientCredentialsForwarded": [],
+      "authorizationInjected": true,
+      "duringSpan": "invoke_agent",
+      "tSeconds": 145.87
+    }
+  ]
+}
