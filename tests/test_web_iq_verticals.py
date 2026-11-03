@@ -12,6 +12,7 @@ from tests.test_web_iq import WebIQ, WebIQProblem, PublicSearchPermission, VERTI
 from tests.test_demo_agent import FixtureHub, FixtureLink
 from agent import agent_response
 from hub import Gate
+from web_iq import HIDDEN_PROPERTIES
 from workspace import Workspace
 
 
@@ -72,13 +73,16 @@ class VerticalTests(unittest.IsolatedAsyncioTestCase):
         tools = provider.tools()
         self.assertEqual({t.name for t in tools}, {"web_iq_" + name for name in VERTICALS})
         for tool in tools:
-            props = tool.to_json_schema_spec()["function"]["parameters"]["properties"]
+            props = tool.parameters()["properties"]
+            shown = tool.to_json_schema_spec()["function"]["parameters"]["properties"]
             if "maxResults" in props:
                 self.assertEqual(props["maxResults"]["maximum"], 5)
                 self.assertIn("hard limit 5", props["maxResults"]["description"])
             if "maxLength" in props:
                 self.assertEqual(props["maxLength"]["default"], 1500)
                 self.assertIn("1500", props["maxLength"]["description"])
+            self.assertFalse(set(shown) & set(HIDDEN_PROPERTIES), tool.name)
+            self.assertEqual(set(shown), set(props) - set(HIDDEN_PROPERTIES), tool.name)
         for name in VERTICALS:
             with self.subTest(name=name), patch.object(provider, "validate_browse"):
                 query = "https://example.org/" if name == "browse" else "Samsung public news"

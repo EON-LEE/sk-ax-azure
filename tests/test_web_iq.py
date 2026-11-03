@@ -106,8 +106,8 @@ class WebIQTests(unittest.IsolatedAsyncioTestCase):
             result = json.loads(await provider.search("agent-framework"))
             self.assertEqual(calls, [{"q": "agent-framework", "count": 2}])
             self.assertEqual(result["citations"][0]["title"], "Actual fixture provenance")
-            self.assertEqual(result["citations"][0]["provenance"]["snippet"],
-                             "Returned by the protocol fixture, not live Web IQ.")
+            self.assertEqual(set(result["citations"][0]), {"url", "title"})
+            self.assertEqual(result["items"][0]["snippet"], "Returned by the protocol fixture, not live Web IQ.")
             self.assertTrue(provider.verified_search)
             await provider.search("Samsung stock latest news")
             self.assertEqual(len(calls), 2)

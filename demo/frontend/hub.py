@@ -8,12 +8,53 @@ at most max_active are relayed at once and at most max_queue wait, and waiting c
 import asyncio
 import collections
 import json
+import logging
+import re
 import secrets
+import sys
 import time
 
 from starlette.responses import StreamingResponse
 
 FRESH = 30  # seconds a link status stays valid for routing
+LOG = logging.getLogger("axk2.link")
+
+
+class Stderr(logging.StreamHandler):
+    """Logs to whatever sys.stderr is at the moment, so a later redirect of sys.stderr is followed."""
+
+    def __init__(self):
+        super().__init__(sys.stderr)
+
+    @property
+    def stream(self):
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value):
+        pass
+
+
+def install_logging():
+    """Send the link's INFO lines to stderr. Only this logger is touched, never the root logger, and a second
+    call adds nothing."""
+    if not LOG.handlers:
+        handler = Stderr()
+        formatter = logging.Formatter("%(asctime)s %(name)s %(message)s", "%Y-%m-%dT%H:%M:%SZ")
+        formatter.converter = time.gmtime
+        handler.setFormatter(formatter)
+        LOG.addHandler(handler)
+        LOG.setLevel(logging.INFO)
+        LOG.propagate = False
+
+
+def clip(value, limit=64):
+    """Text from the peer or an exception as one short run without quotes, line breaks or control characters."""
+    return re.sub(r"[^\w .,:;/()+-]", "?", str(value))[:limit]
+
+
+def elapsed(now, then):
+    return "-" if then is None else "%.1fs" % max(now - then, 0.0)
 
 
 def sse(event, data):
@@ -98,13 +139,16 @@ class LinkConn:
         self.outbox, self.streams = asyncio.Queue(), {}
         self.hello = self.status = self.status_at = None
         self.connected, self.closed = time.time(), False
+        self.close_why = self.writer_error = self.close_1011 = None  # why this side ended the link
+        self.open_diag = self.close_diag = ""  # the one-line facts that Hub.note_open / note_close logged
 
     def send(self, message):
         if not self.closed:
             self.outbox.put_nowait(json.dumps(message, ensure_ascii=False))
 
-    def close(self):
+    def close(self, why=None):
         if not self.closed:
+            self.close_why = self.close_why or why
             self.outbox.put_nowait(None)
 
     @property
@@ -116,9 +160,11 @@ class LinkConn:
 class Hub:
     """Connected links by token digest. The application decides which one is active and reacts to events."""
 
-    def __init__(self, active=lambda: None, on_hello=None, on_status=None, on_eval=None, on_close=None):
+    def __init__(self, active=lambda: None, on_hello=None, on_status=None, on_eval=None, on_close=None,
+                 on_open=None):
         self.links, self.active = {}, active
         self.on_hello, self.on_status, self.on_eval, self.on_close = on_hello, on_status, on_eval, on_close
+        self.on_open = on_open
 
     def active_link(self):
         digest = self.active()
@@ -131,7 +177,7 @@ class Hub:
     def drop(self, digest):
         conn = self.links.get(digest)
         if conn:
-            conn.close()
+            conn.close("dropped")
 
     async def model_info(self):
         conn = self.ready_link()
@@ -183,12 +229,15 @@ class Hub:
         previous = self.links.get(digest)
         self.links[digest] = conn
         if previous:
-            previous.close()  # the job reconnected; the old socket is stale
+            previous.close("replaced")  # the job reconnected; the old socket is stale
         writer = asyncio.create_task(self.writer(conn))
+        code = reason = error = None  # how the socket ended: the peer's close code and reason, or an exception
+        self.note_open(conn, previous)
         try:
             while True:
                 message = await ws.receive()
                 if message["type"] == "websocket.disconnect":
+                    code, reason = message.get("code"), message.get("reason")
                     break
                 if message.get("text") is None:
                     continue
@@ -198,16 +247,60 @@ class Hub:
                     continue
                 if isinstance(data, dict):
                     self.dispatch(conn, data)
+        except BaseException as exc:
+            error = type(exc).__name__
+            raise
         finally:
             conn.closed = True
             writer.cancel()
             if self.links.get(digest) is conn:
                 del self.links[digest]
+            lost = len(conn.streams)
             for queue in conn.streams.values():
                 queue.put_nowait({"type": "lost"})
             conn.streams.clear()
+            self.note_close(conn, code, reason, error, lost)
             if self.on_close:
                 self.on_close(conn)
+
+    def note_open(self, conn, previous):
+        """One log line for an accepted link: a new job, or a reconnect that replaced a socket of the same job."""
+        try:
+            now = time.time()
+            if previous is None:
+                conn.open_diag = "previous=none"
+            else:
+                conn.open_diag = "previous=replaced(4000) prev_up=%s prev_since_status=%s" % (
+                    elapsed(now, previous.connected), elapsed(now, previous.status_at))
+            LOG.info("link opened digest=%s %s", conn.digest[:8], conn.open_diag)
+            if self.on_open:
+                self.on_open(conn)
+        except Exception as exc:  # diagnostics never change what the link does
+            LOG.warning("link diagnostics failed: %s", type(exc).__name__)
+
+    def note_close(self, conn, code, reason, error, lost):
+        """One log line for a finished link: why it ended, how long it lived and what it cancelled.
+
+        Only numbers, short sanitised text and class names go in: no tokens, bodies, headers, addresses or
+        exception messages, and the digest is cut to 8 characters.
+        """
+        try:
+            now = time.time()
+            facts = ["code=%s" % (code if isinstance(code, int) and not isinstance(code, bool) else "-")]
+            if reason:
+                facts.append('reason="%s"' % clip(reason))
+            facts += ["up=%s" % elapsed(now, conn.connected), "since_status=%s" % elapsed(now, conn.status_at),
+                      "lost_streams=%d" % lost]
+            if conn.close_why:
+                facts.append("closed_by=%s" % conn.close_why)
+            if error:
+                facts.append("error=%s" % clip(error, 40))
+            if conn.writer_error:
+                facts.append("writer_error=%s close_1011=%s" % (clip(conn.writer_error, 40), conn.close_1011))
+            conn.close_diag = " ".join(facts)
+            LOG.info("link closed digest=%s %s", conn.digest[:8], conn.close_diag)
+        except Exception as exc:
+            LOG.warning("link diagnostics failed: %s", type(exc).__name__)
 
     async def writer(self, conn):
         try:
@@ -219,11 +312,12 @@ class Hub:
                 await conn.ws.send_text(text)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            conn.writer_error, conn.close_1011 = type(exc).__name__, "yes"
             try:
                 await conn.ws.close(code=1011)
             except Exception:
-                pass
+                conn.close_1011 = "failed"
 
     def dispatch(self, conn, message):
         kind = message.get("type")

@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-from hub import ChatRelay, Full, Gate, Hub
+from hub import ChatRelay, Full, Gate, Hub, install_logging
 from store import RUN, Store, check_password, hash_password, new_password, token_digest
 from supervisor import Supervisor, load_module
 from workspace import LIMIT as FILE_LIMIT, Workspaces, safe_preview
@@ -401,6 +401,7 @@ def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=No
     store = Store(config.data)
     gate = Gate(config.max_active, config.max_queue)
     hub = Hub(active=lambda: store.data["active"])
+    install_logging()
     supervisor = Supervisor(config, store, hub, azure=azure, archives=archives)
     auth = shared_auth or Auth(config, store)
     evals = load_module("axk2_evals", config.aml_dir / "src" / "evals.py")  # stdlib-only imports
@@ -467,14 +468,22 @@ def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=No
         else:
             note_eval(message, final=True)
 
+    def on_open(conn):
+        job = store.data["jobs"].get(conn.digest)
+        if job is not None:  # not only the active job: a link is accepted before its hello promotes the job
+            store.event("link", f"{job['region']} {job.get('name')}: link opened {conn.open_diag}".rstrip(),
+                        save=False)
+
     def on_close(conn):
         job = store.data["jobs"].get(conn.digest)
         if job is not None:
             job["link_seen"] = round(time.time(), 1)
             if store.data["active"] == conn.digest:
-                store.event("link", f"{job['region']} {job.get('name')}: link closed", save=False)
+                store.event("link", f"{job['region']} {job.get('name')}: link closed {conn.close_diag}".rstrip(),
+                            save=False)
 
     hub.on_hello, hub.on_status, hub.on_eval, hub.on_close = on_hello, on_status, on_eval, on_close
+    hub.on_open = on_open
 
     # ------------------------------------------------------------------------------------------ views
     def is_profile_ready():
@@ -618,7 +627,7 @@ def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=No
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
             for conn in list(hub.links.values()):
-                conn.close()
+                conn.close("shutdown")
             store.save()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
