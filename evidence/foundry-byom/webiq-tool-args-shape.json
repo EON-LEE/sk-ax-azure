@@ -1,0 +1,59 @@
+{
+  "schema": "foundry-byom-tool-args-shape/v1",
+  "scope": "Shape of the model-generated Web IQ tool arguments (mcp_call arguments in the Foundry response output). It keeps the shape of the location argument and the values of the API options. It keeps no query text, no web content and no answer text.",
+  "source": "Local one-off classification of the private run files (tool_events[].arguments). The repository copies of the Web IQ run files were removed because they hold web content.",
+  "required_format": "lat:<float>;long:<float>, from the Web IQ rejection message of the failed call",
+  "location_classes": {
+    "empty_string": "key present, value is an empty string",
+    "null": "key present, value is JSON null",
+    "omitted": "key absent",
+    "lat_long_same_as_v2_example": "matches the required format and equals the example coordinates written in the v2 instruction sentence",
+    "lat_long_other_values": "matches the required format with other coordinates",
+    "not_visible_to_client": "the call ended without an output item that holds the tool call"
+  },
+  "agents": {
+    "d2-webiq-agent-fp8:1": {
+      "instructions_chars": 92,
+      "instructions_sha256_12": "3e57b5ee5f22"
+    },
+    "d2-webiq-agent-fp8:2": {
+      "instructions_chars": 206,
+      "instructions_sha256_12": "45035aeaaf15",
+      "difference": "the v1 text plus one sentence about the format of the location argument"
+    }
+  },
+  "calls": [
+    {"window": "d2-real-webiq", "index": 1, "agent": "d2-webiq-agent-fp8:1", "mcp_status": "completed", "location": "empty_string", "location_chars": 0, "query_chars": 43,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "contentFormat": "text", "maxLength": 10000, "safeSearch": "strict"}},
+    {"window": "d2-real-webiq", "index": 2, "agent": "d2-webiq-agent-fp8:1", "mcp_status": "completed", "location": "lat_long_same_as_v2_example", "location_chars": 25, "query_chars": 43,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "d2-real-webiq", "index": 3, "agent": "d2-webiq-agent-fp8:1", "mcp_status": "completed", "location": "empty_string", "location_chars": 0, "query_chars": 43,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "fp8-demo-w1", "index": 1, "agent": "d2-webiq-agent-fp8:1", "mcp_status": "completed", "location": "empty_string", "location_chars": 0, "query_chars": 29,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "fp8-demo-w1", "index": 2, "agent": "d2-webiq-agent-fp8:1", "mcp_status": "completed", "location": "empty_string", "location_chars": 0, "query_chars": 29,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "fp8-demo-w2", "index": 1, "agent": "d2-webiq-agent-fp8:1", "mcp_status": "completed", "location": "lat_long_same_as_v2_example", "location_chars": 25, "query_chars": 27,
+     "options": {"maxResults": 10, "language": "ko", "region": "KR", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "fp8-demo-w2", "index": 2, "agent": "d2-webiq-agent-fp8:1", "mcp_status": null, "location": "not_visible_to_client", "http_status": 400, "error_type": "tool_user_error",
+     "reported_by_infrastructure": {"source": "execute_tool span", "location_type": "string", "location_chars": 15, "empty": false, "matches_required_format": false, "character_groups": "digits and symbols only", "value_read": false}},
+    {"window": "fp8-demo-v2-w2", "index": 1, "agent": "d2-webiq-agent-fp8:2", "mcp_status": "completed", "location": "null", "location_chars": null, "query_chars": 27,
+     "options": {"maxResults": 10, "language": "ko", "region": "KR", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "fp8-demo-v2-w2", "index": 2, "agent": "d2-webiq-agent-fp8:2", "mcp_status": "completed", "location": "omitted", "location_chars": null, "query_chars": 27,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "safeSearch": "strict"}},
+    {"window": "fp8-demo-v2-w2", "index": 3, "agent": "d2-webiq-agent-fp8:2", "mcp_status": "completed", "location": "null", "location_chars": null, "query_chars": 27,
+     "options": {"maxResults": 10, "language": "ko", "region": "KR", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}},
+    {"window": "fp8-demo-v2-w1", "index": 1, "agent": "d2-webiq-agent-fp8:2", "mcp_status": "completed", "location": "null", "location_chars": null, "query_chars": 29,
+     "options": {"maxResults": 10, "language": "en", "region": "US", "contentFormat": "passage", "maxLength": 3000, "safeSearch": "strict"}}
+  ],
+  "summary": {
+    "v1": {"calls": 7, "arguments_visible_to_client": 6, "empty_string": 4, "lat_long_same_as_v2_example": 2, "lat_long_other_values": 0, "not_visible_to_client": 1, "tool_user_error": 1},
+    "v2": {"calls": 4, "arguments_visible_to_client": 4, "null": 3, "omitted": 1, "empty_string": 0, "lat_long_same_as_v2_example": 0, "lat_long_other_values": 0, "tool_user_error": 0}
+  },
+  "notes": [
+    "The v2 instruction sentence names example coordinates. In v1, the same coordinates already appeared in 2 of 6 visible calls (d2-real-webiq index 2 and fp8-demo-w2 index 1). No v2 call used them.",
+    "The sample is small. v1 had 1 tool_user_error in 7 calls and v2 had 0 in 4 calls. The data do not show that the added sentence caused the difference.",
+    "The failed call (fp8-demo-w2 index 2) has no output item with the tool call, so the client cannot show its arguments. The infrastructure owner classified the location argument of its execute_tool span and did not read the value.",
+    "The v1 calls of d2-real-webiq used a different prompt than the demo questions (query_chars 43)."
+  ]
+}

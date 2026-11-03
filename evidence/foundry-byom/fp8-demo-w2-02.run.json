@@ -1,0 +1,49 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T16:34:39.582+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "d2-webiq-agent-fp8",
+    "agent_version": "1",
+    "prompt": "웹 검색으로 SK텔레콤 A.X 모델의 최신 소식을 찾아 두 문장으로 요약하고 출처 URL 한 개를 붙이세요. [추적 ID: r-47d0b8e3]",
+    "nonce": "r-47d0b8e3",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-20T16:34:39.815+00:00",
+  "finished_at": "2026-10-20T16:34:42.858+00:00",
+  "conversation_id": "conv_0b077856…",
+  "conversation_deleted": null,
+  "rounds": [],
+  "function_results": [],
+  "stopped": "error",
+  "error": {
+    "type": "BadRequestError",
+    "status_code": 400,
+    "code": "tool_user_error",
+    "message": "Error code: 400 - {'error': {'message': \"An error occurred invoking 'web': [HandlerInvalidInput] Invalid input provided. Please check your request parameters. (Details: Location must be in format 'lat:<float>;long:<float>') (TraceId: 6ad79824…). Troubleshooting guide: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/model-context-protocol\", 'type': 'invalid_request_error', 'param': None, 'code': 'tool_user_error', 'request_id': 'aac3a62b…'}}",
+    "api_type": "invalid_request_error",
+    "request_id": "4cefc5cf"
+  },
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1,
+    "responses_statuses": [
+      400
+    ]
+  },
+  "final_answer": null,
+  "final_answer_contains_nonce": false,
+  "item_sequence": [],
+  "tool_events": [],
+  "ok": false
+}

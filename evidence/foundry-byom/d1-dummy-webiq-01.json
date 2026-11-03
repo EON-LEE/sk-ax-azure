@@ -1,0 +1,213 @@
+{
+  "schema": "foundry-byom-evidence/1",
+  "label": "d1-dummy-webiq-01",
+  "generated_at": "2026-10-20T07:07:44+00:00",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "expected": {
+    "model_reference": "<conn-fp8>/ax-k2-fp8",
+    "scenario": "mcp",
+    "agent": {
+      "name": "dummy-d1-webiq-agent-fp8",
+      "version": "1"
+    }
+  },
+  "run": {
+    "schema": "foundry-byom-run/1",
+    "started_at": "2026-10-20T07:07:36.200+00:00",
+    "request": {
+      "scenario": "mcp",
+      "agent_name": "dummy-d1-webiq-agent-fp8",
+      "agent_version": "1",
+      "prompt": "웹 검색으로 Microsoft Foundry Agent Service의 최근 소식을 찾아 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. [추적 ID: r-d1b0e5a1]",
+      "nonce": "r-d1b0e5a1",
+      "limits": {
+        "max_output_tokens": 384,
+        "max_tool_calls": 0,
+        "max_rounds": 4,
+        "timeout_s": 180.0
+      },
+      "use_conversation": true,
+      "approve_tools": [],
+      "request_header_names": [],
+      "expect_failure": false
+    },
+    "request_header_echoed": null,
+    "last_request_at": "2026-10-20T07:07:36.961+00:00",
+    "finished_at": "2026-10-20T07:07:37.932+00:00",
+    "conversation_id": "conv_003f50ba…",
+    "conversation_deleted": null,
+    "rounds": [],
+    "function_results": [],
+    "stopped": "error",
+    "error": {
+      "type": "BadRequestError",
+      "status_code": 400,
+      "code": "tool_user_error",
+      "message": "Error code: 400 - {'error': {'message': 'Authentication failed when connecting to the MCP server: https://api.microsoft.ai:443/v3/mcp: Response status code does not indicate success: 401 (Unauthorized). Response body: {\\n  \"jsonrpc\": \"2.0\",\\n  \"id\": \"6ad7133b…\",\\n  \"error\": {\\n    \"code\": \"auth_invalid_api_key\",\\n    \"message\": \"Invalid API key provided. (Details: Invalid API key)\",\\n    \"trace_id\": \"6ad7133b…\"\\n  }\\n}. Verify the configured authentication mode and connection for this server. If this endpoint expects a token or key, ensure the connection supplies a valid, unexpired credential and that the Authorization header, when used, is present and well-formed. If the credential may be expired or revoked, refresh or recreate the connection. Troubleshooting guide: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/mcp-authentication#troubleshooting', 'type': 'invalid_request_error', 'param': None, 'code': 'tool_user_error', 'request_id': '6d559fb5…'}}",
+      "api_type": "invalid_request_error",
+      "request_id": "acfef1d3"
+    },
+    "client_http": {
+      "requests": 2,
+      "responses_posts": 1
+    },
+    "final_answer": null,
+    "final_answer_contains_nonce": false,
+    "item_sequence": [],
+    "tool_events": [],
+    "ok": false
+  },
+  "server_records": {
+    "agent_version": {
+      "name": "dummy-d1-webiq-agent-fp8",
+      "version": "1",
+      "definition": {
+        "model": "<conn-fp8>/ax-k2-fp8",
+        "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 web 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다.",
+        "temperature": 0.3,
+        "tools": [
+          {
+            "type": "mcp",
+            "server_label": "web_iq",
+            "server_url": "https://api.microsoft.ai/v3/mcp",
+            "allowed_tools": [
+              "web"
+            ],
+            "require_approval": "never",
+            "project_connection_id": "dummy-d1-webiq"
+          }
+        ]
+      }
+    },
+    "response": null,
+    "conversation_items": [],
+    "secret_scan": {
+      "values_checked": 1,
+      "agent_version": false,
+      "conversation_items": false
+    },
+    "errors": []
+  },
+  "observations": {
+    "agent_definition_model": "<conn-fp8>/ax-k2-fp8",
+    "response_model": null,
+    "final_answer": null
+  },
+  "checks": [
+    {
+      "id": "agent_definition_model_reference",
+      "status": "confirmed",
+      "detail": "agent definition model is <conn-fp8>/ax-k2-fp8"
+    },
+    {
+      "id": "response_agent_reference",
+      "status": "unverified",
+      "detail": "response carries no agent reference"
+    },
+    {
+      "id": "response_completed",
+      "status": "failed",
+      "detail": "no response: the request failed (400)"
+    },
+    {
+      "id": "tool_listed",
+      "status": "unverified",
+      "detail": "the request failed before any output (400); see response_completed"
+    },
+    {
+      "id": "tool_called",
+      "status": "unverified",
+      "detail": "the request failed before any output (400); see response_completed"
+    },
+    {
+      "id": "tool_then_answer_order",
+      "status": "unverified",
+      "detail": "no item sequence recorded"
+    },
+    {
+      "id": "tool_result_used",
+      "status": "unverified",
+      "detail": "no final answer recorded"
+    },
+    {
+      "id": "no_thinking_trace",
+      "status": "unverified",
+      "detail": "no output or usage recorded"
+    },
+    {
+      "id": "usage_recorded",
+      "status": "unverified",
+      "detail": "no usage recorded"
+    },
+    {
+      "id": "nonce_echoed",
+      "status": "not_applicable",
+      "detail": "nonce echo is checked in the plain scenario"
+    },
+    {
+      "id": "negative_control_failed_as_expected",
+      "status": "not_applicable",
+      "detail": "not a negative control"
+    },
+    {
+      "id": "conversation_tool_history",
+      "status": "unverified",
+      "detail": "the request failed before any output (400); see response_completed"
+    },
+    {
+      "id": "request_secret_not_in_server_records",
+      "status": "confirmed",
+      "detail": "value not found in: agent version, conversation items; Application Insights traces and portal screens are not covered"
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "apim_gateway_log",
+      "description": "APIM log shows the Foundry call with the A.X K2 model name for this run",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "backend_hub_log",
+      "description": "Web app/hub record shows the A.X K2 runtime for the same time window",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_model_settings",
+      "description": "Foundry console shows the agent's model reference",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_conversation",
+      "description": "Foundry console shows the conversation",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "console_tool_history",
+      "description": "Foundry console shows the tool execution history",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    },
+    {
+      "id": "tracing_visible",
+      "description": "Traces for this run are visible (Application Insights connected)",
+      "status": "unverified",
+      "note": null,
+      "marked_at": null
+    }
+  ],
+  "summary": {
+    "confirmed": 2,
+    "failed": 1,
+    "unverified": 14,
+    "not_applicable": 2
+  }
+}

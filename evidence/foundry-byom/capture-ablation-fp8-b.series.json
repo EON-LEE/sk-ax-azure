@@ -1,0 +1,282 @@
+{
+  "schema": "foundry-byom-series/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-20T05:52:41.746+00:00",
+  "label": "capture-ablation-fp8-b",
+  "plan": {
+    "calls": [
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1"
+    ],
+    "scenario": "mcp",
+    "custom_prompt": false,
+    "min_gap_s": 60.0,
+    "expect_calls": 3,
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "continue_on_model_error": true,
+    "stop_rule": "stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete) except a model_error, which is recorded and followed by the next call after the gap; no retry of any call and no further call after any other failure"
+  },
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "agents": {
+    "byom-demo-mcp-ablation-fp8:1": {
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "temperature": null,
+      "tools": [
+        {
+          "type": "mcp",
+          "server_label": "microsoft_learn",
+          "server_url": "https://learn.microsoft.com/api/mcp",
+          "allowed_tools": [
+            "microsoft_docs_search"
+          ],
+          "require_approval": "never"
+        }
+      ],
+      "instructions_chars": 110,
+      "instructions_sha256_12": "0d8075322ba3",
+      "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 microsoft_docs_search 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다."
+    }
+  },
+  "planned_calls": 3,
+  "calls": [
+    {
+      "index": 1,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T05:50:08.594+00:00",
+      "first_request_at": "2026-10-20T05:50:10.365+00:00",
+      "finished_at": "2026-10-20T05:50:18.893+00:00",
+      "duration_ms": 10299,
+      "gap_before_s": null,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 43220
+        }
+      ],
+      "answer_chars": 264,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_id": "resp_0a1aa325…",
+      "conversation_id": "conv_0a1aa325…",
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 125,
+        "total_tokens": 10656,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T05:50:10.365+00:00",
+          "responded_at": "2026-10-20T05:50:18.883+00:00",
+          "elapsed_s": 8.5,
+          "response_id": "resp_0a1aa325…",
+          "request_id": "d2cbc0a7",
+          "status": "completed",
+          "usage": {
+            "input_tokens": 10531,
+            "output_tokens": 125,
+            "total_tokens": 10656,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1
+      }
+    },
+    {
+      "index": 2,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T05:51:18.893+00:00",
+      "first_request_at": "2026-10-20T05:51:28.093+00:00",
+      "finished_at": "2026-10-20T05:51:31.939+00:00",
+      "duration_ms": 13046,
+      "gap_before_s": 60.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "message"
+      ],
+      "mcp_called": false,
+      "mcp_calls": [],
+      "answer_chars": 417,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_id": "resp_0045a00e…",
+      "conversation_id": "conv_0045a00e…",
+      "usage": {
+        "input_tokens": 478,
+        "output_tokens": 140,
+        "total_tokens": 618,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T05:51:28.093+00:00",
+          "responded_at": "2026-10-20T05:51:31.937+00:00",
+          "elapsed_s": 3.8,
+          "response_id": "resp_0045a00e…",
+          "request_id": "415923f1",
+          "status": "completed",
+          "usage": {
+            "input_tokens": 478,
+            "output_tokens": 140,
+            "total_tokens": 618,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1
+      }
+    },
+    {
+      "index": 3,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T05:52:31.940+00:00",
+      "first_request_at": "2026-10-20T05:52:34.414+00:00",
+      "finished_at": "2026-10-20T05:52:41.325+00:00",
+      "duration_ms": 9385,
+      "gap_before_s": 60.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 43220
+        }
+      ],
+      "answer_chars": 347,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_id": "resp_04e55fc6…",
+      "conversation_id": "conv_04e55fc6…",
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 154,
+        "total_tokens": 10685,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T05:52:34.414+00:00",
+          "responded_at": "2026-10-20T05:52:41.324+00:00",
+          "elapsed_s": 6.9,
+          "response_id": "resp_04e55fc6…",
+          "request_id": "da89fcc2",
+          "status": "completed",
+          "usage": {
+            "input_tokens": 10531,
+            "output_tokens": 154,
+            "total_tokens": 10685,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1
+      }
+    }
+  ],
+  "stopped_early": false,
+  "stop_reason": null,
+  "error": null,
+  "summary": {
+    "calls": 3,
+    "ok": 3,
+    "mcp_called": 2,
+    "ok_without_mcp": 1,
+    "model_error": 0,
+    "by_agent": {
+      "byom-demo-mcp-ablation-fp8:1": {
+        "calls": 3,
+        "ok": 3,
+        "mcp_called": 2,
+        "ok_without_mcp": 1,
+        "model_error": 0
+      }
+    }
+  },
+  "notes": [
+    "Timestamps are UTC with millisecond precision from the client clock; match them with vLLM, APIM and span clocks by time window.",
+    "client_http counts the HTTP requests the OpenAI client sent for that call only: requests = conversation creation plus Responses POSTs, responses_posts = Responses POSTs. The client is created with max_retries=0.",
+    "Foundry spans (invoke_agent, chat, execute_tool) are not collected here; read them from the telemetry side by call window and nonce.",
+    "model_error is true when the call failed with HTTP 500 (or as a failed response) and the service error type or code is model_error. A 503 'model backend not ready' can carry the same code; it is not counted.",
+    "contaminated and contamination_note stay null until someone marks a call by hand because other traffic overlapped it; summary does not account for those marks.",
+    "response_model echoes the agent reference; it does not show which model served the call."
+  ]
+}

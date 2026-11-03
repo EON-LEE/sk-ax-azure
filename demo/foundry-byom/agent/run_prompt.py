@@ -199,7 +199,7 @@ def execute(args, clients, prompt, tools, pairs):
     openai = clients.openai
     result = {
         "schema": "foundry-byom-run/1",
-        "started_at": common.now_iso(),
+        "started_at": common.now_iso("milliseconds"),
         "request": {
             "scenario": args.scenario, "agent_name": args.agent_name, "agent_version": args.agent_version,
             "prompt": common.clip(prompt), "nonce": args.nonce,
@@ -223,11 +223,12 @@ def execute(args, clients, prompt, tools, pairs):
             conversation_id = chain_conversation = common.to_plain(openai.conversations.create()).get("id")
             result["conversation_id"] = conversation_id
         for round_number in range(1, args.max_rounds + 1):
-            result["last_request_at"] = requested_at = common.now_iso()
+            result["last_request_at"] = requested_at = common.now_iso("milliseconds")
             clock = time.monotonic()
             response = openai.responses.create(
                 **request_kwargs(args, payload, chain_conversation, previous_id, tools))
             elapsed = time.monotonic() - clock
+            responded_at = common.now_iso("milliseconds")
             data = common.to_plain(response)
             if literals:
                 result["request_header_echoed"] = merge_scan(result["request_header_echoed"],
@@ -235,6 +236,8 @@ def execute(args, clients, prompt, tools, pairs):
             summary = common.summarize_response(data)
             summary["chained_by"] = chain_label(chain_conversation, previous_id)
             summary["requested_at"] = requested_at
+            summary["responded_at"] = responded_at
+            summary["request_id"] = common.short_request_id(getattr(response, "_request_id", None))
             summary["elapsed_s"] = round(elapsed, 1)
             result["rounds"].append(summary)
             previous_id = data.get("id")
@@ -260,7 +263,7 @@ def execute(args, clients, prompt, tools, pairs):
     finally:
         if conversation_id and args.delete_conversation:
             result["conversation_deleted"] = delete_conversation(openai, conversation_id)
-    result["finished_at"] = common.now_iso()
+    result["finished_at"] = common.now_iso("milliseconds")
     counter = getattr(clients, "http", None)
     result["client_http"] = counter.summary() if counter else None
     return finish(args, result, answer)

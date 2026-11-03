@@ -1,0 +1,46 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T07:07:36.200+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "dummy-d1-webiq-agent-fp8",
+    "agent_version": "1",
+    "prompt": "웹 검색으로 Microsoft Foundry Agent Service의 최근 소식을 찾아 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. [추적 ID: r-d1b0e5a1]",
+    "nonce": "r-d1b0e5a1",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-20T07:07:36.961+00:00",
+  "finished_at": "2026-10-20T07:07:37.932+00:00",
+  "conversation_id": "conv_003f50ba…",
+  "conversation_deleted": null,
+  "rounds": [],
+  "function_results": [],
+  "stopped": "error",
+  "error": {
+    "type": "BadRequestError",
+    "status_code": 400,
+    "code": "tool_user_error",
+    "message": "Error code: 400 - {'error': {'message': 'Authentication failed when connecting to the MCP server: https://api.microsoft.ai:443/v3/mcp: Response status code does not indicate success: 401 (Unauthorized). Response body: {\\n  \"jsonrpc\": \"2.0\",\\n  \"id\": \"6ad7133b…\",\\n  \"error\": {\\n    \"code\": \"auth_invalid_api_key\",\\n    \"message\": \"Invalid API key provided. (Details: Invalid API key)\",\\n    \"trace_id\": \"6ad7133b…\"\\n  }\\n}. Verify the configured authentication mode and connection for this server. If this endpoint expects a token or key, ensure the connection supplies a valid, unexpired credential and that the Authorization header, when used, is present and well-formed. If the credential may be expired or revoked, refresh or recreate the connection. Troubleshooting guide: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/mcp-authentication#troubleshooting', 'type': 'invalid_request_error', 'param': None, 'code': 'tool_user_error', 'request_id': '6d559fb5…'}}",
+    "api_type": "invalid_request_error",
+    "request_id": "acfef1d3"
+  },
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1
+  },
+  "final_answer": null,
+  "final_answer_contains_nonce": false,
+  "item_sequence": [],
+  "tool_events": [],
+  "ok": false
+}

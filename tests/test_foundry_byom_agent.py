@@ -5,6 +5,7 @@ import http.server
 import importlib.util
 import inspect
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ import threading
 import time
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,7 @@ try:
     create_agent = load_script("create_agent")
     inspect_connections = load_script("inspect_connections")
     run_prompt = load_script("run_prompt")
+    run_series = load_script("run_series")
     collect_evidence = load_script("collect_evidence")
 finally:
     sys.path.remove(str(AGENT_DIR))
@@ -62,11 +64,12 @@ LONG_ID = "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071"
 
 
 class ApiError(Exception):
-    def __init__(self, status_code, message="request failed", code=None):
+    def __init__(self, status_code, message="request failed", code=None, api_type=None):
         super().__init__(message)
         self.status_code = status_code
         self.message = message
         self.code = code
+        self.type = api_type
 
 
 class Model:
@@ -285,11 +288,11 @@ class ScriptCase(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def run_script(self, module, argv, clients=None, live=True):
+    def run_script(self, module, argv, clients=None, live=True, **options):
         arguments = (["--project-endpoint", ENDPOINT] if live else []) + list(argv)
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = module.main(arguments, clients=clients)
+            code = module.main(arguments, clients=clients, **options)
         return code, out.getvalue(), err.getvalue()
 
     def read_saved(self, name):
@@ -335,6 +338,15 @@ class ConfigTests(ScriptCase):
             with self.subTest(value=value), self.assertRaises(common.ConfigError):
                 common.check_endpoint(value)
 
+    def test_project_endpoint_rejects_whitespace_and_control_characters(self):
+        for tail in ("\r", "\n", "\r\n", "\t", " ", "\x00", "\x7f", "\u00a0", "\u200b", "\ud55c", "/\r"):
+            with self.subTest(tail=repr(tail)), self.assertRaises(common.ConfigError) as caught:
+                common.check_endpoint(ENDPOINT + tail)
+            self.assertNotIn(ENDPOINT, str(caught.exception))
+        with self.assertRaises(common.ConfigError):
+            common.check_endpoint(ENDPOINT.replace("/api/", "/api/\r"))
+        self.assertEqual(common.check_endpoint(ENDPOINT + "/"), ENDPOINT)
+
     def test_tool_specs(self):
         self.assertEqual(self.spec_for("--connection", CONNECTION)["tools"], [])
         function_spec = self.spec_for("--connection", CONNECTION, "--tool", "function")
@@ -362,6 +374,12 @@ class ConfigTests(ScriptCase):
                     "https://user:pw@mcp.example.invalid/x", "https://mcp.example.invalid/x#frag"):
             with self.subTest(url=url), self.assertRaises(common.ConfigError):
                 self.spec_for("--connection", CONNECTION, "--tool", "mcp", "--mcp-url", url)
+
+    def test_mcp_url_rejects_whitespace_and_control_characters(self):
+        for tail in ("\r", "\n", "\t", " ", "\x00"):
+            with self.subTest(tail=repr(tail)), self.assertRaises(common.ConfigError):
+                self.spec_for("--connection", CONNECTION, "--tool", "mcp", "--mcp-url",
+                              MCP_TOOL_RECORD["server_url"] + tail)
 
     def test_invalid_mcp_names_are_rejected(self):
         for argv in (["--mcp-label", "bad label"], ["--mcp-allowed-tools", "ok,bad tool"],
@@ -501,13 +519,20 @@ class RedactionTests(ScriptCase):
         self.assertEqual(json.loads(text)["answer"], "안녕하세요")
 
     def test_evidence_labels_are_restricted(self):
-        for label in ("../x", "A", "", "a/b", "x.run", "x.create", "x.connections", "-lead", None):
+        for label in ("../x", "A", "", "a/b", "x.run", "x.create", "x.connections", "x.series", "-lead", None):
             with self.subTest(label=label), self.assertRaises(common.ConfigError):
                 common.evidence_path(label)
         self.assertEqual(common.evidence_path("demo-1").name, "demo-1.json")
         self.assertEqual(common.evidence_path("demo-1", "run").name, "demo-1.run.json")
         self.assertEqual(common.evidence_path("demo-1", "create").name, "demo-1.create.json")
         self.assertEqual(common.evidence_path("demo-1", "connections").name, "demo-1.connections.json")
+        self.assertEqual(common.evidence_path("demo-1", "series").name, "demo-1.series.json")
+
+    def test_now_iso_defaults_to_seconds_and_can_report_milliseconds(self):
+        seconds = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00")
+        milliseconds = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00")
+        self.assertRegex(common.now_iso(), seconds)
+        self.assertRegex(common.now_iso("milliseconds"), milliseconds)
 
     def test_display_path_never_exposes_local_directories(self):
         self.assertEqual(common.display_path(Path(self.tmp.name) / "x.json"), "x.json")
@@ -563,6 +588,28 @@ class ServiceIdTests(ScriptCase):
     def test_short_or_unrelated_hex_values_are_not_request_ids(self):
         text = "{'request_id': 'req-1'} request_id_length: 12345678901234567890 etag: fe49cff6b2f854e3d8ed52e2dfb9e48f"
         self.assertEqual(common.redact_text(text), text)
+
+    def test_trace_ids_and_json_rpc_ids_keep_only_the_first_eight_characters(self):
+        text = ('Response body: {\\n  "jsonrpc": "2.0",\\n  "id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",\\n  "error": '
+                '{"code": "x", "trace_id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9"}} correlation-id: 0a1b2c3d4e5f60718293a4b5c6d7e8f9')
+        expected = ('Response body: {\\n  "jsonrpc": "2.0",\\n  "id": "0a1b2c3d…",\\n  "error": '
+                    '{"code": "x", "trace_id": "0a1b2c3d…"}} correlation-id: 0a1b2c3d…')
+        self.assertEqual(common.redact_text(text), expected)
+        self.assertEqual(common.redact_text(expected), expected)
+        self.assertEqual(common.redact_text(text, keep_ids=True), text)
+
+    def test_other_id_fields_and_short_hex_ids_are_left_alone(self):
+        text = ('{"id": "req-1", "id": 12345678901234567890123, "grid": "0a1b2c3d4e5f60718293a4b5c6d7e8f9", '
+                '"identity": "0a1b2c3d4e5f60718293a4b5c6d7e8f9", "trace_id": "abc123", trace_id_length: 12345678901234567890)')
+        self.assertEqual(common.redact_text(text), text)
+
+    def test_backslash_escaped_quotes_in_json_text_are_handled(self):
+        text = r'{"message": "body {\"id\": \"0a1b2c3d4e5f60718293a4b5c6d7e8f9\", \"trace_id\": \"0a1b2c3d4e5f60718293a4b5c6d7e8f9\"}"}'
+        expected = r'{"message": "body {\"id\": \"0a1b2c3d…\", \"trace_id\": \"0a1b2c3d…\"}"}'
+        self.assertEqual(common.redact_text(text), expected)
+        self.assertEqual(common.redact_text(expected), expected)
+        self.assertTrue(common.REQUEST_ID_RE.search(text))
+        self.assertFalse(common.REQUEST_ID_RE.search(expected))
 
     def test_other_names_codes_and_short_ids_are_left_alone(self):
         text = ("r-0a1b2c3d byom-marker-0a1b2c3d4e5f6071 lookup_demo_stock max_output_tokens previous_response_id "
@@ -761,12 +808,26 @@ class SummaryTests(ScriptCase):
                          ("microsoft_docs_search", {"query": "BYOM"}, len(output)))
         self.assertLess(len(call["output_preview"]), 260)
         self.assertEqual(call["output_urls"], [DOC_URL])
+        self.assertEqual((call["output_url_count"], call["output_hosts"], call["output_shape"]),
+                         (1, ["learn.microsoft.com"], {"kind": "text"}))
+        self.assertNotIn("result_items", call)
         self.assertEqual(summary["answer_urls"], [DOC_URL])
+        self.assertEqual(summary["answer_hosts"], ["learn.microsoft.com"])
         self.assertEqual(summary["agent"], {"name": "byom-demo-agent", "version": "3"})
         self.assertEqual(summary["conversation_id"], CONVERSATION)
         self.assertEqual(summary["usage"],
                          {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150, "reasoning_tokens": 0})
         self.assertEqual((summary["think_tag"], summary["reasoning_item_count"]), (False, 0))
+
+    def test_sampling_values_are_kept_only_when_the_service_echoes_a_number(self):
+        echoed = common.summarize_response(response([message("답")], temperature=0.3, top_p=1.0))
+        self.assertEqual((echoed["temperature"], echoed["top_p"]), (0.3, 1.0))
+        zero = common.summarize_response(response([message("답")], temperature=0, top_p=1))
+        self.assertEqual((zero["temperature"], zero["top_p"]), (0, 1))
+        absent = common.summarize_response(response([message("답")]))
+        self.assertEqual((absent["temperature"], absent["top_p"]), (None, None))
+        odd = common.summarize_response(response([message("답")], temperature="0.3", top_p=True))
+        self.assertEqual((odd["temperature"], odd["top_p"]), (None, None))
 
     def test_reasoning_items_and_think_tags_are_flagged(self):
         summary = common.summarize_response(
@@ -798,6 +859,136 @@ class SummaryTests(ScriptCase):
         self.assertEqual(summary["details"][0]["code"], "NotFound")
         self.assertLess(len(summary["details"][0]["message"]), 440)
         self.assertNotIn("target", common.describe_error(ApiError(400, "plain")))
+
+    def test_describe_error_keeps_the_rejected_parameter_and_a_short_request_id(self):
+        exc = ApiError(400, "invalid payload", code="invalid_payload")
+        exc.param = "tools"
+        exc.request_id = "0a1b2c3d-1111-2222-3333-444444444444"
+        summary = common.describe_error(exc)
+        self.assertEqual((summary["param"], summary["request_id"]), ("tools", "0a1b2c3d"))
+        plain = common.describe_error(ApiError(400, "plain"))
+        self.assertNotIn("param", plain)
+        self.assertNotIn("request_id", plain)
+        exc.param, exc.request_id = 5, ""
+        self.assertNotIn("param", common.describe_error(exc))
+        self.assertNotIn("request_id", common.describe_error(exc))
+
+    def test_describe_error_keeps_the_service_error_type_apart_from_the_exception_class(self):
+        summary = common.describe_error(ApiError(500, "invalid content", api_type="model_error"))
+        self.assertEqual((summary["type"], summary["status_code"], summary["api_type"]), ("ApiError", 500, "model_error"))
+        self.assertIsNone(summary["code"])
+        for value in (None, 5, ["model_error"]):
+            with self.subTest(value=value):
+                self.assertNotIn("api_type", common.describe_error(ApiError(500, "plain", api_type=value)))
+
+    def test_short_request_id_keeps_only_the_first_characters(self):
+        self.assertEqual(common.short_request_id("0a1b2c3d-1111-2222-3333-444444444444"), "0a1b2c3d")
+        self.assertEqual(common.short_request_id("abc"), "abc")
+        for value in (None, "", 5, ["0a1b2c3d"]):
+            with self.subTest(value=value):
+                self.assertIsNone(common.short_request_id(value))
+
+
+class HostAndShapeTests(ScriptCase):
+    def test_public_host_names_only_hosts_anyone_may_read(self):
+        at = "@"
+        cases = (
+            ("https://Learn.Microsoft.com:443/en-us/x?q=1#frag", "learn.microsoft.com"),
+            ("https://reuters.com./world", "reuters.com"),
+            ("https://ai.azure.com/doc", "ai.azure.com"),
+            ("https://xn--bcher-kva.example.net/", "xn--bcher-kva.example.net"),
+            (f"https://reader{at}example.org/x", None),
+            ("http://192.168.1.5/x", None),
+            ("http://[::1]:8080/x", None),
+            ("http://[bad", None),
+            ("https://localhost/x", None),
+            ("https://intranet/x", None),
+            ("https://host.local/x", None),
+            ("https://svc.internal/x", None),
+            ("https://contoso.sharepoint.com/x", None),
+            ("https://contoso-my.sharepoint.com/x", None),
+            ("https://store.blob.core.windows.net/x", None),
+            (ENDPOINT, None),
+            ("https://éxample.com/x", None),
+            ("not a url", None),
+        )
+        for url, expected in cases:
+            with self.subTest(url=url):
+                self.assertEqual(common.public_host(url), expected)
+
+    def test_url_hosts_dedupes_keeps_the_order_and_masks_the_rest_once(self):
+        at = "@"
+        urls = ["https://b.example.net/1", "https://a.example.net/2", "https://B.example.net/3", "http://10.0.0.1/x",
+                f"https://reader{at}x.example.org/", ENDPOINT]
+        self.assertEqual(common.url_hosts(urls), ["b.example.net", "a.example.net", common.MASKED_HOST])
+        self.assertEqual(common.url_hosts([]), [])
+        hosts = common.url_hosts([f"https://h{number}.example.net/" for number in range(common.HOST_LIMIT + 5)])
+        self.assertEqual((len(hosts), hosts[0]), (common.HOST_LIMIT, "h0.example.net"))
+        self.assertNotIn(common.MASKED_HOST, hosts)
+
+    def test_output_shape_describes_a_result_without_its_values(self):
+        learn = json.dumps({"results": [{"title": "t", "content": "c", "contentUrl": DOC_URL}] * 3})
+        parsed = common.output_json(learn)
+        self.assertEqual(common.output_shape(parsed),
+                         {"kind": "object", "key_count": 1, "keys": ["results"], "lists": {"results": 3}})
+        self.assertEqual(common.count_result_items(parsed), 3)
+        self.assertEqual(common.output_shape([1, 2]), {"kind": "list", "length": 2})
+        self.assertEqual(common.output_shape(7), {"kind": "scalar"})
+        self.assertEqual(common.count_result_items(common.output_json('[{"a": 1}, {"a": 2}]')), 2)
+
+    def test_result_items_count_only_the_recognised_lists_through_every_wrapper(self):
+        body = {"webResults": [{"url": DOC_URL}] * 4, "newsResults": [{"url": DOC_URL}] * 2,
+                "suggestions": ["a", "b", "c"]}
+        wrapped = {"content": [{"type": "text", "text": json.dumps(body)}]}
+        for name, text in (("plain", json.dumps(body)), ("one text part", json.dumps(wrapped)),
+                           ("structured", json.dumps({"structuredContent": body, "content": []})),
+                           ("part list", json.dumps(wrapped["content"])),
+                           ("object", json.dumps({"content": [{"type": "text", "text": json.dumps(wrapped)}]}))):
+            with self.subTest(form=name):
+                parsed = common.output_json(text)
+                self.assertEqual(common.count_result_items(parsed), 6)
+                self.assertEqual(common.output_shape(parsed)["lists"],
+                                 {"webResults": 4, "newsResults": 2, "suggestions": 3})
+
+    def test_a_text_output_has_no_json_shape(self):
+        for text in ("Title: BYOM\nLink: x", "", "{not json", "[" * 5000, '{"content": [{"type": "text", "text": "x"}]}'):
+            with self.subTest(text=text[:12]):
+                parsed = common.output_json(text)
+                self.assertIsNone(parsed)
+                self.assertEqual(common.output_shape(parsed), {"kind": "text"})
+                self.assertIsNone(common.count_result_items(parsed))
+        self.assertIsNone(common.count_result_items({"other": [1, 2]}))
+
+    def test_unsafe_key_names_and_long_key_lists_stay_out_of_the_shape(self):
+        value = {"https://x.example.net/a": [1], "ok_key": [1, 2], **{f"k{number}": number for number in range(20)}}
+        shape = common.output_shape(value)
+        self.assertEqual((shape["key_count"], len(shape["keys"])), (22, common.SHAPE_KEY_LIMIT))
+        self.assertEqual(shape["keys"][:2], ["[key]", "ok_key"])
+        self.assertEqual(shape["lists"], {"[key]": 1, "ok_key": 2})
+        self.assertNotIn("example", json.dumps(shape))
+
+    def test_a_json_tool_output_adds_its_shape_hosts_and_result_count(self):
+        body = {"webResults": [{"url": "https://news.example.net/a"}, {"url": "https://news.example.net/b"}],
+                "newsResults": [{"url": "https://wire.example.org/c"}]}
+        output = json.dumps({"content": [{"type": "text", "text": json.dumps(body)}]})
+        call = common.summarize_response(response([mcp_call(output), message("답")]))["tool_events"][0]
+        self.assertEqual((call["result_items"], call["output_url_count"], call["output_hosts"]),
+                         (3, 3, ["news.example.net", "wire.example.org"]))
+        self.assertEqual(call["output_shape"], {"kind": "object", "key_count": 2, "keys": ["webResults", "newsResults"],
+                                                "lists": {"webResults": 2, "newsResults": 1}})
+
+    def test_a_failed_tool_call_without_output_adds_no_shape_fields(self):
+        failed = mcp_call(None, status="failed", error={"code": "tool_error", "message": "boom"})
+        call = common.summarize_response(response([failed, message("답")]))["tool_events"][0]
+        for key in ("output_chars", "output_url_count", "output_hosts", "output_shape", "result_items"):
+            self.assertNotIn(key, call)
+
+    def test_a_structured_tool_output_is_described_like_its_json_text(self):
+        call = common.summarize_response(
+            response([mcp_call({"results": [{"url": DOC_URL}]}), message("답")]))["tool_events"][0]
+        self.assertEqual((call["result_items"], call["output_hosts"], call["output_shape"]["lists"]),
+                         (1, ["learn.microsoft.com"], {"results": 1}))
+        self.assertNotIn("output_chars", call)
 
 
 class ClientSetupTests(ScriptCase):
@@ -846,6 +1037,28 @@ class ClientSetupTests(ScriptCase):
                              ("GET", "/p/openai/v1/responses/resp_1"), ("POST", "/p/openai/v1/responses/")):
             counter(types.SimpleNamespace(method=method, url=types.SimpleNamespace(path=path)))
         self.assertEqual(counter.summary(), {"requests": 4, "responses_posts": 2})
+        counter.reset()
+        self.assertEqual(counter.summary(), {"requests": 0, "responses_posts": 0})
+        counter(types.SimpleNamespace(method="POST", url=types.SimpleNamespace(path="/p/openai/v1/responses")))
+        self.assertEqual(counter.summary(), {"requests": 1, "responses_posts": 1})
+
+    def test_http_request_counter_records_the_status_of_answered_responses_posts_only(self):
+        counter = common.HttpRequestCounter()
+
+        def answered(method, path, status):
+            request = types.SimpleNamespace(method=method, url=types.SimpleNamespace(path=path))
+            counter(request)
+            counter.on_response(types.SimpleNamespace(request=request, status_code=status))
+
+        answered("POST", "/p/openai/v1/conversations", 200)
+        self.assertEqual(counter.summary(), {"requests": 1, "responses_posts": 0})
+        answered("POST", "/p/openai/v1/responses", 500)
+        answered("GET", "/p/openai/v1/responses/resp_1", 404)
+        answered("POST", "/p/openai/v1/responses", 200)
+        counter(types.SimpleNamespace(method="POST", url=types.SimpleNamespace(path="/p/openai/v1/responses")))
+        self.assertEqual(counter.summary(), {"requests": 5, "responses_posts": 3, "responses_statuses": [500, 200]})
+        counter.reset()
+        self.assertEqual(counter.summary(), {"requests": 0, "responses_posts": 0})
 
 
 class CreateAgentTests(ScriptCase):
@@ -986,6 +1199,7 @@ class CreateAgentTests(ScriptCase):
                  (["--connection", CONNECTION], "FOUNDRY_PROJECT_ENDPOINT"),
                  (["--project-endpoint", "https://example.invalid/api/projects/p", "--connection", CONNECTION],
                   "project endpoint"),
+                 (["--project-endpoint", ENDPOINT + "\r", "--connection", CONNECTION], "project endpoint"),
                  (["--project-endpoint", ENDPOINT, "--connection", CONNECTION, "--agent-name", "bad_name"],
                   "agent name"))
         for argv, expected in cases:
@@ -1350,14 +1564,30 @@ class RunPromptTests(ScriptCase):
         clients = fake_clients([response([function_call()], "resp_1"), response([message("done")], "resp_2")])
         _, out, _ = self.run_script(run_prompt, ["--scenario", "function"], clients)
         result = json.loads(out)
-        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00")
+        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00")
         for item in result["rounds"]:
             self.assertRegex(item["requested_at"], stamp)
+            self.assertRegex(item["responded_at"], stamp)
+            self.assertLessEqual(item["requested_at"], item["responded_at"])
             self.assertGreaterEqual(item["elapsed_s"], 0)
         self.assertEqual(result["last_request_at"], result["rounds"][-1]["requested_at"])
+        self.assertRegex(result["started_at"], stamp)
         self.assertRegex(result["finished_at"], stamp)
         self.assertLessEqual(result["started_at"], result["rounds"][0]["requested_at"])
-        self.assertLessEqual(result["rounds"][-1]["requested_at"], result["finished_at"])
+        self.assertLessEqual(result["rounds"][-1]["responded_at"], result["finished_at"])
+
+    def test_each_round_records_the_short_request_id_when_the_service_sends_one(self):
+        class Tagged(Model):
+            _request_id = "0a1b2c3d-1111-2222-3333-444444444444"
+
+        reply = response([message("hi")], "resp_1")
+        tagged = Tagged(**reply.data)
+        clients = fake_clients([tagged])
+        _, out, _ = self.run_script(run_prompt, ["--scenario", "plain"], clients)
+        self.assertEqual(json.loads(out)["rounds"][0]["request_id"], "0a1b2c3d")
+        clients = fake_clients([response([message("hi")], "resp_1")])
+        _, out, _ = self.run_script(run_prompt, ["--scenario", "plain"], clients)
+        self.assertIsNone(json.loads(out)["rounds"][0]["request_id"])
 
     def test_a_failed_request_still_records_when_it_was_requested(self):
         clients = fake_clients([RuntimeError("boom")])
@@ -1778,10 +2008,828 @@ class CollectEvidenceTests(ScriptCase):
         self.assertIn("not a JSON object", err)
 
 
+class FakeClock:
+    """Monotonic clock of the series runner: sleeping advances it, and every sleep is recorded."""
+
+    def __init__(self, start=1000.0):
+        self.now = start
+        self.sleeps = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(round(seconds, 3))
+        self.now += seconds
+
+
+def fake_post(path):
+    return types.SimpleNamespace(method="POST", url=types.SimpleNamespace(path=path))
+
+
+class TimedResponses(FakeResponses):
+    """Every create() takes fake time and puts fake POSTs on the shared counter, a failing call included."""
+
+    def __init__(self, clock, counter, replies=(), duration=10.5, posts=(), on_create=None):
+        super().__init__(replies)
+        self.clock, self.counter, self.duration = clock, counter, duration
+        self.posts, self.on_create = list(posts), on_create
+
+    def create(self, **kwargs):
+        if self.on_create:
+            self.on_create(len(self.calls))
+        for _ in range(self.posts.pop(0) if self.posts else 1):
+            self.counter(fake_post("/openai/v1/responses"))
+        self.clock.now += self.duration
+        return super().create(**kwargs)
+
+
+class CountingConversations(FakeConversations):
+    def __init__(self, counter):
+        super().__init__()
+        self.counter = counter
+
+    def create(self):
+        self.counter(fake_post("/openai/v1/conversations"))
+        return super().create()
+
+
+def series_clients(clock, replies, counted=True, **options):
+    counter = common.HttpRequestCounter()
+    agents = FakeAgents(latest={"version": "1", "definition": stored_definition(tools=[MCP_TOOL_RECORD])})
+    openai = types.SimpleNamespace(responses=TimedResponses(clock, counter, replies, **options),
+                                   conversations=CountingConversations(counter) if counted else FakeConversations())
+    project = types.SimpleNamespace(agents=agents, connections=FakeConnections())
+    return common.Clients(project=project, openai=openai, models=FAKE_MODELS, http=counter if counted else None)
+
+
+class RunSeriesTests(ScriptCase):
+    ABLATION = "byom-demo-mcp-ablation-fp8"
+    WEAK = "byom-demo-mcp-agent-fp8"
+    STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00")
+    SEARCH_OUTPUT = f"Title: BYOM\nLink: {DOC_URL}"
+
+    def setUp(self):
+        super().setUp()
+        self.clock = FakeClock()
+        numbers = itertools.count(1)
+        patcher = patch.object(run_series, "secrets",
+                               types.SimpleNamespace(token_hex=lambda _size: f"{next(numbers):08x}"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def argv(self, label, *extra, calls=3):
+        return ["--call", f"{self.ABLATION}:1", "--repeat", str(calls), "--expect-calls", str(calls),
+                "--label", label, *extra]
+
+    def answer(self, number):
+        return f"요약입니다. {DOC_URL} r-{number:08x}"
+
+    def mcp_reply(self, number, **options):
+        output = [list_tools(), mcp_call(self.SEARCH_OUTPUT), message(self.answer(number))]
+        return response(output, f"resp_{number}", **options)
+
+    def run_calls(self, argv, replies, **options):
+        clients = series_clients(self.clock, replies, **options)
+        code, out, err = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        return clients, code, out, err
+
+    def saved_names(self):
+        return sorted(path.name for path in Path(self.tmp.name).iterdir())
+
+    def test_dry_run_lists_the_interleaved_schedule_without_files(self):
+        argv = ["--call", f"{self.WEAK}:1", "--call", f"{self.ABLATION}:2", "--repeat", "2", "--label", "unit-plan",
+                "--dry-run"]
+        code, out, err = self.run_script(run_series, argv, live=False)
+        plan = json.loads(out)["plan"]
+        calls = plan["calls"]
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual((plan["label"], plan["series_file"], plan["planned_calls"], plan["min_gap_s"]),
+                         ("unit-plan", "unit-plan.series.json", 4, 60.0))
+        self.assertIn("no retry", plan["stop_rule"])
+        self.assertEqual([call["index"] for call in calls], [1, 2, 3, 4])
+        self.assertEqual([(call["agent_reference"]["name"], call["agent_reference"]["version"]) for call in calls],
+                         [(self.WEAK, "1"), (self.ABLATION, "2")] * 2)
+        self.assertEqual([call["run_file"] for call in calls], [f"unit-plan-0{number}.run.json" for number in range(1, 5)])
+        self.assertEqual([call["nonce"] for call in calls], [f"r-{number:08x}" for number in range(1, 5)])
+        for call in calls:
+            self.assertIn(call["nonce"], call["input"])
+            self.assertEqual(call["request_options"],
+                             {"extra_body": {"agent_reference": call["agent_reference"]}, "max_output_tokens": 384,
+                              "timeout": 180, "conversation": "<new conversation>"})
+            self.assertEqual((call["use_conversation"], call["max_rounds"]), (True, 4))
+        self.assertEqual(self.saved_names(), [])
+
+    def test_call_values_need_a_valid_name_and_an_explicit_version(self):
+        for value in ("byom-demo-agent", "byom-demo-agent:", "byom-demo-agent:bad version", "Bad_Name:1", ":1"):
+            with self.subTest(call=value):
+                argv = ["--call", value, "--label", "unit-bad", "--dry-run"]
+                code, out, err = self.run_script(run_series, argv, live=False)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("config error", err)
+
+    def test_labels_must_be_valid_and_leave_room_for_the_call_number(self):
+        for label in ("", "Upper", "unit-x.series", "unit-x.run", "a" * 63):
+            with self.subTest(label=label):
+                argv = ["--call", f"{self.ABLATION}:1", "--label", label, "--dry-run"]
+                code, out, err = self.run_script(run_series, argv, live=False)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("config error", err)
+
+    def test_limits_are_refused_before_any_client_call(self):
+        cases = (
+            (["--repeat", "0"], "--repeat must be between"),
+            (["--repeat", "31"], "--repeat must be between"),
+            (["--call", f"{self.WEAK}:1", "--repeat", "16"], "at most 30 are allowed"),
+            (["--expect-calls", "2"], "--expect-calls 2 does not match the 1 scheduled calls"),
+            (["--request-budget", "1"], "--request-budget must be at least 2"),
+            (["--request-budget", "0"], "--request-budget must be at least 2"),
+            (["--request-budget", "-3"], "--request-budget must be at least 2"),
+            (["--min-gap-s", "14.9"], "--min-gap-s must be between"),
+            (["--min-gap-s", "nan"], "--min-gap-s must be between"),
+            (["--min-gap-s", "3601"], "--min-gap-s must be between"),
+            (["--max-output-tokens", "0"], "--max-output-tokens must be at least 1"),
+            (["--timeout", "0"], "--timeout must be above 0"),
+            (["--timeout", "601"], "--timeout must be above 0"),
+            (["--timeout", "nan"], "--timeout must be above 0"),
+            (["--max-rounds", "0"], "--max-rounds must be at least 1"),
+        )
+        for extra, fragment in cases:
+            with self.subTest(extra=extra):
+                clients = series_clients(self.clock, [self.mcp_reply(1)])
+                argv = ["--call", f"{self.ABLATION}:1", "--expect-calls", "1", "--label", "unit-limits", *extra]
+                code, out, err = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn(fragment, err)
+                self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+                self.assertEqual(self.saved_names(), [])
+
+    def test_a_live_run_needs_expect_calls(self):
+        clients = series_clients(self.clock, [self.mcp_reply(1)])
+        argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-noexpect"]
+        code, out, err = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("--expect-calls is required", err)
+        self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+
+    def test_calls_run_in_order_with_a_gap_and_a_record_per_call(self):
+        clients, code, out, err = self.run_calls(self.argv("unit-a"), [self.mcp_reply(number) for number in (1, 2, 3)])
+        series = json.loads(out)
+        calls = series["calls"]
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_saved("unit-a.series.json"), series)
+        self.assertEqual(self.saved_names(), ["unit-a-01.run.json", "unit-a-02.run.json", "unit-a-03.run.json",
+                                              "unit-a.series.json"])
+        sent = clients.openai.responses.calls
+        self.assertEqual(len(sent), 3)
+        for number, kwargs in enumerate(sent, start=1):
+            self.assertEqual(kwargs["extra_body"]["agent_reference"],
+                             {"type": "agent_reference", "name": self.ABLATION, "version": "1"})
+            self.assertEqual((kwargs["conversation"], kwargs["max_output_tokens"], kwargs["timeout"]),
+                             (CONVERSATION, 384, 180))
+            self.assertIn(f"r-{number:08x}", kwargs["input"])
+            self.assertFalse({"tools", "max_tool_calls", "previous_response_id"} & set(kwargs))
+        self.assertEqual([call["gap_before_s"] for call in calls], [None, 60.0, 60.0])
+        self.assertEqual(self.clock.sleeps, [60.0, 60.0])
+        for number, call in enumerate(calls, start=1):
+            with self.subTest(call=number):
+                self.assertEqual((call["index"], call["agent"], call["version"], call["nonce"]),
+                                 (number, self.ABLATION, "1", f"r-{number:08x}"))
+                self.assertEqual((call["ok"], call["stopped"], call["error"], call["model_error"]),
+                                 (True, "completed", None, False))
+                self.assertEqual(call["duration_ms"], 10500)
+                self.assertEqual(call["client_http"], {"requests": 2, "responses_posts": 1})
+                self.assertEqual(call["item_sequence"], ["mcp_list_tools", "mcp_call", "message"])
+                self.assertTrue(call["mcp_called"])
+                self.assertEqual(call["mcp_calls"], [{"name": "microsoft_docs_search", "status": "completed",
+                                                      "arguments_object": True, "query_chars": 4,
+                                                      "output_chars": len(self.SEARCH_OUTPUT),
+                                                      "output_url_count": 1, "output_hosts": ["learn.microsoft.com"],
+                                                      "output_shape": {"kind": "text"}}])
+                self.assertEqual((call["answer_chars"], call["final_answer_contains_nonce"], call["think_tag"]),
+                                 (len(self.answer(number)), True, False))
+                self.assertEqual((call["answer_hosts"], call["answer_hosts_not_in_tool_output"]),
+                                 (["learn.microsoft.com"], []))
+                self.assertEqual((call["response_model"], call["response_id"], call["conversation_id"]),
+                                 ("fake-backend-model", f"resp_{number}", CONVERSATION))
+                self.assertEqual((call["usage"]["input_tokens"], call["usage"]["output_tokens"]), (120, 30))
+                self.assertEqual((call["contaminated"], call["contamination_note"]), (None, None))
+                for key in ("started_at", "first_request_at", "finished_at"):
+                    self.assertTrue(self.STAMP.fullmatch(call[key]), call[key])
+                self.assertLessEqual(call["started_at"], call["first_request_at"])
+                self.assertLessEqual(call["first_request_at"], call["finished_at"])
+                self.assertEqual(call["first_request_at"], call["rounds"][0]["requested_at"])
+                self.assertEqual(set(call["rounds"][0]), {"requested_at", "responded_at", "elapsed_s", "response_id",
+                                                          "status", "usage", "output_item_types"})
+        for before, after in zip(calls, calls[1:]):
+            self.assertLessEqual(before["finished_at"], after["started_at"])
+        self.assertEqual((series["schema"], series["planned_calls"], series["stopped_early"], series["stop_reason"],
+                          series["error"]), ("foundry-byom-series/1", 3, False, None, None))
+        self.assertTrue(self.STAMP.fullmatch(series["generated_at"]))
+        self.assertEqual(series["plan"], {
+            "calls": [f"{self.ABLATION}:1"] * 3, "scenario": "mcp", "custom_prompt": False, "min_gap_s": 60.0,
+            "expect_calls": 3, "continue_on_model_error": False, "request_budget": None, "stop_on_mcp_error": False,
+            "stop_rule": run_series.STOP_RULE,
+            "limits": {"max_output_tokens": 384, "max_tool_calls": 0, "max_rounds": 4, "timeout_s": 180}})
+        self.assertEqual(list(series["agents"]), [f"{self.ABLATION}:1"])
+        self.assertEqual(series["summary"], {
+            "calls": 3, "ok": 3, "mcp_called": 3, "ok_without_mcp": 0, "model_error": 0,
+            "by_agent": {f"{self.ABLATION}:1": {"calls": 3, "ok": 3, "mcp_called": 3, "ok_without_mcp": 0,
+                                                "model_error": 0}}})
+        for fragment in (f"precheck ok: {self.ABLATION}:1", "call 2/3: waiting for the 60 s gap",
+                         "call 3/3: waiting for the 60 s gap", f"call 3/3 {self.ABLATION}:1 ok=True",
+                         "duration_ms=10500", "items=mcp_list_tools>mcp_call>message", "usage=120/30",
+                         "client_http={'requests': 2, 'responses_posts': 1}", "error=-", "saved unit-a.series.json"):
+            self.assertIn(fragment, err)
+
+    def test_custom_limits_reach_every_request_and_the_series_file(self):
+        argv = self.argv("unit-custom", "--max-output-tokens", "200", "--max-tool-calls", "2", "--timeout", "90",
+                         "--max-rounds", "2", "--min-gap-s", "20", calls=2)
+        clients, code, out, _ = self.run_calls(argv, [self.mcp_reply(1), self.mcp_reply(2)])
+        series = json.loads(out)
+        self.assertEqual(code, 0)
+        for kwargs in clients.openai.responses.calls:
+            self.assertEqual((kwargs["max_output_tokens"], kwargs["max_tool_calls"], kwargs["timeout"]), (200, 2, 90))
+        self.assertEqual(self.clock.sleeps, [20.0])
+        self.assertEqual(series["plan"]["limits"],
+                         {"max_output_tokens": 200, "max_tool_calls": 2, "max_rounds": 2, "timeout_s": 90})
+        self.assertEqual(series["plan"]["min_gap_s"], 20.0)
+
+    def test_answer_hosts_that_no_tool_output_contained_are_listed_and_private_hosts_masked(self):
+        body = {"webResults": [{"url": "https://news.example.net/a"}, {"url": "https://contoso.sharepoint.com/c"}]}
+        output = json.dumps({"content": [{"type": "text", "text": json.dumps(body)}]})
+        answer = ("요약 https://news.example.net/x https://wire.example.org/y https://invented.example.net/z "
+                  "http://10.1.2.3/z https://contoso.sharepoint.com/q r-00000001")
+        reply = response([list_tools(), mcp_call(output), message(answer)], "resp_1")
+        _, code, out, _ = self.run_calls(self.argv("unit-hosts", calls=1), [reply])
+        call = json.loads(out)["calls"][0]
+        tool = call["mcp_calls"][0]
+        self.assertEqual(code, 0)
+        self.assertEqual((tool["result_items"], tool["output_url_count"], tool["output_hosts"]),
+                         (2, 2, ["news.example.net", common.MASKED_HOST]))
+        self.assertEqual(call["answer_hosts"],
+                         ["news.example.net", "wire.example.org", "invented.example.net", common.MASKED_HOST])
+        self.assertEqual(call["answer_hosts_not_in_tool_output"], ["wire.example.org", "invented.example.net"])
+        saved = (Path(self.tmp.name) / "unit-hosts.series.json").read_text(encoding="utf-8")
+        for text in (out, saved):
+            self.assertNotIn("10.1.2.3", text)
+            self.assertNotIn("sharepoint", text)
+
+    def test_the_hosts_missing_from_the_tools_ignore_the_mask_and_unsummarized_answers(self):
+        calls = [{"output_hosts": ["a.example.net", common.MASKED_HOST]}, {"output_hosts": None}, {}]
+        self.assertIsNone(run_series.hosts_missing_from_tools(None, calls))
+        self.assertEqual(run_series.hosts_missing_from_tools([], calls), [])
+        self.assertEqual(
+            run_series.hosts_missing_from_tools(["a.example.net", "b.example.net", common.MASKED_HOST], calls),
+            ["b.example.net"])
+        self.assertEqual(run_series.hosts_missing_from_tools(["a.example.net"], []), ["a.example.net"])
+
+    def test_thirty_calls_are_allowed_and_thirty_one_are_not(self):
+        base = ["--call", f"{self.ABLATION}:1", "--label", "unit-thirty", "--dry-run"]
+        code, out, err = self.run_script(run_series, [*base, "--repeat", "30"], live=False)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out)["plan"]["planned_calls"], 30)
+        code, out, err = self.run_script(run_series, [*base, "--repeat", "31"], live=False)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("--repeat must be between 1 and 30", err)
+
+    def test_the_dry_run_plan_shows_the_budget_and_the_mcp_stop(self):
+        argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-plan2", "--dry-run", "--request-budget", "64",
+                "--stop-on-mcp-error"]
+        code, out, _ = self.run_script(run_series, argv, live=False)
+        plan = json.loads(out)["plan"]
+        self.assertEqual(code, 0)
+        self.assertEqual((plan["request_budget"], plan["stop_on_mcp_error"]), (64, True))
+
+    def test_the_request_estimate_counts_posts_and_mcp_calls(self):
+        cases = (
+            ({"responses_posts": 1}, [{}], 2),
+            ({"responses_posts": 1}, [], 1),
+            (None, [], 1),
+            ({"responses_posts": 0}, [{}, {}], 3),
+            ({"responses_posts": 3}, [], 3),
+        )
+        for http, mcp_calls, expected in cases:
+            with self.subTest(http=http, mcp_calls=len(mcp_calls)):
+                record = {"client_http": http, "mcp_calls": mcp_calls}
+                self.assertEqual(run_series.request_estimate(record), expected)
+
+    def test_the_request_budget_stops_the_series_before_a_call_that_could_exceed_it(self):
+        replies = [self.mcp_reply(number) for number in (1, 2, 3)]
+        clients, code, out, err = self.run_calls(self.argv("unit-budget", "--request-budget", "5"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual([call["ok"] for call in series["calls"]], [True, True])
+        self.assertTrue(series["stopped_early"])
+        self.assertEqual(series["stop_reason"], "request budget 5 reached before call 3: 4 estimated model "
+                                                "requests so far, one call can use 2")
+        self.assertEqual((series["plan"]["request_budget"], series["plan"]["stop_on_mcp_error"]), (5, False))
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+        self.assertEqual(self.clock.sleeps, [60.0])
+        self.assertFalse((Path(self.tmp.name) / "unit-budget-03.run.json").exists())
+        self.assertEqual(self.read_saved("unit-budget.series.json"), series)
+        self.assertNotIn("call 3/3", err)
+
+    def test_a_series_that_fits_the_request_budget_runs_to_the_end(self):
+        replies = [self.mcp_reply(number) for number in (1, 2, 3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-fits", "--request-budget", "6"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual((len(series["calls"]), series["stopped_early"], series["stop_reason"]), (3, False, None))
+        self.assertEqual(len(clients.openai.responses.calls), 3)
+
+    def test_the_budget_also_stops_a_series_that_continues_past_model_errors(self):
+        failure = ApiError(500, "The model produced invalid content", api_type="model_error")
+        replies = [failure, failure, self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(
+            self.argv("unit-budget-go", "--continue-on-model-error", "--request-budget", "3"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual([call["model_error"] for call in series["calls"]], [True, True])
+        self.assertEqual(series["stop_reason"], "request budget 3 reached before call 3: 2 estimated model "
+                                                "requests so far, one call can use 2")
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+
+    def failed_mcp_replies(self, item):
+        return [self.mcp_reply(1), response([list_tools(), *item, message(self.answer(2))], "resp_2"),
+                self.mcp_reply(3)]
+
+    def test_a_failed_mcp_item_in_a_completed_call_stops_the_series_with_the_option(self):
+        cases = (
+            ([mcp_call("", status="failed", error="tool failed")], "an mcp_call item (microsoft_docs_search) failed"),
+            ([mcp_call("", error={"code": "auth_invalid_api_key"})],
+             "an mcp_call item (microsoft_docs_search) failed"),
+            ([mcp_call("", name="other_tool", status="failed")], "an mcp_call item (other_tool) failed"),
+        )
+        for number, (item, failure) in enumerate(cases, start=1):
+            with self.subTest(failure=failure, number=number):
+                self.clock = FakeClock()
+                label = f"unit-mcp-stop-{number}"
+                clients, code, out, err = self.run_calls(self.argv(label, "--stop-on-mcp-error"),
+                                                         self.failed_mcp_replies(item))
+                series = json.loads(out)
+                self.assertEqual(code, 1)
+                self.assertEqual((series["stopped_early"], series["stop_reason"]),
+                                 (True, f"call 2 completed but {failure}"))
+                self.assertEqual([call["ok"] for call in series["calls"]], [True, True])
+                self.assertEqual(series["plan"]["stop_on_mcp_error"], True)
+                self.assertEqual(len(clients.openai.responses.calls), 2)
+                self.assertEqual(self.clock.sleeps, [60.0])
+                self.assertEqual(self.read_saved(f"{label}.series.json"), series)
+                self.assertNotIn("tool failed", series["stop_reason"])
+                self.assertNotIn("call 3/3", err)
+
+    def test_a_failed_tool_listing_stops_the_series_with_the_option(self):
+        replies = [self.mcp_reply(1), response([list_tools(names=(), error="listing failed"), message(self.answer(2))],
+                                               "resp_2"), self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-list-stop", "--stop-on-mcp-error"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 2 completed but an mcp_list_tools item failed")
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+
+    def test_a_failed_mcp_item_does_not_stop_the_series_without_the_option(self):
+        replies = self.failed_mcp_replies([mcp_call("", status="failed", error="tool failed")])
+        clients, code, out, _ = self.run_calls(self.argv("unit-mcp-go"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual((len(series["calls"]), series["stopped_early"], series["stop_reason"]), (3, False, None))
+        self.assertEqual(series["calls"][1]["mcp_calls"][0]["status"], "failed")
+        self.assertEqual(len(clients.openai.responses.calls), 3)
+
+    def test_the_mcp_stop_ignores_working_calls_and_failed_calls_stop_as_before(self):
+        replies = [self.mcp_reply(number) for number in (1, 2, 3)]
+        _, code, out, _ = self.run_calls(self.argv("unit-mcp-ok", "--stop-on-mcp-error"), replies)
+        self.assertEqual((code, len(json.loads(out)["calls"])), (0, 3))
+        failure = ApiError(503, "backend not ready", code="backend_unavailable")
+        _, code, out, _ = self.run_calls(self.argv("unit-mcp-503", "--stop-on-mcp-error"),
+                                         [self.mcp_reply(1), failure, self.mcp_reply(3)])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["stop_reason"], "call 2 did not complete: error (503 backend_unavailable)")
+
+    def test_the_temperature_echoed_by_the_response_is_recorded_per_call(self):
+        replies = [self.mcp_reply(1, temperature=0.3, top_p=1.0), self.mcp_reply(2)]
+        _, code, out, _ = self.run_calls(self.argv("unit-temp", calls=2), replies)
+        first, second = json.loads(out)["calls"]
+        self.assertEqual(code, 0)
+        self.assertEqual((first["response_temperature"], first["response_top_p"]), (0.3, 1.0))
+        self.assertEqual((first["rounds"][0]["temperature"], first["rounds"][0]["top_p"]), (0.3, 1.0))
+        self.assertEqual((second["response_temperature"], second["response_top_p"]), (None, None))
+        self.assertNotIn("temperature", second["rounds"][0])
+
+    def test_wait_for_gap_sleeps_only_for_the_missing_time(self):
+        clock = FakeClock(100.0)
+        self.assertIsNone(run_series.wait_for_gap(None, 60.0, clock, clock.sleep))
+        self.assertEqual(run_series.wait_for_gap(40.0, 60.0, clock, clock.sleep), 60.0)
+        self.assertEqual(run_series.wait_for_gap(10.0, 60.0, clock, clock.sleep), 90.0)
+        self.assertEqual(clock.sleeps, [])
+        falls_short = iter([10.0])
+
+        def short_sleep(seconds):
+            clock.sleeps.append(round(seconds, 3))
+            clock.now += next(falls_short, seconds)
+
+        self.assertEqual(run_series.wait_for_gap(84.0, 32.0, clock, short_sleep), 32.0)
+        self.assertEqual(clock.sleeps, [16.0, 6.0])
+
+    def test_the_series_stops_at_the_first_call_that_does_not_complete(self):
+        failed = response([], status="failed", error={"code": "model_error", "message": "model failed"})
+        incomplete = response([message("부분")], status="incomplete", incomplete_details={"reason": "max_output_tokens"})
+        cases = (
+            (ApiError(500, "model failed", code="model_error"), 1, "error", True,
+             "call 2 did not complete: error (500 model_error)"),
+            (ApiError(500, "The model produced invalid content", api_type="model_error"), 1, "error", True,
+             "call 2 did not complete: error (500 model_error)"),
+            (ApiError(503, "backend not ready", code="backend_unavailable"), 1, "error", False,
+             "call 2 did not complete: error (503 backend_unavailable)"),
+            (ApiError(503, "backend not ready", code="model_error", api_type="server_error"), 1, "error", False,
+             "call 2 did not complete: error (503 model_error server_error)"),
+            (TimeoutError("request timed out"), 1, "error", False, "call 2 did not complete: error"),
+            (failed, 1, "failed", True, "call 2 did not complete: failed (model_error)"),
+            (response([], status="failed", error="boom"), 1, "failed", False, "call 2 did not complete: failed"),
+            (incomplete, 3, "incomplete", False, "call 2 did not complete: incomplete"),
+            (response([list_tools(), approval_request()]), 3, "approval_required:microsoft_docs_search", False,
+             "call 2 did not complete: approval_required:microsoft_docs_search"),
+        )
+        for number, (failure, expected_code, stopped, is_model_error, reason) in enumerate(cases, start=1):
+            with self.subTest(reason=reason):
+                self.clock = FakeClock()
+                label = f"unit-stop-{number}"
+                replies = [self.mcp_reply(1), failure, self.mcp_reply(3)]
+                clients, code, out, err = self.run_calls(self.argv(label), replies)
+                series = json.loads(out)
+                calls = series["calls"]
+                self.assertEqual(code, expected_code)
+                self.assertEqual((series["stopped_early"], series["stop_reason"], series["planned_calls"]),
+                                 (True, reason, 3))
+                self.assertEqual(len(clients.openai.responses.calls), 2)
+                self.assertEqual(len(clients.openai.responses.replies), 1)
+                self.assertEqual([call["ok"] for call in calls], [True, False])
+                self.assertEqual((calls[1]["stopped"], calls[1]["model_error"]), (stopped, is_model_error))
+                self.assertEqual(calls[1]["client_http"], {"requests": 2, "responses_posts": 1})
+                self.assertEqual((series["summary"]["calls"], series["summary"]["ok"], series["summary"]["model_error"]),
+                                 (2, 1, int(is_model_error)))
+                self.assertEqual(self.clock.sleeps, [60.0])
+                self.assertTrue((Path(self.tmp.name) / f"{label}-02.run.json").exists())
+                self.assertFalse((Path(self.tmp.name) / f"{label}-03.run.json").exists())
+                self.assertIn("call 2/3 ", err)
+                self.assertNotIn("call 3/3", err)
+
+    def test_a_failure_of_the_first_call_stops_without_any_wait(self):
+        failure = ApiError(503, "backend not ready", code="backend_unavailable")
+        clients, code, out, _ = self.run_calls(self.argv("unit-first"), [failure, self.mcp_reply(2)])
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 1 did not complete: error (503 backend_unavailable)")
+        self.assertEqual(len(series["calls"]), 1)
+        self.assertIsNone(series["calls"][0]["gap_before_s"])
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(len(clients.openai.responses.calls), 1)
+
+    def test_model_error_means_a_500_or_a_failed_response_with_that_service_error(self):
+        cases = (
+            ({"status_code": 500, "code": None, "api_type": "model_error"}, True),
+            ({"status_code": 500, "code": "model_error", "api_type": "server_error"}, True),
+            ({"status_code": None, "code": "model_error"}, True),
+            ({"status_code": 503, "code": "model_error", "api_type": "server_error"}, False),
+            ({"status_code": 429, "code": "model_error"}, False),
+            ({"status_code": 500, "code": "backend_unavailable", "api_type": "server_error"}, False),
+            ({"status_code": 500, "code": None}, False),
+            ({"status_code": None, "code": "timeout"}, False),
+            ({}, False),
+            (None, False),
+            ("model_error", False),
+        )
+        for error, expected in cases:
+            with self.subTest(error=error):
+                self.assertIs(run_series.is_model_error(error), expected)
+
+    def test_error_summaries_keep_the_service_error_type_and_survive_a_plain_string(self):
+        error = {"type": "InternalServerError", "status_code": 500, "code": None, "api_type": "model_error",
+                 "request_id": "1eba5b6a", "message": "m", "details": [{"code": "x"}]}
+        self.assertEqual(run_series.brief_error(error), {"type": "InternalServerError", "status_code": 500,
+                                                         "api_type": "model_error", "request_id": "1eba5b6a",
+                                                         "message": "m"})
+        self.assertIsNone(run_series.brief_error(None))
+        self.assertEqual(run_series.brief_error("boom"), {"message": "boom"})
+        self.assertEqual(run_series.failure_labels(error), ["500", "model_error"])
+        self.assertEqual(run_series.failure_labels({"status_code": 503, "code": "model_error", "api_type": "server_error"}),
+                         ["503", "model_error", "server_error"])
+        self.assertEqual((run_series.failure_labels("boom"), run_series.failure_labels(None)), ([], []))
+
+    def test_a_model_error_is_recorded_and_the_series_goes_on_with_the_option(self):
+        failure = ApiError(500, "The model produced invalid content", api_type="model_error")
+        replies = [self.mcp_reply(1), failure, self.mcp_reply(3)]
+        clients, code, out, err = self.run_calls(self.argv("unit-go", "--continue-on-model-error"), replies)
+        series = json.loads(out)
+        calls = series["calls"]
+        self.assertEqual(code, 0)
+        self.assertEqual((series["stopped_early"], series["stop_reason"], series["error"]), (False, None, None))
+        self.assertEqual((len(clients.openai.responses.calls), clients.openai.conversations.created), (3, 3))
+        self.assertEqual([call["ok"] for call in calls], [True, False, True])
+        self.assertEqual([call["model_error"] for call in calls], [False, True, False])
+        self.assertEqual((calls[1]["stopped"], calls[1]["error"]["status_code"], calls[1]["error"]["api_type"]),
+                         ("error", 500, "model_error"))
+        self.assertEqual([call["gap_before_s"] for call in calls], [None, 60.0, 60.0])
+        self.assertEqual(self.clock.sleeps, [60.0, 60.0])
+        self.assertEqual(self.saved_names(), ["unit-go-01.run.json", "unit-go-02.run.json", "unit-go-03.run.json",
+                                              "unit-go.series.json"])
+        self.assertEqual(self.read_saved("unit-go.series.json"), series)
+        self.assertEqual((series["summary"]["calls"], series["summary"]["ok"], series["summary"]["model_error"]),
+                         (3, 2, 1))
+        self.assertEqual((series["plan"]["continue_on_model_error"], series["plan"]["stop_rule"]),
+                         (True, run_series.CONTINUE_RULE))
+        self.assertIn("call 2/3 byom-demo-mcp-ablation-fp8:1 ok=False", err)
+        self.assertIn("error=ApiError/500/model_error", err)
+        self.assertIn("call 3/3 byom-demo-mcp-ablation-fp8:1 ok=True", err)
+
+    def test_the_option_still_stops_at_every_failure_that_is_not_a_model_error(self):
+        incomplete = response([message("부분")], status="incomplete", incomplete_details={"reason": "max_output_tokens"})
+        cases = (
+            ApiError(503, "backend not ready", code="model_error", api_type="server_error"),
+            ApiError(429, "slow down", code="rate_limit_exceeded"),
+            ApiError(401, "unauthorized"),
+            TimeoutError("request timed out"),
+            incomplete,
+            response([list_tools(), approval_request()]),
+        )
+        for number, failure in enumerate(cases, start=1):
+            with self.subTest(number=number):
+                self.clock = FakeClock()
+                label = f"unit-opt-stop-{number}"
+                clients, code, out, err = self.run_calls(self.argv(label, "--continue-on-model-error"),
+                                                         [self.mcp_reply(1), failure, self.mcp_reply(3)])
+                series = json.loads(out)
+                self.assertNotEqual(code, 0)
+                self.assertTrue(series["stopped_early"])
+                self.assertTrue(series["stop_reason"].startswith("call 2 did not complete: "))
+                self.assertEqual([call["ok"] for call in series["calls"]], [True, False])
+                self.assertFalse(series["calls"][1]["model_error"])
+                self.assertEqual(len(clients.openai.responses.calls), 2)
+                self.assertEqual(self.clock.sleeps, [60.0])
+                self.assertNotIn("call 3/3", err)
+
+    def test_a_model_error_followed_by_another_failure_stops_at_that_failure(self):
+        replies = [ApiError(500, "invalid content", api_type="model_error"),
+                   ApiError(503, "backend not ready", code="backend_unavailable"), self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-two-fail", "--continue-on-model-error"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 2 did not complete: error (503 backend_unavailable)")
+        self.assertEqual([call["model_error"] for call in series["calls"]], [True, False])
+        self.assertEqual(series["summary"]["model_error"], 1)
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+        self.assertEqual(self.clock.sleeps, [60.0])
+
+    def test_a_model_error_stops_the_series_without_the_option(self):
+        replies = [self.mcp_reply(1), ApiError(500, "invalid content", api_type="model_error"), self.mcp_reply(3)]
+        clients, code, out, _ = self.run_calls(self.argv("unit-no-opt"), replies)
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(series["stop_reason"], "call 2 did not complete: error (500 model_error)")
+        self.assertEqual((len(series["calls"]), series["calls"][1]["model_error"]), (2, True))
+        self.assertEqual(len(clients.openai.responses.calls), 2)
+
+    def test_dry_run_shows_whether_a_model_error_lets_the_series_go_on(self):
+        for extra, rule in (([], run_series.STOP_RULE), (["--continue-on-model-error"], run_series.CONTINUE_RULE)):
+            with self.subTest(extra=extra):
+                argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-rule", "--dry-run", *extra]
+                code, out, _ = self.run_script(run_series, argv, live=False)
+                plan = json.loads(out)["plan"]
+                self.assertEqual(code, 0)
+                self.assertEqual((plan["continue_on_model_error"], plan["stop_rule"]), (bool(extra), rule))
+        self.assertIn("no retry", run_series.CONTINUE_RULE)
+
+    def test_precheck_only_reads_the_agent_versions_and_sends_no_model_request(self):
+        clients = series_clients(self.clock, [self.mcp_reply(1)])
+        clients.project.agents.get_version = Mock(wraps=clients.project.agents.get_version)
+        argv = ["--call", f"{self.ABLATION}:1", "--call", f"{self.WEAK}:1", "--repeat", "2", "--label", "unit-pre",
+                "--precheck-only"]
+        code, out, err = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        result = json.loads(out)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual((result["action"], result["ok"]), ("precheck", True))
+        self.assertEqual(list(result["agents"]), [f"{self.ABLATION}:1", f"{self.WEAK}:1"])
+        self.assertEqual(result["agents"][f"{self.ABLATION}:1"]["model"], MODEL_REF)
+        self.assertEqual(clients.project.agents.get_version.call_count, 2)
+        self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(self.saved_names(), [])
+
+    def test_precheck_only_reports_a_missing_agent_version_and_exits_1(self):
+        clients = series_clients(self.clock, [self.mcp_reply(1)])
+        argv = ["--call", f"{self.ABLATION}:9", "--label", "unit-pre-missing", "--precheck-only"]
+        code, out, _ = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        result = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual((result["action"], result["ok"], result["stage"]), ("precheck", False, "agents.get_version"))
+        self.assertEqual(result["error"]["status_code"], 404)
+        self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+        self.assertEqual(self.saved_names(), [])
+
+    def test_precheck_only_cannot_be_combined_with_a_dry_run(self):
+        argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-pre-dry", "--precheck-only", "--dry-run"]
+        code, out, err = self.run_script(run_series, argv, live=False)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("--precheck-only", err)
+
+    def test_precheck_only_builds_no_openai_client(self):
+        for extra, with_openai in ((["--precheck-only"], False), (["--expect-calls", "1"], True)):
+            with self.subTest(extra=extra):
+                clients = series_clients(self.clock, [self.mcp_reply(1)])
+                argv = ["--call", f"{self.ABLATION}:1", "--label", "unit-pre-client", *extra]
+                with patch.object(common, "open_clients", Mock(return_value=clients)) as opened:
+                    code, _, _ = self.run_script(run_series, argv, None, clock=self.clock, sleep=self.clock.sleep)
+                self.assertEqual(code, 0)
+                self.assertIs(opened.call_args.kwargs["with_openai"], with_openai)
+
+    def test_a_completed_call_without_the_mcp_tool_is_a_result_and_not_a_stop(self):
+        without_tool = response([message(self.answer(2))], "resp_2")
+        _, code, out, _ = self.run_calls(self.argv("unit-nomcp"), [self.mcp_reply(1), without_tool, self.mcp_reply(3)])
+        series = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual([call["mcp_called"] for call in series["calls"]], [True, False, True])
+        self.assertEqual((series["calls"][1]["item_sequence"], series["calls"][1]["mcp_calls"]), (["message"], []))
+        self.assertEqual({key: series["summary"][key] for key in ("calls", "ok", "mcp_called", "ok_without_mcp",
+                                                                   "model_error")},
+                         {"calls": 3, "ok": 3, "mcp_called": 2, "ok_without_mcp": 1, "model_error": 0})
+        self.assertEqual((series["stopped_early"], series["stop_reason"]), (False, None))
+
+    def test_the_summary_counts_each_agent_version_on_its_own(self):
+        replies = [self.mcp_reply(1), self.mcp_reply(2), response([message(self.answer(3))], "resp_3"),
+                   self.mcp_reply(4)]
+        argv = ["--call", f"{self.WEAK}:1", "--call", f"{self.ABLATION}:1", "--repeat", "2", "--expect-calls", "4",
+                "--label", "unit-two"]
+        clients, code, out, _ = self.run_calls(argv, replies)
+        series = json.loads(out)
+        order = [self.WEAK, self.ABLATION, self.WEAK, self.ABLATION]
+        self.assertEqual(code, 0)
+        self.assertEqual([call["agent"] for call in series["calls"]], order)
+        self.assertEqual([kwargs["extra_body"]["agent_reference"]["name"] for kwargs in clients.openai.responses.calls],
+                         order)
+        self.assertEqual(list(series["agents"]), [f"{self.WEAK}:1", f"{self.ABLATION}:1"])
+        self.assertEqual(series["summary"]["by_agent"], {
+            f"{self.WEAK}:1": {"calls": 2, "ok": 2, "mcp_called": 1, "ok_without_mcp": 1, "model_error": 0},
+            f"{self.ABLATION}:1": {"calls": 2, "ok": 2, "mcp_called": 2, "ok_without_mcp": 0, "model_error": 0}})
+
+    def test_mcp_evidence_keeps_lengths_and_never_the_query_text(self):
+        searched = dict(mcp_call("o" * 40), arguments=json.dumps({"query": "QUERY-" + "x" * 594}))
+        broken = dict(mcp_call(None, status="failed", error={"code": "tool_error", "message": "boom"}),
+                      arguments="not json {")
+        reply = response([list_tools(), searched, broken, message("답변 r-00000001")], "resp_1")
+        _, code, out, _ = self.run_calls(self.argv("unit-query", calls=1), [reply])
+        call = json.loads(out)["calls"][0]
+        self.assertEqual(code, 0)
+        self.assertEqual(call["item_sequence"], ["mcp_list_tools", "mcp_call", "mcp_call", "message"])
+        self.assertEqual(call["mcp_calls"], [
+            {"name": "microsoft_docs_search", "status": "completed", "arguments_object": True, "query_chars": 600,
+             "output_chars": 40, "output_url_count": 0, "output_hosts": [], "output_shape": {"kind": "text"}},
+            {"name": "microsoft_docs_search", "status": "failed", "arguments_object": False,
+             "error": {"code": "tool_error", "message": "boom"}}])
+        saved = (Path(self.tmp.name) / "unit-query.series.json").read_text(encoding="utf-8")
+        for text in (out, saved):
+            self.assertNotIn("QUERY-", text)
+
+    def test_client_http_is_counted_per_call_and_absent_without_a_counter(self):
+        _, code, out, _ = self.run_calls(self.argv("unit-http", calls=2), [self.mcp_reply(1), self.mcp_reply(2)],
+                                         posts=[2, 1])
+        self.assertEqual(code, 0)
+        self.assertEqual([call["client_http"] for call in json.loads(out)["calls"]],
+                         [{"requests": 3, "responses_posts": 2}, {"requests": 2, "responses_posts": 1}])
+        _, code, out, _ = self.run_calls(self.argv("unit-nohttp", calls=1), [self.mcp_reply(1)], counted=False)
+        self.assertEqual(code, 0)
+        self.assertIsNone(json.loads(out)["calls"][0]["client_http"])
+
+    def test_a_failed_precheck_makes_no_model_call(self):
+        argv = ["--call", f"{self.ABLATION}:9", "--expect-calls", "1", "--label", "unit-missing"]
+        clients, code, out, err = self.run_calls(argv, [self.mcp_reply(1)])
+        series = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual((clients.openai.responses.calls, clients.openai.conversations.created), ([], 0))
+        self.assertEqual((series["stopped_early"], series["stop_reason"], series["calls"]),
+                         (True, "precheck failed at agents.get_version", []))
+        self.assertEqual(series["error"]["status_code"], 404)
+        self.assertNotIn("precheck ok", err)
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(self.saved_names(), ["unit-missing.series.json"])
+
+    def test_the_precheck_reads_every_distinct_agent_version_once(self):
+        clients = series_clients(self.clock, [self.mcp_reply(number) for number in (1, 2, 3, 4)])
+        clients.project.agents.get_version = Mock(wraps=clients.project.agents.get_version)
+        argv = ["--call", f"{self.ABLATION}:1", "--call", f"{self.WEAK}:1", "--repeat", "2", "--expect-calls", "4",
+                "--label", "unit-precheck"]
+        code, out, _ = self.run_script(run_series, argv, clients, clock=self.clock, sleep=self.clock.sleep)
+        agents = json.loads(out)["agents"]
+        self.assertEqual(code, 0)
+        self.assertEqual([call.kwargs for call in clients.project.agents.get_version.call_args_list],
+                         [{"agent_name": self.ABLATION, "agent_version": "1"},
+                          {"agent_name": self.WEAK, "agent_version": "1"}])
+        self.assertEqual(list(agents), [f"{self.ABLATION}:1", f"{self.WEAK}:1"])
+        for view in agents.values():
+            self.assertEqual((view["model"], view["temperature"]), (MODEL_REF, 1.0))
+            self.assertEqual(view["instructions_chars"], len(common.DEFAULT_INSTRUCTIONS))
+            self.assertRegex(view["instructions_sha256_12"], r"^[0-9a-f]{12}$")
+            self.assertEqual([tool["type"] for tool in view["tools"]], ["mcp"])
+
+    def test_chars_of_inverts_the_clip_suffix(self):
+        self.assertEqual(run_series.chars_of("짧은 질의"), 5)
+        self.assertEqual(run_series.chars_of(common.clip("가" * 500, 200)), 500)
+
+    def test_the_short_request_id_is_recorded_and_the_whole_id_never_is(self):
+        class Tagged(Model):
+            _request_id = "fe49cff6b2f854e3d8ed52e2dfb9e48f"
+
+        tagged = Tagged(**self.mcp_reply(1).data)
+        _, code, out, _ = self.run_calls(self.argv("unit-rid", calls=1), [tagged])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["calls"][0]["rounds"][0]["request_id"], "fe49cff6")
+        for text in (out, *(path.read_text(encoding="utf-8") for path in Path(self.tmp.name).iterdir())):
+            self.assertNotIn("fe49cff6b2f8", text)
+
+    def test_public_files_shorten_service_ids_and_private_copies_keep_them(self):
+        private_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(private_tmp.cleanup)
+        private = Path(private_tmp.name) / "raw"
+        reply = response([list_tools(), mcp_call(self.SEARCH_OUTPUT), message(self.answer(1))], f"resp_{LONG_ID}",
+                         conversation={"id": f"conv_{LONG_ID}"})
+        clients = series_clients(self.clock, [reply])
+        clients.openai.conversations.create = lambda: Model(id=f"conv_{LONG_ID}")
+        with patch.dict(os.environ, {common.PRIVATE_DIR_ENV: str(private)}):
+            code, out, err = self.run_script(run_series, self.argv("unit-ids", calls=1), clients,
+                                             clock=self.clock, sleep=self.clock.sleep)
+        names = ("unit-ids.series.json", "unit-ids-01.run.json")
+        self.assertEqual(code, 0)
+        for text in (out, *(self.tmp_file(name) for name in names)):
+            self.assertNotIn(LONG_ID, text)
+            self.assertIn("resp_0a1b2c3d…", text)
+            self.assertIn("conv_0a1b2c3d…", text)
+        for name in names:
+            whole = (private / name).read_text(encoding="utf-8")
+            self.assertIn(f"resp_{LONG_ID}", whole)
+            self.assertIn(f"conv_{LONG_ID}", whole)
+        self.assertNotIn(LONG_ID, err)
+
+    def tmp_file(self, name):
+        return (Path(self.tmp.name) / name).read_text(encoding="utf-8")
+
+    def test_the_series_file_is_saved_before_each_call_starts(self):
+        path = Path(self.tmp.name) / "unit-save.series.json"
+        seen = []
+        self.run_calls(self.argv("unit-save"), [self.mcp_reply(number) for number in (1, 2, 3)],
+                       on_create=lambda _index: seen.append(len(json.loads(path.read_text(encoding="utf-8"))["calls"])))
+        self.assertEqual(seen, [0, 1, 2])
+
+    def test_a_custom_prompt_gets_the_trace_code_and_stays_out_of_the_series_file(self):
+        argv = ["--call", f"{self.ABLATION}:1", "--repeat", "2", "--expect-calls", "2", "--label", "unit-prompt",
+                "--prompt", "자유 질문입니다"]
+        clients, code, out, _ = self.run_calls(argv, [self.mcp_reply(1), self.mcp_reply(2)])
+        self.assertEqual(code, 0)
+        self.assertEqual([kwargs["input"] for kwargs in clients.openai.responses.calls],
+                         ["자유 질문입니다 [추적 ID: r-00000001]", "자유 질문입니다 [추적 ID: r-00000002]"])
+        self.assertTrue(json.loads(out)["plan"]["custom_prompt"])
+        self.assertNotIn("자유 질문입니다", out)
+        self.assertNotIn("자유 질문입니다", self.tmp_file("unit-prompt.series.json"))
+
+    def test_a_shared_nonce_repeats_the_same_prompt_in_every_call(self):
+        nonce = "r-7acb8605"
+        replies = [response([list_tools(), mcp_call(self.SEARCH_OUTPUT), message(f"요약입니다. {DOC_URL} {nonce}")],
+                            f"resp_{number}") for number in (1, 2, 3)]
+        clients, code, out, _ = self.run_calls([*self.argv("unit-shared"), "--nonce", nonce], replies)
+        calls = json.loads(out)["calls"]
+        expected = run_prompt.SCENARIO_PROMPTS["mcp"].format(nonce=nonce)
+        self.assertEqual(code, 0)
+        self.assertEqual([kwargs["input"] for kwargs in clients.openai.responses.calls], [expected] * 3)
+        self.assertEqual([call["nonce"] for call in calls], [nonce] * 3)
+        self.assertEqual([call["final_answer_contains_nonce"] for call in calls], [True] * 3)
+
+    def test_a_shared_nonce_is_checked_offline_and_shown_in_the_dry_run(self):
+        base = ["--call", f"{self.ABLATION}:1", "--repeat", "2", "--label", "unit-nonce", "--dry-run"]
+        code, out, err = self.run_script(run_series, [*base, "--nonce", "r-7acb8605"], live=False)
+        calls = json.loads(out)["plan"]["calls"]
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual([call["nonce"] for call in calls], ["r-7acb8605"] * 2)
+        self.assertEqual(calls[0]["input"], calls[1]["input"])
+        for bad in ("bad nonce", "", "x" * 41):
+            with self.subTest(nonce=bad):
+                code, out, err = self.run_script(run_series, [*base, "--nonce", bad], live=False)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("--nonce must match", err)
+        self.assertEqual(self.saved_names(), [])
+
+    def test_a_client_construction_error_is_reported_and_nothing_is_saved(self):
+        with patch.object(common, "connect", side_effect=RuntimeError("boom")):
+            code, out, _ = self.run_script(run_series, self.argv("unit-conn", calls=1),
+                                           clock=self.clock, sleep=self.clock.sleep)
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["action"], "error")
+        self.assertEqual(self.saved_names(), [])
+
+
 class OfflineTests(ScriptCase):
     def test_dry_runs_never_touch_the_network_or_the_sdk(self):
         guard = AssertionError("network or SDK access during --dry-run")
         scripts = ((create_agent, ["--dry-run", "--tool", "mcp"]), (run_prompt, ["--dry-run", "--scenario", "mcp"]),
+                   (run_series, ["--dry-run", "--call", "byom-demo-mcp-ablation-fp8:1", "--label", "dry"]),
                    (inspect_connections, ["--dry-run", "--expect", "demo-conn=ax-k2-nvfp4"]),
                    (collect_evidence, ["--dry-run", "--label", "dry", "--mark", "tracing_visible=confirmed"]))
         with patch("socket.socket.connect", side_effect=guard), patch("socket.getaddrinfo", side_effect=guard), \
@@ -1920,7 +2968,7 @@ class SdkCompatibilityTests(ScriptCase):
         self.assertEqual((sent[0]["max_output_tokens"], sent[0]["conversation"]), (256, CONVERSATION))
         self.assertNotIn("max_tool_calls", sent[0])
         self.assertNotIn("timeout", sent[0])
-        self.assertEqual(result["client_http"], {"requests": 2, "responses_posts": 1})
+        self.assertEqual(result["client_http"], {"requests": 2, "responses_posts": 1, "responses_statuses": [503]})
         self.assertEqual((result["stopped"], result["rounds"]), ("error", []))
         self.assertEqual((result["error"]["status_code"], result["error"]["code"]), (503, "model_error"))
 

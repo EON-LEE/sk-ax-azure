@@ -1,0 +1,93 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T04:34:43.237+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Microsoft Learn에서 Foundry Agent Service의 BYOM(Bring your own model)을 검색해 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. 확인 코드는 검색어에 넣지 말고 답변 끝에 그대로 적으세요. 확인 코드: r-7acb8605",
+    "nonce": "r-7acb8605",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-20T04:34:43.973+00:00",
+  "finished_at": "2026-10-20T04:34:45.035+00:00",
+  "conversation_id": "conv_0e2d2abb…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_0e2d2abb…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "agent": {
+        "name": "byom-demo-mcp-ablation-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_0e2d2abb…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        }
+      ],
+      "final_answer": "r-7acb8605",
+      "answer_chars": 10,
+      "answer_urls": [],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 478,
+        "output_tokens": 9,
+        "total_tokens": 487,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation",
+      "requested_at": "2026-10-20T04:34:43.973+00:00",
+      "responded_at": "2026-10-20T04:34:45.034+00:00",
+      "request_id": "ac1e4932",
+      "elapsed_s": 1.1
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1
+  },
+  "final_answer": "r-7acb8605",
+  "final_answer_contains_nonce": true,
+  "item_sequence": [
+    "mcp_list_tools",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "mcp_list_tools",
+      "server_label": "microsoft_learn",
+      "tools": [
+        "microsoft_docs_search"
+      ]
+    }
+  ],
+  "ok": true
+}

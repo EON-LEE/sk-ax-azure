@@ -1,0 +1,177 @@
+{
+  "schema": "foundry-byom-run/1",
+  "started_at": "2026-10-20T16:28:04.709+00:00",
+  "request": {
+    "scenario": "mcp",
+    "agent_name": "byom-demo-mcp-ablation-fp8",
+    "agent_version": "1",
+    "prompt": "Azure Machine Learning에서 GPU 컴퓨트로 대규모 언어 모델을 온라인 엔드포인트로 서빙하는 방법을 문서에서 찾아 두 문장으로 요약하고 근거 URL 한 개를 붙이세요. [추적 ID: r-3f9a1c7e]",
+    "nonce": "r-3f9a1c7e",
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "use_conversation": true,
+    "approve_tools": [],
+    "request_header_names": [],
+    "expect_failure": false
+  },
+  "request_header_echoed": null,
+  "last_request_at": "2026-10-20T16:28:04.890+00:00",
+  "finished_at": "2026-10-20T16:28:15.456+00:00",
+  "conversation_id": "conv_03ace285…",
+  "conversation_deleted": null,
+  "rounds": [
+    {
+      "response_id": "resp_03ace285…",
+      "status": "completed",
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "agent": {
+        "name": "byom-demo-mcp-ablation-fp8",
+        "version": "1"
+      },
+      "conversation_id": "conv_03ace285…",
+      "output_item_types": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "reasoning_item_count": 0,
+      "tool_events": [
+        {
+          "type": "mcp_list_tools",
+          "server_label": "microsoft_learn",
+          "tools": [
+            "microsoft_docs_search"
+          ]
+        },
+        {
+          "type": "mcp_call",
+          "server_label": "microsoft_learn",
+          "name": "microsoft_docs_search",
+          "arguments": {
+            "query": "Azure Machine Learning GPU compute serve large language model online endpoint"
+          },
+          "status": "completed",
+          "output_chars": 44294,
+          "output_preview": "{\"results\":[{\"title\":\"Supervised fine-tuning (Full) and serving of Qwen3.5-0.8B\",\"content\":\"# Supervised fine-tuning (Full) and serving of Qwen3.5-0.8B\\nFine-tune the compact open-weight **Qwen3.5-0.8...(+44094 chars)",
+          "output_urls": [
+            "https://huggingface.co/docs/trl/sft_trainer",
+            "https://docs.vllm.ai",
+            "https://huggingface.co/docs/trl",
+            "https://learn.microsoft.com/azure/databricks/machine-learning/model-serving/serve-custom-llms",
+            "https://learn.microsoft.com/azure/databricks/machine-learning/ai-runtime/examples/tutorials/sgc-finetune-qwen3.5-0.8b",
+            "https://learn.microsoft.com/azure/machine-learning/how-to-safely-rollout-online-endpoints?view=azureml-api-2",
+            "https://learn.microsoft.com/azure/machine-learning/how-to-autoscale-endpoints?view=azureml-api-2",
+            "https://learn.microsoft.com/azure/machine-learning/how-to-deploy-models-from-huggingface?view=azureml-api-2",
+            "https://learn.microsoft.com/azure/machine-learning/media/yes.png?view=azureml-api-2",
+            "https://learn.microsoft.com/azure/machine-learning/how-to-configure-cli?view=azureml-api-2"
+          ],
+          "output_url_count": 35,
+          "output_hosts": [
+            "huggingface.co",
+            "docs.vllm.ai",
+            "learn.microsoft.com",
+            "aka.ms",
+            "github.com",
+            "azure.microsoft.com",
+            "docs.databricks.com"
+          ],
+          "output_shape": {
+            "kind": "text"
+          }
+        }
+      ],
+      "final_answer": "Azure Machine Learning에서 대규모 언어 모델을 서빙하려면 관리형 온라인 엔드포인트(Managed Online Endpoint)를 생성하고, 배포 정의에서 GPU 인스턴스 유형과 GPU 도커 이미지를 지정한 뒤 모델을 배포하면 됩니다. 관리형 온라인 엔드포인트는 서빙, 스케일링, 보안, 모니터링을 완전히 관리해주므로 인프라 설정 부담을 덜 수 있습니다.\n\n근거 URL: https://learn.microsoft.com/azure/machine-learning/how-to-deploy-online-endpoints?view=azureml-api-2",
+      "answer_chars": 317,
+      "answer_urls": [
+        "https://learn.microsoft.com/azure/machine-learning/how-to-deploy-online-endpoints?view=azureml-api-2"
+      ],
+      "answer_hosts": [
+        "learn.microsoft.com"
+      ],
+      "think_tag": false,
+      "usage": {
+        "input_tokens": 10639,
+        "output_tokens": 133,
+        "total_tokens": 10772,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "incomplete_reason": null,
+      "error": null,
+      "chained_by": "conversation",
+      "requested_at": "2026-10-20T16:28:04.890+00:00",
+      "responded_at": "2026-10-20T16:28:15.455+00:00",
+      "request_id": "207a125f",
+      "elapsed_s": 10.6
+    }
+  ],
+  "function_results": [],
+  "stopped": "completed",
+  "error": null,
+  "client_http": {
+    "requests": 2,
+    "responses_posts": 1,
+    "responses_statuses": [
+      200
+    ]
+  },
+  "final_answer": "Azure Machine Learning에서 대규모 언어 모델을 서빙하려면 관리형 온라인 엔드포인트(Managed Online Endpoint)를 생성하고, 배포 정의에서 GPU 인스턴스 유형과 GPU 도커 이미지를 지정한 뒤 모델을 배포하면 됩니다. 관리형 온라인 엔드포인트는 서빙, 스케일링, 보안, 모니터링을 완전히 관리해주므로 인프라 설정 부담을 덜 수 있습니다.\n\n근거 URL: https://learn.microsoft.com/azure/machine-learning/how-to-deploy-online-endpoints?view=azureml-api-2",
+  "final_answer_contains_nonce": false,
+  "item_sequence": [
+    "mcp_list_tools",
+    "mcp_call",
+    "message"
+  ],
+  "tool_events": [
+    {
+      "type": "mcp_list_tools",
+      "server_label": "microsoft_learn",
+      "tools": [
+        "microsoft_docs_search"
+      ]
+    },
+    {
+      "type": "mcp_call",
+      "server_label": "microsoft_learn",
+      "name": "microsoft_docs_search",
+      "arguments": {
+        "query": "Azure Machine Learning GPU compute serve large language model online endpoint"
+      },
+      "status": "completed",
+      "output_chars": 44294,
+      "output_preview": "{\"results\":[{\"title\":\"Supervised fine-tuning (Full) and serving of Qwen3.5-0.8B\",\"content\":\"# Supervised fine-tuning (Full) and serving of Qwen3.5-0.8B\\nFine-tune the compact open-weight **Qwen3.5-0.8...(+44094 chars)",
+      "output_urls": [
+        "https://huggingface.co/docs/trl/sft_trainer",
+        "https://docs.vllm.ai",
+        "https://huggingface.co/docs/trl",
+        "https://learn.microsoft.com/azure/databricks/machine-learning/model-serving/serve-custom-llms",
+        "https://learn.microsoft.com/azure/databricks/machine-learning/ai-runtime/examples/tutorials/sgc-finetune-qwen3.5-0.8b",
+        "https://learn.microsoft.com/azure/machine-learning/how-to-safely-rollout-online-endpoints?view=azureml-api-2",
+        "https://learn.microsoft.com/azure/machine-learning/how-to-autoscale-endpoints?view=azureml-api-2",
+        "https://learn.microsoft.com/azure/machine-learning/how-to-deploy-models-from-huggingface?view=azureml-api-2",
+        "https://learn.microsoft.com/azure/machine-learning/media/yes.png?view=azureml-api-2",
+        "https://learn.microsoft.com/azure/machine-learning/how-to-configure-cli?view=azureml-api-2"
+      ],
+      "output_url_count": 35,
+      "output_hosts": [
+        "huggingface.co",
+        "docs.vllm.ai",
+        "learn.microsoft.com",
+        "aka.ms",
+        "github.com",
+        "azure.microsoft.com",
+        "docs.databricks.com"
+      ],
+      "output_shape": {
+        "kind": "text"
+      }
+    }
+  ],
+  "ok": true
+}

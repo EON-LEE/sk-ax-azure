@@ -1,0 +1,994 @@
+{
+  "schema": "foundry-byom-series/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-20T15:17:23.626+00:00",
+  "label": "fp8-b-v1-30b",
+  "plan": {
+    "calls": [
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1",
+      "byom-demo-mcp-ablation-fp8:1"
+    ],
+    "scenario": "mcp",
+    "custom_prompt": false,
+    "min_gap_s": 30.0,
+    "expect_calls": 18,
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "continue_on_model_error": true,
+    "request_budget": 40,
+    "stop_on_mcp_error": false,
+    "stop_rule": "stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete) except a model_error, which is recorded and followed by the next call after the gap; no retry of any call and no further call after any other failure"
+  },
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "agents": {
+    "byom-demo-mcp-ablation-fp8:1": {
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "temperature": null,
+      "tools": [
+        {
+          "type": "mcp",
+          "server_label": "microsoft_learn",
+          "server_url": "https://learn.microsoft.com/api/mcp",
+          "allowed_tools": [
+            "microsoft_docs_search"
+          ],
+          "require_approval": "never"
+        }
+      ],
+      "instructions_chars": 110,
+      "instructions_sha256_12": "0d8075322ba3",
+      "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 microsoft_docs_search 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다."
+    }
+  },
+  "planned_calls": 18,
+  "calls": [
+    {
+      "index": 1,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:09:39.433+00:00",
+      "first_request_at": "2026-10-20T15:09:40.770+00:00",
+      "finished_at": "2026-10-20T15:09:51.233+00:00",
+      "duration_ms": 11801,
+      "gap_before_s": null,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 43220
+        }
+      ],
+      "answer_chars": 316,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_02d88acf…",
+      "conversation_id": "conv_02d88acf…",
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 141,
+        "total_tokens": 10672,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:09:40.770+00:00",
+          "responded_at": "2026-10-20T15:09:51.232+00:00",
+          "elapsed_s": 10.5,
+          "response_id": "resp_02d88acf…",
+          "request_id": "f8e7abe1",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 10531,
+            "output_tokens": 141,
+            "total_tokens": 10672,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:10:21.234+00:00",
+      "first_request_at": "2026-10-20T15:10:22.506+00:00",
+      "finished_at": "2026-10-20T15:10:29.935+00:00",
+      "duration_ms": 8702,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 43220
+        }
+      ],
+      "answer_chars": 275,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0998ed45…",
+      "conversation_id": "conv_0998ed45…",
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 125,
+        "total_tokens": 10656,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:10:22.506+00:00",
+          "responded_at": "2026-10-20T15:10:29.935+00:00",
+          "elapsed_s": 7.4,
+          "response_id": "resp_0998ed45…",
+          "request_id": "f9ae0c82",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 10531,
+            "output_tokens": 125,
+            "total_tokens": 10656,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:10:59.936+00:00",
+      "first_request_at": "2026-10-20T15:11:00.724+00:00",
+      "finished_at": "2026-10-20T15:11:08.771+00:00",
+      "duration_ms": 8835,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 43220
+        }
+      ],
+      "answer_chars": 318,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0658d1c0…",
+      "conversation_id": "conv_0658d1c0…",
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 142,
+        "total_tokens": 10673,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:11:00.724+00:00",
+          "responded_at": "2026-10-20T15:11:08.771+00:00",
+          "elapsed_s": 8.0,
+          "response_id": "resp_0658d1c0…",
+          "request_id": "47ef40c8",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 10531,
+            "output_tokens": 142,
+            "total_tokens": 10673,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:11:38.771+00:00",
+      "first_request_at": "2026-10-20T15:11:40.282+00:00",
+      "finished_at": "2026-10-20T15:11:51.372+00:00",
+      "duration_ms": 12601,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 42,
+          "output_chars": 58340
+        }
+      ],
+      "answer_chars": 279,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0f6761b5…",
+      "conversation_id": "conv_0f6761b5…",
+      "usage": {
+        "input_tokens": 15554,
+        "output_tokens": 129,
+        "total_tokens": 15683,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:11:40.282+00:00",
+          "responded_at": "2026-10-20T15:11:51.372+00:00",
+          "elapsed_s": 11.1,
+          "response_id": "resp_0f6761b5…",
+          "request_id": "c30a8950",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 15554,
+            "output_tokens": 129,
+            "total_tokens": 15683,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:12:21.372+00:00",
+      "first_request_at": "2026-10-20T15:12:23.951+00:00",
+      "finished_at": "2026-10-20T15:12:31.961+00:00",
+      "duration_ms": 10589,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 42910
+        }
+      ],
+      "answer_chars": 305,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0e8e5773…",
+      "conversation_id": "conv_0e8e5773…",
+      "usage": {
+        "input_tokens": 11277,
+        "output_tokens": 135,
+        "total_tokens": 11412,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:12:23.951+00:00",
+          "responded_at": "2026-10-20T15:12:31.961+00:00",
+          "elapsed_s": 8.0,
+          "response_id": "resp_0e8e5773…",
+          "request_id": "7e3b1bab",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 11277,
+            "output_tokens": 135,
+            "total_tokens": 11412,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:13:01.961+00:00",
+      "first_request_at": "2026-10-20T15:13:02.937+00:00",
+      "finished_at": "2026-10-20T15:13:10.224+00:00",
+      "duration_ms": 8263,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 42910
+        }
+      ],
+      "answer_chars": 272,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0277b506…",
+      "conversation_id": "conv_0277b506…",
+      "usage": {
+        "input_tokens": 11277,
+        "output_tokens": 123,
+        "total_tokens": 11400,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:13:02.937+00:00",
+          "responded_at": "2026-10-20T15:13:10.224+00:00",
+          "elapsed_s": 7.3,
+          "response_id": "resp_0277b506…",
+          "request_id": "b731c36d",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 11277,
+            "output_tokens": 123,
+            "total_tokens": 11400,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 7,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:13:40.224+00:00",
+      "first_request_at": "2026-10-20T15:13:41.925+00:00",
+      "finished_at": "2026-10-20T15:13:50.014+00:00",
+      "duration_ms": 9790,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 42910
+        }
+      ],
+      "answer_chars": 306,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0832d64d…",
+      "conversation_id": "conv_0832d64d…",
+      "usage": {
+        "input_tokens": 11277,
+        "output_tokens": 133,
+        "total_tokens": 11410,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:13:41.925+00:00",
+          "responded_at": "2026-10-20T15:13:50.014+00:00",
+          "elapsed_s": 8.1,
+          "response_id": "resp_0832d64d…",
+          "request_id": "9c1108a1",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 11277,
+            "output_tokens": 133,
+            "total_tokens": 11410,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 8,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:14:20.014+00:00",
+      "first_request_at": "2026-10-20T15:14:20.714+00:00",
+      "finished_at": "2026-10-20T15:14:33.705+00:00",
+      "duration_ms": 13691,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "message",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 42,
+          "output_chars": 58340
+        }
+      ],
+      "answer_chars": 357,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_09a9361d…",
+      "conversation_id": "conv_09a9361d…",
+      "usage": {
+        "input_tokens": 15580,
+        "output_tokens": 141,
+        "total_tokens": 15721,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:14:20.714+00:00",
+          "responded_at": "2026-10-20T15:14:33.705+00:00",
+          "elapsed_s": 13.0,
+          "response_id": "resp_09a9361d…",
+          "request_id": "bff4a6d2",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 15580,
+            "output_tokens": 141,
+            "total_tokens": 15721,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "message",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 9,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:15:03.705+00:00",
+      "first_request_at": "2026-10-20T15:15:05.436+00:00",
+      "finished_at": "2026-10-20T15:15:16.487+00:00",
+      "duration_ms": 12781,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 63,
+          "output_chars": 42326
+        }
+      ],
+      "answer_chars": 323,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_071856c3…",
+      "conversation_id": "conv_071856c3…",
+      "usage": {
+        "input_tokens": 10018,
+        "output_tokens": 147,
+        "total_tokens": 10165,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:15:05.436+00:00",
+          "responded_at": "2026-10-20T15:15:16.486+00:00",
+          "elapsed_s": 11.1,
+          "response_id": "resp_071856c3…",
+          "request_id": "c97eb677",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 10018,
+            "output_tokens": 147,
+            "total_tokens": 10165,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 10,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:15:46.487+00:00",
+      "first_request_at": "2026-10-20T15:15:47.010+00:00",
+      "finished_at": "2026-10-20T15:15:55.000+00:00",
+      "duration_ms": 8513,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 42,
+          "output_chars": 58340
+        }
+      ],
+      "answer_chars": 312,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_0a96f62e…",
+      "conversation_id": "conv_0a96f62e…",
+      "usage": {
+        "input_tokens": 15554,
+        "output_tokens": 139,
+        "total_tokens": 15693,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:15:47.010+00:00",
+          "responded_at": "2026-10-20T15:15:55.000+00:00",
+          "elapsed_s": 8.0,
+          "response_id": "resp_0a96f62e…",
+          "request_id": "5f192580",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 15554,
+            "output_tokens": 139,
+            "total_tokens": 15693,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 11,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:16:25.000+00:00",
+      "first_request_at": "2026-10-20T15:16:26.234+00:00",
+      "finished_at": "2026-10-20T15:16:33.439+00:00",
+      "duration_ms": 8439,
+      "gap_before_s": 30.0,
+      "ok": true,
+      "stopped": "completed",
+      "error": null,
+      "model_error": false,
+      "item_sequence": [
+        "mcp_list_tools",
+        "mcp_call",
+        "message"
+      ],
+      "mcp_called": true,
+      "mcp_calls": [
+        {
+          "name": "microsoft_docs_search",
+          "status": "completed",
+          "arguments_object": true,
+          "query_chars": 47,
+          "output_chars": 43220
+        }
+      ],
+      "answer_chars": 249,
+      "final_answer_contains_nonce": true,
+      "think_tag": false,
+      "response_model": "<conn-fp8>/ax-k2-fp8",
+      "response_temperature": 1.0,
+      "response_top_p": 1.0,
+      "response_id": "resp_08e366a1…",
+      "conversation_id": "conv_08e366a1…",
+      "usage": {
+        "input_tokens": 10531,
+        "output_tokens": 122,
+        "total_tokens": 10653,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "rounds": [
+        {
+          "requested_at": "2026-10-20T15:16:26.234+00:00",
+          "responded_at": "2026-10-20T15:16:33.439+00:00",
+          "elapsed_s": 7.2,
+          "response_id": "resp_08e366a1…",
+          "request_id": "1d0848cc",
+          "status": "completed",
+          "temperature": 1.0,
+          "top_p": 1.0,
+          "usage": {
+            "input_tokens": 10531,
+            "output_tokens": 122,
+            "total_tokens": 10653,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0
+          },
+          "output_item_types": [
+            "mcp_list_tools",
+            "mcp_call",
+            "message"
+          ]
+        }
+      ],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1,
+        "responses_statuses": [
+          200
+        ]
+      }
+    },
+    {
+      "index": 12,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "byom-demo-mcp-ablation-fp8",
+      "version": "1",
+      "nonce": "r-7acb8605",
+      "started_at": "2026-10-20T15:17:03.440+00:00",
+      "first_request_at": null,
+      "finished_at": "2026-10-20T15:17:23.458+00:00",
+      "duration_ms": 20019,
+      "gap_before_s": 30.0,
+      "ok": false,
+      "stopped": "error",
+      "error": {
+        "type": "APIConnectionError",
+        "message": "Connection error."
+      },
+      "model_error": false,
+      "item_sequence": [],
+      "mcp_called": false,
+      "mcp_calls": [],
+      "answer_chars": null,
+      "final_answer_contains_nonce": false,
+      "think_tag": false,
+      "response_model": null,
+      "response_temperature": null,
+      "response_top_p": null,
+      "response_id": null,
+      "conversation_id": null,
+      "usage": null,
+      "rounds": [],
+      "client_http": {
+        "requests": 1,
+        "responses_posts": 0
+      }
+    }
+  ],
+  "stopped_early": true,
+  "stop_reason": "call 12 did not complete: error",
+  "error": null,
+  "summary": {
+    "calls": 12,
+    "ok": 11,
+    "mcp_called": 11,
+    "ok_without_mcp": 0,
+    "model_error": 0,
+    "by_agent": {
+      "byom-demo-mcp-ablation-fp8:1": {
+        "calls": 12,
+        "ok": 11,
+        "mcp_called": 11,
+        "ok_without_mcp": 0,
+        "model_error": 0
+      }
+    }
+  },
+  "notes": [
+    "Timestamps are UTC with millisecond precision from the client clock; match them with vLLM, APIM and span clocks by time window.",
+    "client_http counts the HTTP requests the OpenAI client sent for that call only: requests = conversation creation plus Responses POSTs, responses_posts = Responses POSTs. The client is created with max_retries=0. responses_statuses lists the HTTP status of each Responses POST that got an answer, in order; it is absent when none did, and fewer statuses than responses_posts means a POST without an answer.",
+    "request_budget is a client-side safety net, not a measurement: each call is counted as its Responses POSTs (at least 1) plus its mcp_call items (one more model request each), and a call is not started when the estimate so far plus 2 would exceed the budget. Gateway counts stay authoritative.",
+    "Foundry spans (invoke_agent, chat, execute_tool) are not collected here; read them from the telemetry side by call window and nonce.",
+    "model_error is true when the call failed with HTTP 500 (or as a failed response) and the service error type or code is model_error. A 503 'model backend not ready' can carry the same code; it is not counted.",
+    "contaminated and contamination_note stay null until someone marks a call by hand because other traffic overlapped it; summary does not account for those marks.",
+    "response_model echoes the agent reference; it does not show which model served the call."
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "schema": "foundry-byom-series/1",
+  "scope": "BYOM external-model connection verification; not a Model Catalog registration",
+  "generated_at": "2026-10-20T07:07:38.691+00:00",
+  "label": "d1-dummy-webiq",
+  "plan": {
+    "calls": [
+      "dummy-d1-webiq-agent-fp8:1"
+    ],
+    "scenario": "mcp",
+    "custom_prompt": true,
+    "min_gap_s": 60.0,
+    "expect_calls": 1,
+    "limits": {
+      "max_output_tokens": 384,
+      "max_tool_calls": 0,
+      "max_rounds": 4,
+      "timeout_s": 180.0
+    },
+    "continue_on_model_error": false,
+    "stop_rule": "stop at the first call that does not end completed (error, 5xx, timeout, failed, incomplete); no retry and no further call"
+  },
+  "auth": {
+    "mode": "cli",
+    "az_subscription_pinned": true
+  },
+  "agents": {
+    "dummy-d1-webiq-agent-fp8:1": {
+      "model": "<conn-fp8>/ax-k2-fp8",
+      "temperature": 0.3,
+      "tools": [
+        {
+          "type": "mcp",
+          "server_label": "web_iq",
+          "server_url": "https://api.microsoft.ai/v3/mcp",
+          "allowed_tools": [
+            "web"
+          ],
+          "require_approval": "never",
+          "project_connection_id": "dummy-d1-webiq"
+        }
+      ],
+      "instructions_chars": 92,
+      "instructions_sha256_12": "3e57b5ee5f22",
+      "instructions": "간결한 한국어로 답한다. 질문에 답하기 전에 반드시 web 도구를 먼저 호출하고, 그 도구 결과에 근거해서만 답한다. 도구 결과에 없는 내용과 URL은 쓰지 않는다."
+    }
+  },
+  "planned_calls": 1,
+  "calls": [
+    {
+      "index": 1,
+      "contaminated": null,
+      "contamination_note": null,
+      "agent": "dummy-d1-webiq-agent-fp8",
+      "version": "1",
+      "nonce": "r-d1b0e5a1",
+      "started_at": "2026-10-20T07:07:36.200+00:00",
+      "first_request_at": "2026-10-20T07:07:36.961+00:00",
+      "finished_at": "2026-10-20T07:07:37.932+00:00",
+      "duration_ms": 1732,
+      "gap_before_s": null,
+      "ok": false,
+      "stopped": "error",
+      "error": {
+        "type": "BadRequestError",
+        "status_code": 400,
+        "code": "tool_user_error",
+        "api_type": "invalid_request_error",
+        "request_id": "acfef1d3",
+        "message": "Error code: 400 - {'error': {'message': 'Authentication failed when connecting to the MCP server: https://api.microsoft.ai:443/v3/mcp: Response status code does not indicate success: 401 (Unauthorized). Response body: {\\n  \"jsonrpc\": \"2.0\",\\n  \"id\": \"6ad7133b…\",\\n  \"error\": {\\...(+748 chars)"
+      },
+      "model_error": false,
+      "item_sequence": [],
+      "mcp_called": false,
+      "mcp_calls": [],
+      "answer_chars": null,
+      "final_answer_contains_nonce": false,
+      "think_tag": false,
+      "response_model": null,
+      "response_temperature": null,
+      "response_top_p": null,
+      "response_id": null,
+      "conversation_id": "conv_003f50ba…",
+      "usage": null,
+      "rounds": [],
+      "client_http": {
+        "requests": 2,
+        "responses_posts": 1
+      }
+    }
+  ],
+  "stopped_early": true,
+  "stop_reason": "call 1 did not complete: error (400 tool_user_error invalid_request_error)",
+  "error": null,
+  "summary": {
+    "calls": 1,
+    "ok": 0,
+    "mcp_called": 0,
+    "ok_without_mcp": 0,
+    "model_error": 0,
+    "by_agent": {
+      "dummy-d1-webiq-agent-fp8:1": {
+        "calls": 1,
+        "ok": 0,
+        "mcp_called": 0,
+        "ok_without_mcp": 0,
+        "model_error": 0
+      }
+    }
+  },
+  "notes": [
+    "Timestamps are UTC with millisecond precision from the client clock; match them with vLLM, APIM and span clocks by time window.",
+    "client_http counts the HTTP requests the OpenAI client sent for that call only: requests = conversation creation plus Responses POSTs, responses_posts = Responses POSTs. The client is created with max_retries=0.",
+    "Foundry spans (invoke_agent, chat, execute_tool) are not collected here; read them from the telemetry side by call window and nonce.",
+    "model_error is true when the call failed with HTTP 500 (or as a failed response) and the service error type or code is model_error. A 503 'model backend not ready' can carry the same code; it is not counted.",
+    "contaminated and contamination_note stay null until someone marks a call by hand because other traffic overlapped it; summary does not account for those marks.",
+    "response_model echoes the agent reference; it does not show which model served the call."
+  ]
+}
