@@ -52,8 +52,12 @@ class FilesTests(unittest.TestCase):
         samples = re.findall(r'\{ label: "([^"]+)", text: "([^"]+)", tools: true \}', examples)
         self.assertEqual(len(samples), 8)
         self.assertEqual(len(samples) % 2, 0)
-        self.assertEqual(sum(label.startswith("Web IQ") for label, _ in samples), 4)
-        for word in ("웹 검색", "뉴스 도구", "금융 도구", "장소 도구", "005930", "미확인", "문서·CSV"):
+        # every entry is one well-formed line, so a malformed sample cannot slip past the pattern above
+        self.assertEqual(examples.count("{ label:"), len(samples))
+        self.assertEqual(len({label for label, _ in samples}), len(samples))
+        # a sample that needs Web IQ says so in its text; clicking it ticks the tools box
+        self.assertGreaterEqual(sum("웹 검색" in text or "Web IQ" in text for _, text in samples), 4)
+        for word in ("get_current_time", "계산기", "미리보기", "막대 차트", "000660", "005930", "미확인"):
             self.assertIn(word, examples)
         self.assertIn("if (example.tools) ui.tools.checked = true;", js)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", css)

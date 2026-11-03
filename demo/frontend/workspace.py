@@ -125,7 +125,27 @@ def number(text):
     return value
 
 
-def calculate(expression):
+def approximation(value):
+    """A Fraction as a decimal string for display, with integer arithmetic only: 4 decimals, more below 0.1 so that 4
+    significant digits show, rounded half away from zero, trailing zeros dropped. None outside 1e-31 <= |value| < 1e30
+    (there the exact fraction has to do)."""
+    size = abs(value)
+    if size >= 10 ** 30:
+        return None
+    places = 4
+    while size * 10 ** places < 1000:
+        places += 1
+        if places > 34:
+            return None
+    scaled = (2 * size.numerator * 10 ** places + size.denominator) // (2 * size.denominator)
+    whole, fraction = divmod(scaled, 10 ** places)
+    digits = f"{fraction:0{places}d}".rstrip("0")
+    return ("-" if value < 0 else "") + str(whole) + ("." + digits if digits else "")
+
+
+def calculate(expression, approximate=False):
+    """The exact result as text. With `approximate`, a result that is not an integer also gets its decimal value,
+    e.g. "125/3 (≈ 41.6667)". The approximation is for display only; the fraction stays the exact result."""
     if not isinstance(expression, str) or len(expression) > 300:
         raise ValueError("Expression must be at most 300 characters")
     source = expression.replace("^", "**")
@@ -161,7 +181,9 @@ def calculate(expression):
         if value.numerator.bit_length() > 8192 or value.denominator.bit_length() > 8192:
             raise ValueError("Result exceeds limit")
         return value
-    return str(evaluate(tree.body))
+    result = evaluate(tree.body)
+    shown = approximation(result) if approximate and result.denominator != 1 else None
+    return str(result) if shown is None else f"{result} (≈ {shown})"
 
 
 class Workspace:
@@ -251,8 +273,10 @@ class Workspace:
 
         @tool
         def calculator(expression: str) -> str:
-            """Exact rational arithmetic (+ - * / % ^); no floating point rounding."""
-            return json.dumps({"expression": expression, "result": calculate(expression)})
+            """Exact rational arithmetic (+ - * / % ^); no floating point rounding. A result that is not an integer is
+            the exact fraction plus a decimal approximation, e.g. 125/3 (≈ 41.6667); 근사는 표시용 (display only)."""
+            return json.dumps({"expression": expression, "result": calculate(expression, approximate=True)},
+                              ensure_ascii=False)
 
         @tool
         def get_current_time(timezone: str = "Asia/Seoul") -> str:

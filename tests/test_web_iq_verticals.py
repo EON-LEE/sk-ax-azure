@@ -157,6 +157,43 @@ class VerticalTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(WebIQProblem, "invalid_sonic_response_filter"):
             await provider.search("public query", "sonic", {"responseFilter": ["uploaded content"]})
 
+    async def test_browse_drops_only_the_url_fragment(self):
+        provider, calls = self.provider()
+        await provider.prepare()
+        resolved = [(2, 1, 6, "", ("93.184.216.34", 0))]
+        with patch("web_iq.socket.getaddrinfo", return_value=resolved):
+            for url in ("https://example.org/guide#install", "https://example.org/guide#",
+                        "https://example.org/guide"):
+                calls.clear()
+                body = json.loads(await provider.search(url, "browse"))
+                self.assertEqual([(name, sent["url"]) for name, sent in calls],
+                                 [("browse", "https://example.org/guide")], url)
+                self.assertEqual(body["public_query"], "https://example.org/guide")
+            calls.clear()
+            for url in ("https://example.org/guide?page=2#top", "https://example.org/login#next",
+                        "https://example.org/oauth/#x", "https://user@example.org/#x",
+                        "https://example.org:8443/#x", "http://127.0.0.1/#x", "https://localhost/#x"):
+                with self.assertRaisesRegex(WebIQProblem, "unsafe_browse_url", msg=url):
+                    await provider.search(url, "browse")
+            with self.assertRaisesRegex(WebIQProblem, "invalid_public_query"):
+                await provider.search("#only-a-fragment", "browse")
+            self.assertEqual(calls, [])
+            for name in ("web", "news"):
+                await provider.search("C# tutorial #1", name)
+                self.assertEqual(calls[-1][1]["query"], "C# tutorial #1")
+
+    async def test_browse_description_tells_the_model_which_urls_are_refused(self):
+        provider, _ = self.provider()
+        await provider.prepare()
+        for tool in provider.tools():
+            shown = tool.to_json_schema_spec()["function"]["description"]
+            if tool.name == "web_iq_browse":
+                for text in ("without a '?' query string", "login, signin, oauth, auth or logout",
+                             "'#fragment' is ignored", "Public queries only"):
+                    self.assertIn(text, shown)
+            else:
+                self.assertNotIn("fragment", shown, tool.name)
+
     def test_per_turn_public_query_permission(self):
         files = {"private.txt": b"secret confidential launch plan"}
         for user, query in (("summarize upload", "Samsung"),

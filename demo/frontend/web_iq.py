@@ -34,6 +34,9 @@ ITEMIZED_KEYS = {"webResults", "newsResults", "imageResults", "videoResults"}
 ENVELOPE_KEYS = {"traceId", "riskLevel", "querySignals", "liveCrawlSucceeded", "retryAfter",
                  "isAdult", "language", "crawledAt", "lastUpdatedAt"}
 META_KEYS = ("riskLevel", "traceId", "liveCrawlSucceeded", "retryAfter")
+# Appended to the discovered browse description so the model avoids URLs that validate_browse rejects.
+BROWSE_LIMITS = (" Reads one public page per call. The URL must be http(s), without a '?' query string, and not a"
+                 " login, signin, oauth, auth or logout path; a '#fragment' is ignored.")
 
 
 class PublicSearchPermission:
@@ -462,6 +465,8 @@ class WebIQ:
             raise WebIQProblem(self.reason or "provider_not_ready")
         if name not in self.catalog:
             raise WebIQProblem("provider_tool_not_advertised")
+        if name == "browse" and isinstance(query, str):
+            query = query.split("#", 1)[0]  # a fragment is never sent to a server; the other URL rules still apply
         schema, validator, field, _ = self.catalog[name]
         permission = permission or PublicSearchPermission("", {})
         permission.check(query)
@@ -559,6 +564,7 @@ class WebIQ:
                 if key not in shown.get("required", []):
                     shown["properties"].pop(key, None)
             result.append(WebIQTool(name="web_iq_" + (name if name in VERTICALS else "search"),
-                                    description=description + " Public queries only. Never transmit uploaded content or credentials.",
+                                    description=description + (BROWSE_LIMITS if name == "browse" else "")
+                                    + " Public queries only. Never transmit uploaded content or credentials.",
                                     func=bind(name, field), input_model=exposed, model_schema=shown))
         return result

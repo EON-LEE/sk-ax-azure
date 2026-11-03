@@ -45,6 +45,6 @@ command: >-
   d = u.urlopen(r, timeout=120).read(); ok = hashlib.sha256(d).hexdigest() == os.environ['AXK2_SRC_SHA256'];
   ok and open('/tmp/axk2src.tgz', 'wb').write(d); sys.exit(0 if ok else 'source digest mismatch')" && break;
   sleep 20; done && tar -xzf /tmp/axk2src.tgz -C /tmp/axk2src &&
-  bash /tmp/axk2src/entry.sh none hf:2287ca456927eed33b899c404c0b2ffaf17aa09f
+  bash /tmp/axk2src/entry.sh none hf:4237c6a60cec6ae449854870d01a42665a1166aa
 limits:
   timeout: 604800

@@ -66,6 +66,11 @@ permissions. `/api/capabilities` reports the actual state and whether a real
 query succeeded. No operational search tool is registered before discovery.
 Protocol-fixture tests alone do not establish live enterprise access.
 
+The original local Web IQ input was moved out of the worktree on 2026-10-21.
+Operator tools now read the WSL private file
+`~/.axk2-targets/<target>/private-credential-copies/webiq.env`
+(directory `0700`, file `0600`); the service does not automatically load it.
+
 Web IQ activation was verified on 2026-10-07 using the user's separate
 AX-only key input (`.env.webiq`, git-excluded and never bundled) and an
 approved memory-only transfer to secure App Service settings. Real MCP
