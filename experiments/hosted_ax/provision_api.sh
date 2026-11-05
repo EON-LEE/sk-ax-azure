@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
-SUB=ME-M365CPI74210306-eonlee-1
+SUB="${AZURE_SUBSCRIPTION_ID:?Set AZURE_SUBSCRIPTION_ID explicitly}"
 NAME=axk2-hosted-model-api-trial
 FILTER="https://graph.microsoft.com/v1.0/applications?%24filter=displayName%20eq%20%27${NAME}%27&%24select=id,appId,displayName,notes"
 MARKER="Isolated Hosted AX model-only trial; no client credentials."

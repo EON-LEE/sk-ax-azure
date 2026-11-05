@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -14,7 +15,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-SUB = "ME-M365CPI74210306-eonlee-1"
+SUB = os.environ.get("AZURE_SUBSCRIPTION_ID", "").strip()
 RG = "rg-axk2-hosted-trial"
 ACCOUNT = "axk2-hosted-trial-20261008"
 PROJECT = "axk2-hosted-trial"
@@ -25,6 +26,8 @@ ROLE_ID = "0b5dfe5a-fdaa-4e6d-b815-40620e07bf36"
 
 
 def az(*args):
+    if not SUB:
+        raise RuntimeError("Set AZURE_SUBSCRIPTION_ID explicitly; no account is selected automatically.")
     command = shlex.join(["az", *args, "--subscription", SUB, "--only-show-errors"])
     result = subprocess.run(
         ["wsl", "-d", "Ubuntu", "--", "bash", "-c", "tr -d '\\r' | bash"],
