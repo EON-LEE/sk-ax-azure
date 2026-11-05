@@ -151,11 +151,11 @@
     "mode": "thinking",
     "units": "percent, except GDPval (Elo); * = evaluated by Artificial Analysis",
     "reasons": {
-      "scope": "outside this verification's scope (AIME26, KoBALT, CLIcK, IFBench and NIAH were chosen)",
-      "gated": "the dataset is gated (access approval needed), so it was excluded",
-      "external": "scored by Artificial Analysis with its own harness; not reproducible here",
-      "sandbox": "needs a code-execution or web-search environment that the demo cluster does not provide",
-      "unpublished": "the problem set is not published as a dataset"
+      "scope": "이번 검증 범위 밖(AIME26, KoBALT, CLIcK, IFBench, NIAH만 골랐다)",
+      "gated": "접근 승인이 필요한 데이터셋이라 제외했다",
+      "external": "Artificial Analysis가 자체 도구로 채점한 값이라 여기서 재현할 수 없다",
+      "sandbox": "코드 실행이나 웹 검색 환경이 필요한데 데모 클러스터에는 없다",
+      "unpublished": "문제 세트가 데이터셋으로 공개되지 않았다"
     },
     "rows": [
       {

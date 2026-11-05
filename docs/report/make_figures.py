@@ -626,7 +626,7 @@ def _sample_note(r):
 def write_benchmark_table(bench, out_dir):
     """The model card's Thinking Mode table with one extra column, ready to paste into a card or report."""
     lines = ["# 모델 카드 Thinking Mode 표 + A100 측정값", "",
-             "| Domain | Benchmark | A.X K2 (SKT) | A.X K2 on A100 x16 (ours) |", "| --- | --- | ---: | ---: |"]
+             "| 분야 | 벤치마크 | A.X K2 (SKT 공개값) | A.X K2, A100 16장 (이번 측정) |", "| --- | --- | ---: | ---: |"]
     partial = False
     for r in bench["rows"]:
         if r["a100"] is not None:
@@ -634,28 +634,28 @@ def write_benchmark_table(bench, out_dir):
             partial = partial or bool(note)
             ours = f"**{r['a100']:.1f}**" + (f" ± {r['a100_ci95']:.1f}" if r["a100_ci95"] else "") + note
         elif r["suite"]:
-            ours = "pending"
+            ours = "측정 전"
         else:
             ours = f"– ({r['not_run']})"
         lines.append(f"| {r['domain']} | {r['benchmark']} | {r['skt']:g} | {ours} |")
     niah = bench["niah"]
     if niah["a100"] is None:
-        ours = "pending"
+        ours = "측정 전"
     else:
         ours = f"**{niah['a100']:.1f}**"
         if niah.get("total"):
             span = ", ".join(f"{n // 1024}K" for n in niah.get("lengths") or [])
             ours += f" ({niah['hits']}/{niah['total']}" + (f", {span}" if span else "") + ")"
     lines.append(f"| Long context | NIAH | {niah['skt']:g} | {ours} |")
-    lines += ["", "Not run: " + "; ".join(f"{k} = {v}" for k, v in bench["reasons"].items())]
+    lines += ["", "실행하지 않은 이유: " + "; ".join(f"{k} = {v}" for k, v in bench["reasons"].items())]
     if bench["run"]:
-        lines.append(f"A100 run: `{bench['run']}`. ± is the 95% confidence half-width over items.")
+        lines.append(f"A100 실행: `{bench['run']}`. ±는 문항 기준 95% 신뢰구간의 절반 폭이다.")
     if partial:
-        lines.append("n=done/planned: the run was stopped early; scores are over the items finished so far "
-                     "(a random sample of each suite), so treat them as indicative.")
+        lines.append("n=완료/계획: 실행을 중간에 멈췄다. 점수는 그때까지 끝난 문항(각 세트에서 무작위로 뽑은 문항)만으로 "
+                     "계산했으므로 참고치로만 본다.")
     if niah.get("source") == "verification":
-        lines.append("NIAH: from the earlier verification run of the same serving layout "
-                     "(SKT's niah_test.py, thinking off, greedy).")
+        lines.append("NIAH: 같은 서빙 구성으로 먼저 돌린 검증 실행의 값이다"
+                     "(SKT niah_test.py, thinking 끔, 그리디).")
     with (out_dir / "benchmark-table.md").open("w", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
 
