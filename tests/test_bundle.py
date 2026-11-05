@@ -255,7 +255,7 @@ class BundleTests(unittest.TestCase):
         catalog = (ROOT / "docs" / "VLLM_CONFIGS.md").read_text(encoding="utf-8")
         self.assertIn("(docs/VLLM_CONFIGS.md)", (ROOT / "README.md").read_text(encoding="utf-8"))
         self.assertIn("(VLLM_CONFIGS.md)", (ROOT / "docs" / "SERVING_DESIGN.md").read_text(encoding="utf-8"))
-        self.assertIn("## Operating status (2026-10-22)", catalog)
+        self.assertIn("## 운영 상태 (2026-10-22)", catalog)
         entry = (ROOT / "aml" / "src" / "entry.sh").read_text(encoding="utf-8")
         plan_phases = set(re.findall(r"^\s+([a-z0-9-]+)\) model=", entry, re.M))
         for template in ("ep-compare-fp8-nd96.yml", "ep-compare-nvfp4-nd96.yml", "verify-remaining-nd96-hub.yml",

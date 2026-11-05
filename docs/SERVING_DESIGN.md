@@ -1,67 +1,65 @@
-# A.X-K2 serving design: standard multi-node inference on A100
+# A.X-K2 서빙 설계: A100에서의 표준 멀티노드 추론
 
-Snapshot: 2026-10-04. This supersedes the "blocked" conclusion in
-[the handoff](HANDOFF.md) for the A100 path. Results of each stage are in
-section 8 and in `evidence/`. [VLLM_CONFIGS.md](VLLM_CONFIGS.md) collects every
-served vLLM configuration from this document in one catalog, with the demo's
-operating status.
+스냅샷: 2026-10-04. 이 문서는 A100 경로에 대해 [인수인계 문서](HANDOFF.md)의
+"blocked" 결론을 대체한다. 각 단계의 결과는 8절과 `evidence/`에 있다.
+[VLLM_CONFIGS.md](VLLM_CONFIGS.md)는 이 문서에서 서빙한 모든 vLLM 구성을
+데모의 운영 상태와 함께 하나의 카탈로그로 모은다.
 
-## 1. Method review: what was wrong before
+## 1. 방법 검토: 이전 접근의 문제
 
-**GPU cluster tools do not merge GPUs into one large GPU.** Slurm, Ray,
-Kubernetes (KubeRay, LeaderWorkerSet, KAITO), CycleCloud and Azure ML only
-*allocate nodes and start processes*. A distributed **inference engine**
-(vLLM, SGLang, TensorRT-LLM) creates the "one model, one endpoint" experience:
-it shards the weights with tensor/pipeline/expert parallelism, moves
-activations with NCCL (NVLink inside a node, InfiniBand/Ethernet between
-nodes), and serves one OpenAI-compatible API with continuous batching and a
-paged KV cache. Rack-scale systems marketed as "one big GPU" still run model
-parallelism underneath.
+**GPU 클러스터 도구는 여러 GPU를 하나의 큰 GPU로 합치지 않는다.** Slurm, Ray,
+Kubernetes(KubeRay, LeaderWorkerSet, KAITO), CycleCloud, Azure ML은
+*노드를 할당하고 프로세스를 시작할 뿐이다*. "하나의 모델, 하나의 엔드포인트"
+경험은 분산 **추론 엔진**(vLLM, SGLang, TensorRT-LLM)이 만든다. 엔진은
+tensor/pipeline/expert parallelism으로 가중치를 샤딩하고, NCCL로 activation을
+옮긴다(노드 안에서는 NVLink, 노드 사이에서는 InfiniBand/Ethernet). 그리고
+continuous batching과 paged KV cache로 하나의 OpenAI 호환 API를 서빙한다.
+"하나의 큰 GPU"로 마케팅되는 랙 스케일 시스템도 내부에서는 모델 병렬화를 실행한다.
 
-SKT serves A.X-K2 exactly this way. Their fork contains
-`k2_dsa_test/scale_ab/serve_k2.sbatch`: Slurm `srun` with a pyxis/enroot
-container image running `vllm serve --tensor-parallel-size 8` on one 8xB300
-node. They deliberately chose TP over DP+EP because the DP/EP lock-step hung
-in long-context evaluation.
+SKT는 A.X-K2를 정확히 이 방식으로 서빙한다. SKT의 fork에는
+`k2_dsa_test/scale_ab/serve_k2.sbatch`가 있다. 이 스크립트는 Slurm `srun`과
+pyxis/enroot 컨테이너 이미지로 8xB300 노드 1대에서 `vllm serve --tensor-parallel-size 8`을
+실행한다. SKT는 DP+EP 대신 TP를 의도적으로 선택했다. long-context 평가에서
+DP/EP lock-step이 멈췄기 때문이다.
 
-The earlier work in this repository (`experiments/axk2_dist_*`) hand-wrote a
-block runtime: FP32 dequantised weights, a custom loader, one blocking NCCL
-send/receive per block and no batching, paged KV cache or API. It was a
-correctness workaround for the missing SM80 sparse-attention kernels, **not a
-serving method**, and it is kept only as a numerical oracle.
+이 저장소의 이전 작업(`experiments/axk2_dist_*`)은 block runtime을 직접 작성했다.
+FP32로 dequantize한 가중치, 자체 loader, 블록마다 한 번의 blocking NCCL
+send/receive를 썼고, batching, paged KV cache, API는 없었다. 이것은 SM80용
+sparse-attention 커널이 없는 문제를 피하기 위한 정확성 우회책이었고, **서빙 방법이
+아니다**. 지금은 수치 오라클로만 유지한다.
 
-Best practice, which this design follows:
+이 설계가 따르는 모범 사례는 다음과 같다.
 
-- One engine process group behind one endpoint. Common multi-node layout:
-  **tensor parallel = GPUs per node** (NVLink), **pipeline parallel = number
-  of nodes** (vLLM parallelism docs; KAITO multi-node presets; the Azure
-  `inference-toolkit` sample serving Qwen3-235B on 2 x 8 A100 with TP8 x PP2).
-- Identical container image and model path on every node; Ray (or Slurm, LWS)
-  only forms the group.
-- **One region and one network fabric.** Pooling quota from several regions
-  into one model is not viable: every decode step would cross a WAN once per
-  pipeline stage, and an eviction anywhere stops the whole engine. Separate
-  regions can host separate *replicas* behind a load balancer, not one model.
+- 하나의 엔드포인트 뒤에 하나의 엔진 프로세스 그룹을 둔다. 일반적인 멀티노드 배치는
+  **tensor parallel = 노드당 GPU 수**(NVLink), **pipeline parallel = 노드
+  수**이다(vLLM parallelism 문서, KAITO 멀티노드 프리셋, 2 x 8 A100에서 TP8 x PP2로
+  Qwen3-235B를 서빙하는 Azure `inference-toolkit` 샘플).
+- 모든 노드에 동일한 컨테이너 이미지와 모델 경로를 둔다. Ray(또는 Slurm, LWS)는
+  그룹을 구성하는 역할만 한다.
+- **하나의 리전, 하나의 네트워크 패브릭을 쓴다.** 여러 리전의 쿼터를 모아 하나의
+  모델을 구성하는 방식은 실현 가능하지 않다. 모든 디코드 스텝이 pipeline stage마다
+  한 번씩 WAN을 건너야 하고, 어느 한 곳에서 eviction이 발생하면 엔진 전체가 멈춘다.
+  서로 다른 리전은 로드 밸런서 뒤의 별도 *replica*를 호스팅할 수 있지만, 하나의 모델을 호스팅할 수는 없다.
 
-## 2. Capacity without a quota increase
+## 2. 쿼터 증설 없이 확보한 용량
 
-| Pool | Limit in this subscription | A100 80GB nodes it allows |
+| 풀 | 이 구독의 한도 | 허용되는 A100 80GB 노드 |
 | --- | --- | --- |
-| VM quota, A100 families (all regions checked) | 0 vCPU | 0 |
-| VM Spot quota | 100 vCPU per region; increase requests throttled (429) | 1 x ND96amsr (96 vCPU) |
-| **Azure ML low-priority compute** | **300 vCPU per region, no per-family cap** | **3 x ND96amsr_A100_v4 (24 GPUs)** |
+| VM 쿼터, A100 패밀리(확인한 모든 리전) | 0 vCPU | 0 |
+| VM Spot 쿼터 | 리전당 100 vCPU, 증설 요청은 throttle됨(429) | 1 x ND96amsr (96 vCPU) |
+| **Azure ML low-priority 컴퓨트** | **리전당 300 vCPU, 패밀리별 상한 없음** | **3 x ND96amsr_A100_v4 (24 GPUs)** |
 
-`Standard_ND96amsr_A100_v4` (8 x A100 80GB, NVLink, InfiniBand) is
-low-priority capable for Azure ML in swedencentral, westus2, uksouth,
-francecentral, italynorth and polandcentral. Two nodes (192 vCPU, 16 GPUs,
-1280 GB) hold the ~656 GiB FP8 weights at ~41 GiB per GPU and leave room for
-KV cache. SKT's 4-bit NVFP4 checkpoint (371 GiB) fits on one node (8.4).
-Azure ML retired low-priority VMs on 2026-03-31; such clusters are
-now allocated and billed as **Spot**: preemptible, never above pay-as-you-go,
-and the price cannot be capped. The Sweden Spot rate was USD 10.55 per node-hour.
-See `evidence/azure-capacity-snapshot.json`.
+`Standard_ND96amsr_A100_v4`(8 x A100 80GB, NVLink, InfiniBand)는
+swedencentral, westus2, uksouth, francecentral, italynorth, polandcentral에서
+Azure ML low-priority를 지원한다. 노드 2대(192 vCPU, 16 GPUs,
+1280 GB)는 약 656 GiB의 FP8 가중치를 GPU당 약 41 GiB로 담고, KV cache를 위한
+여유를 남긴다. SKT의 4-bit NVFP4 체크포인트(371 GiB)는 노드 1대에 들어간다(8.4).
+Azure ML은 2026-03-31에 low-priority VM을 폐지했다. 이런 클러스터는 이제
+**Spot**으로 할당되고 과금된다. 선점될 수 있고, pay-as-you-go 가격을 넘지 않으며,
+가격 상한은 설정할 수 없다. Sweden의 Spot 요금은 노드-시간당 USD 10.55였다.
+`evidence/azure-capacity-snapshot.json`을 참조한다.
 
-## 3. Architecture
+## 3. 아키텍처
 
 ```mermaid
 flowchart LR
@@ -79,316 +77,313 @@ flowchart LR
   blob -.-> n1
 ```
 
-| Layer | PoC choice | Production equivalent |
+| 계층 | PoC 선택 | 프로덕션 대응 |
 | --- | --- | --- |
-| Capacity | Azure ML compute cluster, low-priority ND96amsr x 2, min 0 nodes | Same SKU on demand/reserved in the customer subscription |
-| Orchestration | One AML command job, `distribution: pytorch`, 1 process per node; script starts the Ray head/worker | AKS + KubeRay or LeaderWorkerSet (KAITO), or CycleCloud Slurm |
-| Engine | vLLM 0.23.0 + SKT fork + TRITON_MLA_SPARSE port (section 5b), `--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray` | Same command and image |
-| Kernels on SM80 | FP8 weight-only Marlin (linear and MoE). Native DSA: Triton MQA-logits indexer + Triton sparse MLA. Dense mode: Triton MLA decode, FlashAttention-2 MLA prefill | Same; Hopper/Blackwell use native FP8 and DSA kernels |
+| 용량 | Azure ML compute cluster, low-priority ND96amsr x 2, 최소 0 노드 | 고객 구독에서 같은 SKU를 on-demand/reserved로 사용 |
+| 오케스트레이션 | AML command job 1개, `distribution: pytorch`, 노드당 프로세스 1개. 스크립트가 Ray head/worker를 시작 | AKS + KubeRay 또는 LeaderWorkerSet(KAITO), 또는 CycleCloud Slurm |
+| 엔진 | vLLM 0.23.0 + SKT fork + TRITON_MLA_SPARSE 포트(5b절), `--tensor-parallel-size 8 --pipeline-parallel-size 2 --distributed-executor-backend ray` | 같은 명령과 이미지 |
+| SM80 커널 | FP8 weight-only Marlin(linear와 MoE). Native DSA: Triton MQA-logits indexer + Triton sparse MLA. Dense 모드: Triton MLA 디코드, FlashAttention-2 MLA 프리필 | 같음. Hopper/Blackwell은 native FP8 및 DSA 커널 사용 |
 
-Files: `aml/src/entry.sh` (per-node launcher), `aml/jobs/*.yml`
-(job templates), `aml/render_job.py`, `aml/fetch_results.py`, `aml/Dockerfile`.
+파일: `aml/src/entry.sh`(노드별 launcher), `aml/jobs/*.yml`
+(job 템플릿), `aml/render_job.py`, `aml/fetch_results.py`, `aml/Dockerfile`.
 
-## 4. Engine image: stock vLLM plus hash-verified fork sources
+## 4. 엔진 이미지: stock vLLM과 해시 검증된 fork 소스
 
-The SKT fork `axk2-v0.23.0` @ `023bc760` is upstream `v0.23.0` @ `0fc695fc`
-plus 29 commits (47 files). Its single CUDA change, UE8M0 tile-scale rounding
-in `cache_kernels.cu`, is gated to SM100 or `VLLM_DS_MLA_UE8M0_SCALE` and
-cannot run on A100. All 21 modified Python files are byte-identical in the
-released vLLM 0.23.0 wheel and the fork base. Copying the 25 fork Python
-files over `vllm/vllm-openai:v0.23.0-cu129` therefore reproduces the fork's
-Python tree exactly, with no CUDA rebuild. `aml/src/apply_overlay.py` checks the
-installed version, each base-file hash, each downloaded fork-file hash and
-the AXK2 registration (`aml/src/overlay_manifest.json`). `aml/Dockerfile`
-bakes the same step into an image for production registries. The CUDA 12.9
-image variant is used because CUDA 12 minor-version compatibility runs on
-older host drivers; the default 0.23.0 image targets CUDA 13.
+SKT fork `axk2-v0.23.0` @ `023bc760`은 upstream `v0.23.0` @ `0fc695fc`에
+29개 커밋(47개 파일)을 더한 것이다. 유일한 CUDA 변경은 `cache_kernels.cu`의
+UE8M0 tile-scale 반올림이다. 이 변경은 SM100 또는 `VLLM_DS_MLA_UE8M0_SCALE`로
+게이트되어 있어 A100에서는 실행될 수 없다. 수정된 Python 파일 21개는 모두 릴리스된
+vLLM 0.23.0 wheel과 fork base에서 바이트 단위로 동일하다. 따라서 fork Python 파일
+25개를 `vllm/vllm-openai:v0.23.0-cu129` 위에 복사하면 CUDA 재빌드 없이 fork의
+Python 트리를 정확히 재현한다. `aml/src/apply_overlay.py`는 설치된 버전,
+각 base 파일 해시, 다운로드한 각 fork 파일 해시, AXK2 등록
+(`aml/src/overlay_manifest.json`)을 확인한다. `aml/Dockerfile`은
+프로덕션 레지스트리용으로 같은 단계를 이미지에 굽는다. CUDA 12.9 이미지 변형을
+쓰는 이유는 CUDA 12 minor-version 호환성 덕분에 오래된 호스트 드라이버에서도 실행되기
+때문이다. 기본 0.23.0 이미지는 CUDA 13을 대상으로 한다.
 
-Two A100-specific changes came out of the first real run:
+첫 실제 실행에서 A100 전용 변경 2개가 나왔다.
 
-- **Ray is optional in vLLM 0.23** and absent from the image; the launcher
-  installs `ray[cgraph]` (the documented step) before any vLLM process starts.
-- **Ampere FP8 bug in MLA chunked-context prefill (upstream v0.23.0 too).**
-  On SM80 the FP8 weights run through Marlin, which repacks
-  `kv_b_proj.weight` into int32 tiles. The dtype guard in
-  `_compute_prefill_context` then casts the BF16 activations to int32, and
-  `marlin_gemm` fails with ``unsupported `a` scalar_type`` on the first prefill
-  that continues from cached context (a chunked long prompt or a prefix-cache
-  hit). Hopper is unaffected because its weights stay FP8. `apply_overlay.py`
-  skips the cast for non-floating weight dtypes at both sites, after checking
-  each anchor appears exactly once; FP8/BF16 behaviour on other GPUs is unchanged.
+- **vLLM 0.23에서 Ray는 선택 사항이며** 이미지에 없다. launcher는 vLLM 프로세스가
+  시작되기 전에 `ray[cgraph]`를 설치한다(문서화된 단계).
+- **MLA chunked-context 프리필의 Ampere FP8 버그(upstream v0.23.0에도 있음).**
+  SM80에서는 FP8 가중치가 Marlin을 통해 실행되고, Marlin은
+  `kv_b_proj.weight`를 int32 타일로 repack한다. 그러면
+  `_compute_prefill_context`의 dtype guard가 BF16 activation을 int32로 cast하고,
+  캐시된 context에서 이어지는 첫 프리필(chunked된 긴 프롬프트 또는 prefix-cache
+  hit)에서 `marlin_gemm`이 ``unsupported `a` scalar_type``으로 실패한다.
+  Hopper는 가중치가 FP8로 유지되므로 영향을 받지 않는다. `apply_overlay.py`는
+  각 anchor가 정확히 한 번 나타나는지 확인한 뒤, 두 위치 모두에서 floating이 아닌
+  가중치 dtype에 대해 cast를 건너뛴다. 다른 GPU에서의 FP8/BF16 동작은 바뀌지 않는다.
 
-## 5. Dense mode: running DSA checkpoints without DSA kernels
+## 5. Dense 모드: DSA 커널 없이 DSA 체크포인트 실행
 
-The fork's DeepSeek-style sparse attention (DSA) indexer and sparse MLA
-kernels need SM90/SM100 (FlashMLA sparse, DeepGEMM). The fork also supports
-dense mode. `vllm/transformers_utils/configs/axk2.py` attaches the indexer
-only when `index_topk`, `index_n_heads` and `index_head_dim` are present, and
-the model loader skips indexer tensors otherwise ("so a DSA checkpoint can be
-served as a plain AXK2 model"). `aml/src/make_dense_dir.py` symlinks every
-checkpoint file and writes a config without those three keys.
+fork의 DeepSeek 방식 sparse attention(DSA) indexer와 sparse MLA
+커널은 SM90/SM100(FlashMLA sparse, DeepGEMM)이 필요하다. fork는
+dense 모드도 지원한다. `vllm/transformers_utils/configs/axk2.py`는
+`index_topk`, `index_n_heads`, `index_head_dim`이 있을 때만 indexer를 붙이고,
+그렇지 않으면 model loader가 indexer 텐서를 건너뛴다("so a DSA checkpoint can be
+served as a plain AXK2 model"). `aml/src/make_dense_dir.py`는 모든
+체크포인트 파일을 symlink하고 이 세 키를 뺀 config를 작성한다.
 
-DSA lets a query at position *p* attend to the top `index_topk` = 2048 of its
-*p + 1* visible keys. While *p + 1* <= 2048, every key is selected, so DSA and
-dense causal attention are **the same function**. Beyond 2048 tokens of
-context, dense mode attends to more keys than the trained model: an
-approximation whose quality must be measured (SKT evaluates with AA-LCR,
-RULER and NIAH). DeepSeek uses the same identity in production: "for
-short-sequence prefilling, we specially implement a masked MHA mode to
-simulate DSA" (DeepSeek-V3.2-Exp report).
+DSA에서 위치 *p*의 query는 보이는 *p + 1*개 key 중 상위 `index_topk` = 2048개에
+attend한다. *p + 1* <= 2048인 동안에는 모든 key가 선택되므로, DSA와
+dense causal attention은 **같은 함수**이다. context가 2048 토큰을 넘으면
+dense 모드는 학습된 모델보다 더 많은 key에 attend한다. 이것은 근사이며 품질을
+측정해야 한다(SKT는 AA-LCR, RULER, NIAH로 평가한다). DeepSeek도 프로덕션에서
+같은 항등성을 쓴다: "for short-sequence prefilling, we specially implement a masked MHA mode to
+simulate DSA"(DeepSeek-V3.2-Exp report).
 
-## 5b. Native DSA on A100: the TRITON_MLA_SPARSE port
+## 5b. A100에서의 Native DSA: TRITON_MLA_SPARSE 포트
 
-Dense mode is no longer the only option. Upstream vLLM PR
-[#38476](https://github.com/vllm-project/vllm/pull/38476) (open, not merged;
-author's own description: "a concept") adds what A100 lacks:
+이제 dense 모드만이 유일한 선택지는 아니다. upstream vLLM PR
+[#38476](https://github.com/vllm-project/vllm/pull/38476)(open 상태, merge되지 않음.
+작성자 본인의 설명: "a concept")은 A100에 없는 것을 추가한다.
 
-- `TRITON_MLA_SPARSE`, a pure-Triton sparse MLA backend. It computes MQA over
-  exactly the top-k selected latent KV entries, with a split-KV decode.
-- A Triton implementation of DeepGEMM's FP8 MQA logits for the lightning
-  indexer (prefill and paged decode). FP8 keys are decoded in-kernel, because
-  SM80 has no FP8 tensor cores.
-- Dispatch guards so DeepGEMM is never called where it is unsupported.
+- `TRITON_MLA_SPARSE`: 순수 Triton sparse MLA backend이다. 선택된 상위 k개의
+  latent KV 항목에 대해서만 정확히 MQA를 계산하고, split-KV 디코드를 쓴다.
+- lightning indexer(프리필 및 paged 디코드)용으로 DeepGEMM의 FP8 MQA logits를
+  Triton으로 구현한 것이다. SM80에는 FP8 tensor core가 없으므로 FP8 key는
+  커널 안에서 디코딩한다.
+- DeepGEMM이 지원되지 않는 곳에서 절대 호출되지 않게 하는 dispatch guard이다.
 
-The PR was written against vLLM main from March 2026; the SKT fork is
-v0.23.0 (June). `git apply --3way` applied it cleanly except
-`sparse_attn_indexer.py`. There, the v0.23 XPU branch and the PR's Triton branch
-were merged in the order XPU, then DeepGEMM, then Triton. One guard was added:
-the PR put `TRITON_MLA_SPARSE` ahead of `FLASHMLA_SPARSE` in a priority list
-that Hopper also uses, so the backend now declines SM90/SM100, which keep
-their native kernels. `aml/src/dsa_port.json` records the result. It lists the
-five new files, downloaded from the PR commit and hash-checked, and exact-context
-diffs for the five modified files, each with an expected before-hash and
-after-hash. Applied to the v0.23 + fork files offline, the port is
-byte-identical to the merged git tree.
+이 PR은 2026년 3월의 vLLM main을 기준으로 작성되었고, SKT fork는
+v0.23.0(6월)이다. `git apply --3way`는 `sparse_attn_indexer.py`를 제외하고 깨끗하게
+적용되었다. 그 파일에서는 v0.23의 XPU 분기와 PR의 Triton 분기를
+XPU, DeepGEMM, Triton 순서로 병합했다. guard 하나를 추가했다.
+PR은 Hopper도 쓰는 우선순위 목록에서 `TRITON_MLA_SPARSE`를 `FLASHMLA_SPARSE`보다 앞에
+두었다. 그래서 이제 이 backend는 SM90/SM100을 거부하고, 이들은 native 커널을
+유지한다. `aml/src/dsa_port.json`은 그 결과를 기록한다. 여기에는 PR 커밋에서
+다운로드하고 해시를 확인한 새 파일 5개와, 수정된 파일 5개에 대한 정확한 context
+diff가 있으며, 각 diff에는 예상 before-hash와 after-hash가 있다. v0.23 + fork 파일에
+오프라인으로 적용하면 이 포트는 병합된 git tree와 바이트 단위로 동일하다.
 
-Interactions checked against v0.23:
+v0.23과의 상호작용 확인 결과는 다음과 같다.
 
-- The XPU sparse base class the backend extends is unchanged since March.
-- AXK2's indexer uses the same `SparseAttnIndexer` op and 64 heads (no padding).
-- The 4D indexer cache view and 2D `seq_lens` already existed at the PR's base.
-- `persistent_topk` (decode top-k) needs only SM70. Its long-context hang
-  reported on the PR was fixed upstream by #41444 before v0.23.
-- A later fix, #49139, is not in the v0.23 wheel. It affects a decode batch in
-  which two sequences longer than 32K tokens are scheduled around a shorter
-  one in the same CTA group. The needle tests send one request at a time, and
-  each point of the throughput sweep in 8.1 batches requests of a single
-  input length, so no shorter sequence sits between longer ones.
-- The port also declares batch invariance for `TRITON_MLA_SPARSE`, using one
-  KV split when `VLLM_BATCH_INVARIANT=1`. On A100 this is unreachable, because
-  no FP8 MoE kernel supports that mode (8.1).
+- backend가 확장하는 XPU sparse base class는 3월 이후 바뀌지 않았다.
+- AXK2의 indexer는 같은 `SparseAttnIndexer` op와 64개 head를 쓴다(padding 없음).
+- 4D indexer cache view와 2D `seq_lens`는 PR의 base에 이미 있었다.
+- `persistent_topk`(디코드 top-k)는 SM70만 필요하다. PR에 보고된 long-context
+  hang은 v0.23 이전에 upstream #41444로 수정되었다.
+- 이후의 수정 #49139는 v0.23 wheel에 없다. 이 수정은 32K 토큰보다 긴 시퀀스 2개가
+  같은 CTA group 안에서 더 짧은 시퀀스 1개를 사이에 두고 스케줄되는 디코드 배치에
+  영향을 준다. needle 테스트는 요청을 한 번에 하나씩 보내고, 8.1의 throughput
+  sweep 각 지점은 하나의 입력 길이로 된 요청만 배치하므로, 긴 시퀀스 사이에 짧은 시퀀스가 놓이지 않는다.
+- 포트는 `TRITON_MLA_SPARSE`에 대해 batch invariance도 선언하며,
+  `VLLM_BATCH_INVARIANT=1`일 때 KV split 1개를 쓴다. A100에서는 이 경로에 도달할 수 없다.
+  이 모드를 지원하는 FP8 MoE 커널이 없기 때문이다(8.1).
 
-In native mode the SKT checkpoint and config are served **unchanged**: no
-config edits, and the indexer weights load. Every layer selects its top 2048
-keys per query with the same rule as on B300. Individual near-tied keys can
-still differ, because the kernels and their arithmetic differ.
+native 모드에서는 SKT 체크포인트와 config를 **변경 없이** 서빙한다. config를
+수정하지 않고, indexer 가중치도 로드한다. 모든 layer는 B300과 같은 규칙으로 query마다
+상위 2048개 key를 선택한다. 다만 커널과 그 산술이 다르므로, 값이 거의 같은 개별 key는
+여전히 다르게 선택될 수 있다.
 
-## 5c. Differences from the reference single-node deployment
+## 5c. 레퍼런스 단일 노드 배포와의 차이
 
-The reference is the model card command, `vllm serve skt/A.X-K2
+레퍼런스는 모델 카드 명령 `vllm serve skt/A.X-K2
 --tensor-parallel-size <N> --tool-call-parser hermes --reasoning-parser
-deepseek_v3`, validated on 4 x B300. SKT's own script serves it on one
-8 x B300 node with TP8, `fastsafetensors`, `--max-model-len 131072` and the
-BF16 KV-cache default. Every difference from that reference:
+deepseek_v3`이며, 4 x B300에서 검증되었다. SKT 자체 스크립트는 이 모델을
+8 x B300 노드 1대에서 TP8, `fastsafetensors`, `--max-model-len 131072`, 그리고
+BF16 KV-cache 기본값으로 서빙한다. 이 레퍼런스와의 모든 차이는 다음과 같다.
 
-| Area | Reference (one B300/H100-class node) | This A100 deployment | Effect |
+| 영역 | 레퍼런스(B300/H100급 노드 1대) | 이 A100 배포 | 영향 |
 | --- | --- | --- | --- |
-| Weights, config, tokenizer, chat template, model code | Checkpoint 4237c6a6, SKT fork `axk2.py` | Same files, unmodified (native mode) | None |
-| Linear and MoE matmuls | FP8 x FP8 on FP8 tensor cores (block-scaled W8A8) | FP8 weights expanded in-kernel, BF16 activations (Marlin W8A16); A100 has no FP8 tensor cores | Same weight memory; activations are not quantized; slower when compute-bound; not bit-identical |
-| Indexer scores | DeepGEMM FP8 MQA logits | Triton kernel on the same FP8-quantized q/k, BF16 dot, FP32 accumulation (PR #38476) | Same inputs and rule, different kernel |
-| Top-k selection | `persistent_topk` | Same kernel | None |
-| Sparse MLA over the selected 2048 keys | FlashMLA / FlashInfer sparse | Triton sparse MLA (PR #38476, unmerged upstream) | Same computation; slower; not upstream-supported |
-| KV cache | BF16 by default, FP8 (`fp8_ds_mla`) optional | BF16 only | No FP8-KV memory saving. The cache is replicated on every TP rank, so 16 x A100 hold 673,792 tokens (native), which limits concurrency at long inputs (8.1) |
-| Engine code | vLLM 0.23 + SKT fork | Same, plus the PR port and a 2-line A100 fix in `mla_attention.py` | Without the fix the server crashes on A100 |
-| Parallelism | One node, TP 4 or 8, multiprocessing executor | Two nodes, TP8 x PP2 (layers 0-30 / 31-60), Ray | One network hop per step; losing either node stops the service |
-| Inter-node network | Not applicable | NCCL over InfiniBand with GPUDirect RDMA: 20.6 GB/s per GPU pair (TCP: 0.35 GB/s). The first two runs used TCP | None at PP2 decode; required for TP across nodes |
-| Tool calling | `--tool-call-parser hermes` | Same parser plus `--enable-auto-tool-choice`; 9/9 cases correct in both modes (8.1) | Without the extra flag vLLM returns `tool_choice: auto` calls as raw `<tool_call>` text in `content`; this also applies to the reference command |
-| Context length | 256K with no extra flags | `max_model_len` 262,144; SKT's needle test 9/9 up to 252,728 tokens (native) | Dense mode found no needle at 126K or 253K tokens |
-| Loader and limits | `fastsafetensors`, 64 sequences | Default loader; 64 sequences; 8,192 batched tokens per step, vLLM's B200 default (its A100 default is 2,048) | Load time only |
-| Determinism | Not batch-invariant by default | Same, and batch-invariant mode cannot start on A100: no FP8 MoE kernel for SM80 supports it (8.1) | Identical greedy requests diverge after 68-264 characters |
-| Speculative decoding | `skt/A.X-K2-EAGLE3` drafter: +23-30% in tech report Fig. 8 | Not usable: EAGLE3 cannot run with PP, and on TP16 the A100 MLA decode kernel cannot verify multi-token drafts (8.1) | No speed-up option on A100 |
-| 4-bit weights | `skt/A.X-K2-NVFP4` on 4 x B200: routed experts W4A4 on FP4 tensor cores | Not used by this two-node deployment. The checkpoint does run on A100, on one node, after a backported upstream vLLM change; its experts then run W4A16 (8.4) | The one-node NVFP4 option halves the GPUs at about the same short-input speed; 8.4 lists its limits |
-| Quality evidence | SKT's published evaluations | Functional probes, needles to 253K tokens, tool calls, 2-layer log-probability comparison | Benchmark parity not measured |
-| Speed | Tech report Fig. 7: one B200 node, concurrency 32, 1K output | Same benchmark on 16 A100s: 0.43-0.51x of the B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K (native) | About a quarter of B200 throughput per GPU at short inputs; less at long inputs. The one-node NVFP4 option reaches about half per GPU (8.4) |
+| 가중치, config, tokenizer, chat template, 모델 코드 | 체크포인트 4237c6a6, SKT fork `axk2.py` | 같은 파일, 수정 없음(native 모드) | 없음 |
+| Linear 및 MoE matmul | FP8 tensor core에서 FP8 x FP8(block-scaled W8A8) | FP8 가중치를 커널 안에서 확장, BF16 activation(Marlin W8A16). A100에는 FP8 tensor core가 없음 | 가중치 메모리는 같음. activation은 양자화되지 않음. compute-bound일 때 더 느림. 비트 단위로 동일하지 않음 |
+| Indexer 점수 | DeepGEMM FP8 MQA logits | 같은 FP8 양자화 q/k에 대한 Triton 커널, BF16 dot, FP32 누산(PR #38476) | 입력과 규칙은 같고 커널은 다름 |
+| Top-k 선택 | `persistent_topk` | 같은 커널 | 없음 |
+| 선택된 2048개 key에 대한 sparse MLA | FlashMLA / FlashInfer sparse | Triton sparse MLA(PR #38476, upstream 미병합) | 같은 계산. 더 느림. upstream 지원 대상 아님 |
+| KV cache | 기본 BF16, FP8(`fp8_ds_mla`) 선택 가능 | BF16만 | FP8-KV 메모리 절감 없음. cache는 모든 TP rank에 복제되므로 16 x A100이 673,792 토큰(native)을 담으며, 긴 입력에서 동시성을 제한함(8.1) |
+| 엔진 코드 | vLLM 0.23 + SKT fork | 같음. 여기에 PR 포트와 `mla_attention.py`의 2줄 A100 수정 추가 | 수정이 없으면 A100에서 서버가 crash함 |
+| 병렬화 | 노드 1대, TP 4 또는 8, multiprocessing executor | 노드 2대, TP8 x PP2(layer 0-30 / 31-60), Ray | 스텝마다 네트워크 hop 1회. 어느 노드든 잃으면 서비스가 멈춤 |
+| 노드 간 네트워크 | 해당 없음 | GPUDirect RDMA를 쓰는 InfiniBand 위 NCCL: GPU 쌍당 20.6 GB/s(TCP: 0.35 GB/s). 처음 두 실행은 TCP를 사용 | PP2 디코드에서는 영향 없음. 노드 간 TP에는 필수 |
+| Tool calling | `--tool-call-parser hermes` | 같은 parser에 `--enable-auto-tool-choice` 추가. 두 모드 모두 9/9 케이스 정답(8.1) | 추가 플래그가 없으면 vLLM은 `tool_choice: auto` 호출을 `content` 안의 raw `<tool_call>` 텍스트로 반환함. 이는 레퍼런스 명령에도 해당함 |
+| Context 길이 | 추가 플래그 없이 256K | `max_model_len` 262,144. SKT의 needle 테스트 252,728 토큰까지 9/9(native) | Dense 모드는 126K 또는 253K 토큰에서 needle을 하나도 찾지 못함 |
+| Loader 및 한도 | `fastsafetensors`, 시퀀스 64개 | 기본 loader. 시퀀스 64개. 스텝당 batched 토큰 8,192개로 vLLM의 B200 기본값(A100 기본값은 2,048) | 로드 시간에만 영향 |
+| 결정성 | 기본적으로 batch-invariant 아님 | 같음. 그리고 A100에서는 batch-invariant 모드를 시작할 수 없음: 이를 지원하는 SM80용 FP8 MoE 커널이 없음(8.1) | 동일한 greedy 요청이 68-264자 이후 갈라짐 |
+| Speculative decoding | `skt/A.X-K2-EAGLE3` drafter: tech report Fig. 8 기준 +23-30% | 사용 불가: EAGLE3는 PP와 함께 실행할 수 없고, TP16에서는 A100 MLA 디코드 커널이 multi-token draft를 검증할 수 없음(8.1) | A100에서는 속도 향상 옵션이 없음 |
+| 4-bit 가중치 | 4 x B200에서 `skt/A.X-K2-NVFP4`: routed expert가 FP4 tensor core에서 W4A4 | 이 2노드 배포에서는 사용하지 않음. 이 체크포인트는 upstream vLLM 변경을 backport한 뒤 A100 노드 1대에서 실행됨. 이때 expert는 W4A16으로 실행됨(8.4) | 1노드 NVFP4 옵션은 짧은 입력에서 거의 같은 속도로 GPU를 절반만 씀. 한계는 8.4에 정리 |
+| 품질 근거 | SKT가 공개한 평가 | 기능 probe, 253K 토큰까지의 needle, tool call, 2-layer log-probability 비교 | 벤치마크 동등성은 측정하지 않음 |
+| 속도 | Tech report Fig. 7: B200 노드 1대, 동시성 32, 출력 1K | 16 A100에서 같은 벤치마크: 1K-8K 입력에서 B200 노드의 0.43-0.51x, 16K-120K에서 0.10-0.36x(native) | 짧은 입력에서 GPU당 B200 throughput의 약 4분의 1. 긴 입력에서는 더 낮음. 1노드 NVFP4 옵션은 GPU당 약 절반에 도달함(8.4) |
 
-**Checkpoint revision.** The Hub history of `skt/A.X-K2` was rewritten:
-revision 2287ca45 returned 404 on 2026-10-20 and is not among the 17 commits
-of `main`. The demo job now pins 4237c6a6. The three staging records of
-2287ca45 list 355 files and 694,408,282,999 bytes, and 4237c6a6 has the same
-totals under the `stage_weights.py` file filter. The nine shard sha256 values
-recorded for 2287ca45 (shards 00001-00007, 00345 and 00346) all match as
-well. The latest head, d0805cfd (2026-10-20), differs from 4237c6a6 only in
-`README.md` and `generation_config.json`, where the default temperature
-changes from 0.6 to 0.9, so the demo stays on 4237c6a6 to keep its serving
-defaults. The experiment job templates, `aml/src/hub_probe.py` and the
-evidence files still name 2287ca45, the revision they measured; run them
-again with 4237c6a6.
+**체크포인트 revision.** `skt/A.X-K2`의 Hub 이력이 재작성되었다.
+revision 2287ca45는 2026-10-20에 404를 반환했고, `main`의 커밋 17개 중에도 없다.
+데모 job은 이제 4237c6a6을 고정한다. 2287ca45의 staging 기록 3개는
+파일 355개와 694,408,282,999 바이트를 나열하며, 4237c6a6도 `stage_weights.py` 파일
+필터 기준으로 합계가 같다. 2287ca45에 대해 기록된 shard sha256 값 9개
+(shard 00001-00007, 00345, 00346)도 모두 일치한다. 최신 head인 d0805cfd(2026-10-20)는
+4237c6a6과 `README.md` 및 `generation_config.json`에서만 다르다. 후자에서는 기본
+temperature가 0.6에서 0.9로 바뀐다. 그래서 데모는 서빙 기본값을 유지하기 위해
+4237c6a6에 머문다. 실험 job 템플릿, `aml/src/hub_probe.py`, evidence 파일은
+측정 당시의 revision인 2287ca45를 여전히 가리킨다. 이들은 4237c6a6으로
+다시 실행해야 한다.
 
-The `persistent_topk` fix #49139 is missing from every vLLM 0.23 build,
-including SKT's own fork, so it is not an A100-specific gap.
+`persistent_topk` 수정 #49139는 SKT 자체 fork를 포함한 모든 vLLM 0.23 빌드에 없다.
+따라서 A100 고유의 공백이 아니다.
 
-**One-node NVFP4 variant (8.4).** SKT's 4-bit checkpoint changes these rows;
-the others stay as in the table:
+**1노드 NVFP4 변형(8.4).** SKT의 4-bit 체크포인트는 다음 행을 바꾼다.
+나머지 행은 표와 같다.
 
-- Weights: `skt/A.X-K2-NVFP4` revision 9e2e804e (398 GB), unmodified.
-- MoE matmuls: the NVFP4 routed experts run with BF16 activations (Marlin
-  W4A16), where B200 runs them W4A4 on FP4 tensor cores. The FP8 layers run
-  as in the table.
-- Engine code: also the backported capability check (`NVFP4_SM80_PORT=1`).
-- Parallelism and network: one node, TP8, multiprocessing executor; nothing
-  crosses nodes.
-- KV cache and context: 254,016 tokens with 8,192 batched tokens, so the
-  context auto-fits to that; 272,960 with 2,048, so the full 262,144 fits.
-- Speed: as fast as the FP8 checkpoint on 16 A100 up to concurrency 32,
-  0.81-0.86x at 64-128, with slower prefill.
+- 가중치: `skt/A.X-K2-NVFP4` revision 9e2e804e(398 GB), 수정 없음.
+- MoE matmul: NVFP4 routed expert는 BF16 activation으로 실행된다(Marlin
+  W4A16). B200은 이를 FP4 tensor core에서 W4A4로 실행한다. FP8 layer는
+  표와 같이 실행된다.
+- 엔진 코드: backport한 capability check도 포함한다(`NVFP4_SM80_PORT=1`).
+- 병렬화와 네트워크: 노드 1대, TP8, multiprocessing executor. 노드를 건너는 것은
+  없다.
+- KV cache와 context: batched 토큰 8,192개에서는 254,016 토큰이므로
+  context가 그 값으로 auto-fit된다. 2,048개에서는 272,960 토큰이므로 전체 262,144가 들어간다.
+- 속도: 동시성 32까지는 16 A100의 FP8 체크포인트만큼 빠르고,
+  64-128에서는 0.81-0.86x이며, 프리필은 더 느리다.
 
-## 6. Subscription policy constraints (MCAPS)
+## 6. 구독 정책 제약(MCAPS)
 
-A management-group Azure Policy with a `modify` effect forces every storage
-account to `publicNetworkAccess=Disabled` and `allowSharedKeyAccess=false`.
-The design works within it and does not bypass it:
+`modify` effect가 있는 management-group Azure Policy가 모든 storage
+account를 `publicNetworkAccess=Disabled`와 `allowSharedKeyAccess=false`로 강제한다.
+이 설계는 정책 안에서 동작하며 정책을 우회하지 않는다.
 
-- Workspace managed VNet (`allow_internet_outbound`) with private endpoints
-  to blob, file and Key Vault; system datastores in identity mode; each
-  compute cluster has a system-assigned identity with Storage Blob Data
-  Contributor on the workspace storage account only.
-- The CLI cannot upload a `code:` snapshot from outside the VNet, and Batch
-  rejects very long command lines. `aml/render_job.py` puts `aml/src` in the
-  `AXK2_SRC_B64` environment variable (base64 tar.gz). AML also caps the
-  total docker argument size (environment plus command; ~62K base64 worked,
-  ~91K failed with `ArgumentTooLong`, shown only in the run's RunHistory
-  `/details`), so the demo job instead downloads the tarball from the
-  frontend (`GET /api/link/src`, job token) and checks `AXK2_SRC_SHA256`.
-- Artifacts stay in private storage. Jobs report JSON summaries and
-  zlib-compressed per-position series as chunked MLflow tags (ASCII-escaped,
-  at most 90 tags per call, retried), read with `aml/fetch_results.py`
-  through the workspace API. `aml/jobs/peek-run-logs.yml` and
-  `collect-run-outputs.yml` read a job's streamed logs or finished outputs
-  from inside the VNet.
+- Workspace managed VNet(`allow_internet_outbound`)과 blob, file, Key Vault로의
+  private endpoint를 쓴다. system datastore는 identity 모드이다. 각
+  compute cluster는 system-assigned identity를 가지며, workspace storage account에
+  대해서만 Storage Blob Data Contributor 권한을 가진다.
+- CLI는 VNet 밖에서 `code:` 스냅샷을 업로드할 수 없고, Batch는
+  매우 긴 명령줄을 거부한다. `aml/render_job.py`는 `aml/src`를
+  `AXK2_SRC_B64` 환경 변수(base64 tar.gz)에 넣는다. AML은 전체 docker 인자 크기
+  (환경 변수와 명령의 합)에도 상한을 둔다. base64 약 62K는 동작했고, 약 91K는
+  `ArgumentTooLong`으로 실패했으며, 이 오류는 실행의 RunHistory `/details`에만 표시되었다.
+  그래서 데모 job은 대신 frontend에서 tarball을 다운로드하고(`GET /api/link/src`, job token)
+  `AXK2_SRC_SHA256`을 확인한다.
+- Artifact는 private storage에 남는다. Job은 JSON 요약과
+  zlib 압축된 위치별 시계열을 chunked MLflow tag로 보고한다(ASCII-escape,
+  호출당 최대 90개 tag, 재시도 포함). 이 값은 workspace API를 통해
+  `aml/fetch_results.py`로 읽는다. `aml/jobs/peek-run-logs.yml`과
+  `collect-run-outputs.yml`은 VNet 안에서 job의 스트리밍 로그 또는 완료된 출력을
+  읽는다.
 
-## 7. Validation ladder
+## 7. 검증 단계
 
-| Stage | What it proves | Cost |
+| 단계 | 증명하는 것 | 비용 |
 | --- | --- | --- |
-| A. CPU tiny AXK2 (`experiments/validate_dense_equivalence.py`) | Dense == sparse within `index_topk` for prefill and cached decode; divergence beyond it | none |
-| B1. 2-layer real-weight cut, official Transformers FP32 sparse on CPU, prompts up to 7,166 tokens | Reference log-probabilities from SKT's own model definition | CPU minutes |
-| B2. PR #38476 Triton kernel tests on A100 | The ported indexer-logits and sparse-MLA kernels against their references | minutes |
-| B3. Same cut on the target nodes: vLLM native DSA and dense, single-node TP8, then native over Ray TP8 x PP2 | The exact launch path, overlay, DSA port and SM80 kernels on real weights; agreement with B1 inside and beyond `index_topk` | minutes of the C allocation |
-| C. Full model on 2 x ND96amsr_A100_v4, TP8 x PP2, native and dense | Load and serve all 61 layers; functional, reasoning, accuracy, determinism, needles to 60K tokens, latency and throughput sweeps | ~USD 26/hour |
-| D. Same allocation, six server configurations in sequence (`verify-remaining-nd96-hub.yml`) | InfiniBand vs TCP; tool calling; SKT's needle test to 256K; determinism with and without batch-invariant mode; the tech report's Fig. 7 sweep; TP16 and EAGLE3 | ~4.7 hours |
-| E. SKT's NVFP4 checkpoint on one ND96amsr_A100_v4, TP8 (`nvfp4-a100-nd96.yml`) | The capability-check port; functional, tools, needles to the auto-fitted context, the C latency table and the Fig. 7 sweep on half the GPUs | ~2.1 hours of one node |
+| A. CPU tiny AXK2 (`experiments/validate_dense_equivalence.py`) | 프리필과 캐시된 디코드에서 `index_topk` 이내일 때 Dense == sparse. 그 이상에서는 갈라짐 | 없음 |
+| B1. 2-layer 실제 가중치 cut, CPU에서 공식 Transformers FP32 sparse, 최대 7,166 토큰 프롬프트 | SKT 자체 모델 정의에서 얻은 레퍼런스 log-probability | CPU 수 분 |
+| B2. A100에서 PR #38476 Triton 커널 테스트 | 포팅한 indexer-logits 및 sparse-MLA 커널을 각 레퍼런스와 비교 | 수 분 |
+| B3. 대상 노드에서 같은 cut: vLLM native DSA와 dense, 단일 노드 TP8, 이어서 Ray 위 native TP8 x PP2 | 실제 가중치에서 정확한 launch 경로, overlay, DSA 포트, SM80 커널 확인. `index_topk` 이내와 그 이상에서 B1과의 일치 | C 할당 중 수 분 |
+| C. 2 x ND96amsr_A100_v4에서 전체 모델, TP8 x PP2, native와 dense | 61개 layer 전체 로드 및 서빙. 기능, 추론, 정확도, 결정성, 60K 토큰까지의 needle, latency 및 throughput sweep | 시간당 약 USD 26 |
+| D. 같은 할당에서 서버 구성 6개를 순서대로 실행(`verify-remaining-nd96-hub.yml`) | InfiniBand 대 TCP. tool calling. 256K까지 SKT의 needle 테스트. batch-invariant 모드 유무에 따른 결정성. tech report의 Fig. 7 sweep. TP16과 EAGLE3 | 약 4.7시간 |
+| E. ND96amsr_A100_v4 1대에서 SKT의 NVFP4 체크포인트, TP8(`nvfp4-a100-nd96.yml`) | capability-check 포트. 기능, tool, auto-fit된 context까지의 needle, 절반의 GPU로 C latency 표와 Fig. 7 sweep | 노드 1대로 약 2.1시간 |
 
-`aml/jobs/native-dsa-bench-nd96-hub.yml` runs B2, B3 and C in one allocation.
-Both nodes download the full checkpoint from the Hub in the background while
-B2 and B3 run. `aml/jobs/full-native-dense-nd96-hub.yml` runs only C. Spot
-capacity was scarce, so the same job was queued in up to 12 regions.
-`aml/first_capacity_wins.sh` picks the first region that holds both nodes,
-cancels every other job and deletes any loser cluster that already holds
-nodes. For the one-node `nvfp4-a100-nd96.yml`, run it with `NODES=1`.
+`aml/jobs/native-dsa-bench-nd96-hub.yml`은 B2, B3, C를 하나의 할당에서 실행한다.
+B2와 B3가 실행되는 동안 두 노드는 백그라운드에서 Hub의 전체 체크포인트를 다운로드한다.
+`aml/jobs/full-native-dense-nd96-hub.yml`은 C만 실행한다. Spot
+용량이 부족했으므로, 같은 job을 최대 12개 리전에 큐잉했다.
+`aml/first_capacity_wins.sh`는 두 노드를 모두 확보한 첫 리전을 선택하고,
+다른 job을 모두 취소하며, 이미 노드를 확보한 나머지 클러스터를 삭제한다.
+1노드 `nvfp4-a100-nd96.yml`은 `NODES=1`로 실행한다.
 
-## 8. Results
+## 8. 결과
 
-### 8.1 Verification run: open items and the tech report's speed (2026-10-03, uksouth)
+### 8.1 검증 실행: 미해결 항목과 기술 보고서의 속도 (2026-10-03, uksouth)
 
-Evidence: `evidence/a100-verification-and-doc-speed.json`. The job
-`aml/jobs/verify-remaining-nd96-hub.yml` ran on one Spot allocation of the same
-2 x ND96amsr_A100_v4. It served the full model in six configurations, one
-after another, each as one OpenAI-compatible endpoint. Every configuration
-used the model card's parsers plus `--enable-auto-tool-choice` and 8,192
-batched tokens per step.
+근거: `evidence/a100-verification-and-doc-speed.json`. 작업
+`aml/jobs/verify-remaining-nd96-hub.yml`은 동일한 2 x ND96amsr_A100_v4의
+Spot 할당 하나에서 실행했다. 전체 모델을 여섯 가지 구성으로 차례로 서빙했다.
+각 구성은 하나의 OpenAI 호환 엔드포인트였다. 모든 구성은 모델 카드의 parser와
+`--enable-auto-tool-choice`를 사용했고, step당 batched token은 8,192개였다.
 
-| Item | Result |
+| 항목 | 결과 |
 | --- | --- |
-| InfiniBand between the nodes | Works: 20.6 GB/s per GPU pair with GPUDirect RDMA (TCP: 0.35 GB/s); used by every configuration that started |
-| Tool calling, 9 cases, native and dense | 9/9 correct in both modes |
-| SKT's needle test at 32K / 128K / 256K, native | 9/9 |
-| Same, dense | 3/3 at 32K, **0/6** at 128K and 256K |
-| Determinism, default kernels | Identical greedy requests diverge after 68-264 characters |
-| Batch-invariant mode | **Cannot start on A100** |
-| Tech report Fig. 7 conditions, native | 0.43-0.51x of one B200 node at 1K-8K inputs, 0.10-0.36x at 16K-120K |
-| TP16 across both nodes, dense | 12-41% faster than TP8 x PP2 at 1K-8K inputs; half the KV cache |
-| EAGLE3 drafter | Not usable: CUDA-graph start-up fails; the eager fallback is 4-5x slower and accepts 1.05 tokens per step |
-| NVFP4 checkpoint | Not attempted here, and wrongly called impossible: it runs on one A100 node (8.4) |
+| 노드 간 InfiniBand | 동작한다: GPUDirect RDMA로 GPU 쌍당 20.6 GB/s (TCP: 0.35 GB/s). 시작에 성공한 모든 구성이 사용했다 |
+| Tool calling, 9개 케이스, native와 dense | 두 모드 모두 9/9 정답 |
+| 32K / 128K / 256K에서 SKT의 needle 테스트, native | 9/9 |
+| 같은 테스트, dense | 32K에서 3/3, 128K와 256K에서 **0/6** |
+| 결정성, 기본 kernel | 동일한 greedy 요청이 68-264자 뒤에 갈라진다 |
+| Batch-invariant 모드 | **A100에서 시작할 수 없다** |
+| 기술 보고서 Fig. 7 조건, native | 1K-8K 입력에서 B200 노드 1개의 0.43-0.51x, 16K-120K에서 0.10-0.36x |
+| 두 노드에 걸친 TP16, dense | 1K-8K 입력에서 TP8 x PP2보다 12-41% 빠르다. KV cache는 절반이다 |
+| EAGLE3 drafter | 사용할 수 없다: CUDA graph 시작이 실패한다. eager fallback은 4-5배 느리고 step당 1.05 token을 수락한다 |
+| NVFP4 checkpoint | 여기서는 시도하지 않았고, 불가능하다고 잘못 기술했다: A100 노드 1개에서 실행된다 (8.4) |
 
-**InfiniBand.** The job containers expose the eight 200 Gb/s InfiniBand HCAs
-of each node, and the vLLM image already ships the RDMA userland. Memlock is
-unlimited, and Azure's NDv4 NCCL topology file matched every GPU and HCA PCI
-address of the VMs. NCCL between GPU 0 of each node:
+**InfiniBand.** 작업 컨테이너는 각 노드의 200 Gb/s InfiniBand HCA 8개를
+노출한다. vLLM 이미지에는 RDMA userland가 이미 들어 있다. Memlock은
+무제한이다. Azure의 NDv4 NCCL topology 파일은 VM의 모든 GPU와 HCA PCI
+주소와 일치했다. 각 노드의 GPU 0 사이 NCCL 결과는 다음과 같다.
 
-| | TCP (the first two runs) | InfiniBand, GPUDirect RDMA |
+| | TCP (처음 두 실행) | InfiniBand, GPUDirect RDMA |
 | --- | ---: | ---: |
-| Round trip, small message | 454 µs | 122 µs |
+| 왕복, 작은 메시지 | 454 µs | 122 µs |
 | Send/receive, 256 MiB | 0.35 GB/s | 20.6 GB/s |
 | All-reduce, 256 MiB | 0.37 GB/s | 18.2 GB/s |
 
-Every configuration that started then used `NET/IB` on all eight HCAs.
-Decode at PP2 barely changed: median TPOT at concurrency 32 with 1K inputs
-was 72 ms, against 77 ms over TCP in the earlier run (256 output tokens
-there). Per decode step the stages exchange only the hidden state and
-residual of the batch's new tokens, and decode is bound by MoE weight reads
-on each GPU. InfiniBand matters for prefill, where an 8,192-token chunk moves
-235 MB of hidden state and residual between the stages (0.67 s over TCP,
-11 ms over IB), and it is what makes TP16 across nodes viable.
+이후 시작에 성공한 모든 구성은 8개 HCA 모두에서 `NET/IB`를 사용했다.
+PP2의 디코드는 거의 변하지 않았다. 1K 입력, concurrency 32에서 median TPOT는
+72 ms였다. 이전 TCP 실행에서는 77 ms였다 (그때 출력 token은 256개였다).
+디코드 step마다 stage들은 batch의 새 token에 대한 hidden state와 residual만
+교환한다. 그리고 디코드는 각 GPU의 MoE weight 읽기에 묶여 있다. InfiniBand는
+프리필에서 중요하다. 프리필에서는 8,192-token chunk 하나가 stage 사이에서
+hidden state와 residual 235 MB를 옮긴다 (TCP로 0.67 s, IB로 11 ms).
+InfiniBand는 노드에 걸친 TP16을 실현 가능하게 만드는 요소이기도 하다.
 
-**Tool calling.** The model card command sets `--tool-call-parser hermes` but
-not `--enable-auto-tool-choice`. Without that flag, vLLM 0.23 skips the parser
-for `tool_choice: "auto"`, the default when tools are sent, and returns the
-`<tool_call>` block as text in `content` (`chat_completion/serving.py:1095`).
-Named and `required` tool choice still work. With the flag, both modes handled
-all nine cases:
+**Tool calling.** 모델 카드 명령은 `--tool-call-parser hermes`를 설정하지만
+`--enable-auto-tool-choice`는 설정하지 않는다. 이 flag가 없으면 vLLM 0.23은
+`tool_choice: "auto"`에서 parser를 건너뛴다. 이것은 tool을 보낼 때의
+기본값이다. 그 결과 `<tool_call>` 블록을 `content`의 텍스트로 반환한다
+(`chat_completion/serving.py:1095`). Named tool choice와 `required` tool
+choice는 여전히 동작한다. 이 flag를 켜면 두 모드 모두 아홉 케이스를
+처리했다:
 
-- a single Korean call;
-- two parallel calls (서울, 부산);
-- three arguments;
-- thinking plus a call, with the reasoning separated;
-- no tool needed;
-- a follow-up turn with the tool result;
+- 한국어 단일 호출;
+- 병렬 호출 두 개 (서울, 부산);
+- 인자 세 개;
+- thinking과 호출, reasoning이 분리됨;
+- tool이 필요 없음;
+- tool 결과를 받은 후속 turn;
 - streaming;
-- a named tool;
+- named tool;
 - `required`.
 
-The automatic check flagged "no tool needed" because the model answered
-"Seoul" rather than "서울". It made no call and the answer is right; the check
-now accepts both.
+자동 검사는 "tool이 필요 없음" 케이스를 실패로 표시했다. 모델이 "서울" 대신
+"Seoul"로 답했기 때문이다. 모델은 호출을 하지 않았고 답도 맞다. 이제 검사는
+두 표기를 모두 허용한다.
 
-**Long context.** This uses SKT's own needle test
-(`examples/vllm/niah_test.py`, with the same needle, filler, question, depths
-and codes), one request at a time with thinking off:
+**긴 context.** 여기서는 SKT의 자체 needle 테스트를 사용한다
+(`examples/vllm/niah_test.py`, needle, filler, 질문, 깊이, 코드가 동일하다).
+요청은 한 번에 하나씩 보냈고 thinking은 껐다:
 
-| Prompt tokens | Native: found | Native: seconds per request | Dense: found | Dense: seconds |
+| Prompt token | Native: 찾음 | Native: 요청당 초 | Dense: 찾음 | Dense: 초 |
 | ---: | ---: | ---: | ---: | ---: |
 | 31,597 | 3/3 | 6-9 | 3/3 | 2-4 |
 | 126,368 | 3/3 | 38-52 | **0/3** | 13-18 |
 | 252,728 | 3/3 | 125-167 | **0/3** | 39-52 |
 
-At 126K and 253K tokens dense mode answered with filler sentences. Without the
-2,048-key selection the model was trained with, attention spreads over the
-whole prompt. With the 12/12 needles up to 60K in 8.2, dense mode is usable
-only up to about 60K tokens of context. Native DSA is required beyond that.
+126K와 253K token에서 dense 모드는 filler 문장으로 답했다. 모델이 학습한
+2,048-key 선택이 없으면 attention이 prompt 전체로 퍼진다. 8.2의 60K까지
+12/12 needle 결과와 합치면, dense 모드는 약 60K token의 context까지만 사용할
+수 있다. 그 이상에서는 native DSA가 필요하다.
 
-**Determinism.** The same greedy 200-token request, default kernels, native:
+**결정성.** 동일한 greedy 200-token 요청, 기본 kernel, native 결과:
 
-- a second fresh run first differs at character 107;
-- a prefix-cache hit first differs at character 264;
-- runs inside a batch of 16 first differ at character 68, and the two batch
-  runs also differ from each other.
+- 두 번째 새 실행은 107번째 문자에서 처음 달라진다;
+- prefix-cache hit는 264번째 문자에서 처음 달라진다;
+- 16개 batch 안의 실행은 68번째 문자에서 처음 달라지고, 두 batch
+  실행끼리도 서로 다르다.
 
-Bitwise reproducibility needs vLLM's batch-invariant mode, which fails to
-start on A100 for this model with "No FP8 MoE backend supports the deployment
-configuration" (`fused_moe/oracle/fp8.py:417`). In that mode vLLM keeps only
-MoE kernels that declare batch invariance (`fused_moe/modular_kernel.py:577`).
-The only such kernel is the Triton MoE kernel (`experts/triton_moe.py:125`),
-and its FP8 path needs compute capability 8.9 (`platforms/cuda.py:546`).
-A100's Marlin W8A16 MoE kernel does not qualify. The batch-invariance wiring
-added to the attention port is therefore unreachable on A100.
+Bitwise 재현성에는 vLLM의 batch-invariant 모드가 필요하다. 이 모드는 이
+모델에서 A100에서 "No FP8 MoE backend supports the deployment
+configuration" 오류로 시작에 실패한다 (`fused_moe/oracle/fp8.py:417`). 이
+모드에서 vLLM은 batch invariance를 선언한 MoE kernel만 남긴다
+(`fused_moe/modular_kernel.py:577`). 그런 kernel은 Triton MoE kernel 하나뿐이다
+(`experts/triton_moe.py:125`). 그리고 그 FP8 경로는 compute capability 8.9가
+필요하다 (`platforms/cuda.py:546`). A100의 Marlin W8A16 MoE kernel은 조건을
+충족하지 않는다. 따라서 attention 포트에 추가한 batch-invariance 연결은
+A100에서 도달할 수 없다.
 
-**Speed under the tech report's conditions.** Tech report Fig. 7 measures
-vLLM bench serve with the random dataset at concurrency 32, 1,024 output
-tokens, FP8 weights and BF16 KV cache on one B200 node (8 GPUs). The same
-client command was run here on 16 x A100. Total tok/s counts input plus
-output, so the output ratios are identical.
+**기술 보고서 조건에서의 속도.** 기술 보고서 Fig. 7은 B200 노드 1개(GPU 8개)에서
+vLLM bench serve를 측정한다. 조건은 random dataset, concurrency 32, 출력
+token 1,024개, FP8 weight, BF16 KV cache다. 여기서는 같은 client 명령을
+16 x A100에서 실행했다. Total tok/s는 입력과 출력을 합해 센다. 따라서 출력
+기준 비율도 동일하다.
 
-| Input tokens | B200 node (Fig. 7) | A100 native | Ratio | A100 dense | Ratio | Requests running, native / dense |
+| 입력 token | B200 노드 (Fig. 7) | A100 native | 비율 | A100 dense | 비율 | 실행 중 요청, native / dense |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1,024 | 1,900 | 815 | 0.43 | 980 | 0.52 | 32 / 32 |
 | 2,048 | 2,700 | 1,165 | 0.43 | 1,457 | 0.54 | 32 / 32 |
@@ -399,300 +394,297 @@ output, so the output ratios are identical.
 | 65,536 | 10,600 | 1,535 | 0.14 | 3,242 | 0.31 | 10 / 11 |
 | 120,000 | 12,300 | 1,184 | 0.10 | 2,802 | 0.23 | 5 / 6 |
 
-- **Up to 8K inputs, 16 A100s deliver about half of one B200 node**, or about
-  a quarter per GPU. A100 has no FP8 tensor cores, so the FP8 weights run
-  through Marlin W8A16 kernels. Decode at concurrency 32 is bound by MoE
-  weight reads: native median TPOT is 72-109 ms, where the B200 figure implies
-  about 33 ms.
-- **From 16K the gap widens, for two reasons.**
-  - *KV capacity.* The MLA cache is replicated on every tensor-parallel rank,
-    so the 16 GPUs hold 673,792 tokens (native) or 766,032 (dense). SKT's
-    model card reports about 968K tokens on 4 x B300. At 32K inputs only 20 of
-    the 32 requests fit, 10 at 64K and 5 at 120K. The rest queue: native median
-    TTFT is 225 s, 665 s and 1,646 s.
-  - *Indexer.* On A100 the DSA indexer runs as BF16 Triton kernels, replicated
-    on every TP rank, instead of DeepGEMM FP8. Its prefill cost grows with the
-    square of the input.
-- **Dense is 1.2-2.4x faster than native** at every length, but it fails
-  long-context retrieval (above).
-- **The curves differ in shape.** Total tok/s counts prompt tokens, so on
-  B200, where FP8 prefill is fast, it keeps rising up to 120K inputs. On A100
-  the indexer's prefill cost and the KV limit make it peak at 8K-16K and then
-  fall.
+- **8K 입력까지는 A100 16개가 B200 노드 1개의 약 절반을 낸다.** GPU당으로는
+  약 4분의 1이다. A100에는 FP8 tensor core가 없다. 그래서 FP8 weight는
+  Marlin W8A16 kernel로 실행된다. Concurrency 32의 디코드는 MoE weight 읽기에
+  묶여 있다: native median TPOT는 72-109 ms다. B200 수치로 추정하면 약
+  33 ms다.
+- **16K부터는 두 가지 이유로 격차가 커진다.**
+  - *KV 용량.* MLA cache는 모든 tensor-parallel rank에 복제된다.
+    그래서 GPU 16개가 담는 token은 673,792개(native) 또는 766,032개(dense)다.
+    SKT의 모델 카드는 4 x B300에서 약 968K token을 보고한다. 32K 입력에서는
+    32개 요청 중 20개만 들어가고, 64K에서는 10개, 120K에서는 5개만 들어간다.
+    나머지는 대기열에 들어간다: native median TTFT는 225 s, 665 s,
+    1,646 s다.
+  - *Indexer.* A100에서 DSA indexer는 DeepGEMM FP8 대신 BF16 Triton kernel로
+    실행되고, 모든 TP rank에 복제된다. 그 프리필 비용은 입력 길이의 제곱으로
+    늘어난다.
+- **Dense는 모든 길이에서 native보다 1.2-2.4배 빠르다.** 그러나 긴 context
+  검색에는 실패한다 (위 참조).
+- **곡선의 모양이 다르다.** Total tok/s는 prompt token을 포함한다. 그래서
+  FP8 프리필이 빠른 B200에서는 120K 입력까지 계속 오른다. A100에서는
+  indexer의 프리필 비용과 KV 한도 때문에 8K-16K에서 정점을 찍은 뒤
+  떨어진다.
 
-**TP16 and EAGLE3 (dense, `max_model_len` 32,768).** TP16 runs one pipeline
-stage across all 16 GPUs, with tensor-parallel all-reduces over InfiniBand.
-It was used because EAGLE3 cannot run with PP.
+**TP16과 EAGLE3 (dense, `max_model_len` 32,768).** TP16은 16개 GPU 전체에
+pipeline stage 하나를 실행한다. Tensor-parallel all-reduce는 InfiniBand로
+수행한다. EAGLE3가 PP와 함께 실행될 수 없기 때문에 TP16을 사용했다.
 
-| Input tokens | TP8 x PP2 | TP16 | TP16 + EAGLE3 (eager) | B200: Fig. 8 / Fig. 7 |
+| 입력 token | TP8 x PP2 | TP16 | TP16 + EAGLE3 (eager) | B200: Fig. 8 / Fig. 7 |
 | ---: | ---: | ---: | ---: | ---: |
-| 1,024 | 980 | 1,386 (0.73x B200) | 324 | 1.26 |
+| 1,024 | 980 | 1,386 (B200의 0.73x) | 324 | 1.26 |
 | 4,096 | 2,202 | 2,638 (0.73x) | 595 | 1.11 |
 | 8,192 | 3,070 | 3,449 (0.72x) | 643 | 1.23 |
 
-- **TP16 is 12-41% faster than TP8 x PP2 at short inputs.** Its KV cache holds
-  362,848 tokens, half of PP2's, so it suits short contexts only.
-- **EAGLE3 cannot speed up this stack on A100.**
-  - The drafter needs the hidden states of layers 2, 30 and 58, which span
-    both PP stages (5c).
-  - On TP16, start-up with CUDA graphs fails at `assert m.max_query_len <=
-    self.reorder_batch_threshold` (`mla_attention.py:1827`). TRITON_MLA, the
-    only MLA decode kernel on SM80, declares single-token decode only
-    (`query_len_support` SINGLE_ONLY). Verifying 3 drafted tokens needs
-    4-token queries, which fall back to the MLA prefill path.
-  - The eager fallback served correctly (4/4 functional checks) but was
-    4-5x slower than TP16 without a drafter, which ran with CUDA graphs.
-  - It accepted 1.05 tokens per step: 1.5% of drafted tokens, and 2-5% at the
-    first position. The tech report gives 2.24 on B200 for the same benchmark
-    type. Even at that acceptance, a 192 ms step yields 86 ms per token, twice
-    the 43 ms of plain TP16, so the low acceptance was not investigated
-    further.
-  - Fig. 8's bar labels give +11% to +26% over Fig. 7 at these lengths; the
-    report's text says 23-30% at every length.
+- **짧은 입력에서 TP16은 TP8 x PP2보다 12-41% 빠르다.** 그 KV cache는
+  362,848 token을 담는다. 이는 PP2의 절반이므로 짧은 context에만 적합하다.
+- **EAGLE3는 A100에서 이 스택을 빠르게 할 수 없다.**
+  - Drafter는 layer 2, 30, 58의 hidden state가 필요하다. 이 layer들은 두 PP
+    stage에 걸쳐 있다 (5c).
+  - TP16에서 CUDA graph를 사용한 시작은 `assert m.max_query_len <=
+    self.reorder_batch_threshold`에서 실패한다 (`mla_attention.py:1827`).
+    SM80의 유일한 MLA 디코드 kernel인 TRITON_MLA는 단일 token 디코드만
+    선언한다 (`query_len_support` SINGLE_ONLY). 초안 token 3개를 검증하려면
+    4-token query가 필요하고, 이는 MLA 프리필 경로로 fallback된다.
+  - Eager fallback은 올바르게 서빙했다 (기능 검사 4/4). 그러나 drafter 없이
+    CUDA graph로 실행한 TP16보다 4-5배 느렸다.
+  - Step당 1.05 token을 수락했다: 초안 token의 1.5%이고, 첫 위치에서는
+    2-5%다. 기술 보고서는 같은 유형의 benchmark에서 B200 기준 2.24를 제시한다.
+    그 수락률이라 해도 192 ms step은 token당 86 ms가 된다. 이는 일반 TP16의
+    43 ms의 두 배다. 그래서 낮은 수락률은 더 조사하지 않았다.
+  - Fig. 8의 막대 label은 이 길이들에서 Fig. 7 대비 +11%에서 +26%를 제시한다.
+    보고서 본문은 모든 길이에서 23-30%라고 말한다.
 
-**Not attempted:**
+**시도하지 않은 항목:**
 
-- the NVFP4 checkpoint: vLLM 0.23's ModelOpt mixed-precision method
-  requires compute capability 8.9 (`quantization/modelopt.py:2219`). This
-  section first read that as missing hardware. It is a software check, and
-  8.4 runs the checkpoint on A100 after a backported upstream change;
-- EAGLE3 on the native sparse port, a software limit: with drafts, vLLM 0.23
-  passes per-token sequence lengths to the indexer, but the port's decode
-  indexer kernel reads one length per request.
+- NVFP4 checkpoint: vLLM 0.23의 ModelOpt mixed-precision 방식은 compute
+  capability 8.9를 요구한다 (`quantization/modelopt.py:2219`). 이 절은 처음에
+  이를 하드웨어 부족으로 해석했다. 실제로는 소프트웨어 검사다. 8.4는 upstream
+  변경을 backport한 뒤 A100에서 이 checkpoint를 실행한다;
+- native sparse 포트에서의 EAGLE3, 소프트웨어 한계: 초안이 있으면 vLLM 0.23은
+  token별 sequence 길이를 indexer에 전달한다. 그러나 포트의 디코드 indexer
+  kernel은 요청당 길이 하나만 읽는다.
 
-**Cost.** The two nodes were held for about 4.7 hours, and the duplicate
-italynorth allocation for about 6 minutes, so about 9.6 node-hours in total.
-That is about USD 80 at the low-priority meter or USD 125 at the Spot meter
-(USD 8.19 or 12.89 per node-hour; on demand is USD 40.96). The GPU cluster was
-deleted at 21:45Z and the resource group at 22:04Z.
+**비용.** 두 노드를 약 4.7시간 점유했다. 중복된 italynorth 할당은 약 6분
+점유했다. 따라서 합계는 약 9.6 node-hour다. 이는 low-priority 요금으로 약
+USD 80, Spot 요금으로 약 USD 125다 (node-hour당 USD 8.19 또는 12.89.
+on demand는 USD 40.96이다). GPU cluster는 21:45Z에, resource group은
+22:04Z에 삭제했다.
 
-### 8.2 Native DSA versus dense on the same allocation (2026-10-03, italynorth)
+### 8.2 같은 할당에서 native DSA와 dense 비교 (2026-10-03, italynorth)
 
-All phases passed. Evidence: `evidence/a100-native-dsa-2layer-vs-official.json`,
-`evidence/a100-native-vs-dense-full-model.json` and
-`evidence/a100-native-dsa-deployment-log.json` (failures, fixes, cost).
+모든 단계를 통과했다. 근거: `evidence/a100-native-dsa-2layer-vs-official.json`,
+`evidence/a100-native-vs-dense-full-model.json`,
+`evidence/a100-native-dsa-deployment-log.json` (실패, 수정, 비용).
 
-**Kernels.** The 94 PR #38476 Triton kernel tests pass on A100. vLLM logs
-confirm the paths used:
+**Kernel.** PR #38476의 Triton kernel 테스트 94개가 A100에서 통과한다. vLLM
+로그는 사용한 경로를 확인해 준다:
 
-- **Native mode:** "DeepGEMM not supported on this platform; using Triton
-  fallback for sparse attention indexer" and "Using TRITON_MLA_SPARSE
+- **Native 모드:** "DeepGEMM not supported on this platform; using Triton
+  fallback for sparse attention indexer"와 "Using TRITON_MLA_SPARSE
   attention backend".
-- **Dense mode:** `TRITON_MLA`.
-- **Both modes:** `MarlinFP8ScaledMMLinearKernel` for linear layers and the
+- **Dense 모드:** `TRITON_MLA`.
+- **두 모드 모두:** linear layer에 `MarlinFP8ScaledMMLinearKernel`, 그리고
   MARLIN FP8 MoE backend.
 
-**Correctness on real weights.** The byte-exact 2-layer cut was compared
-with the official Transformers implementation (FP32, sparse DSA) on 14,618
-prompt positions. Of these, 7,262 lie beyond `index_topk`, in the 7.2K-token
-model card. The table shows the mean |Δ log-probability| of the chosen token:
+**실제 weight에서의 정확성.** 바이트 단위로 동일한 2-layer 절단본을 공식
+Transformers 구현(FP32, sparse DSA)과 14,618개 prompt 위치에서 비교했다. 그중
+7,262개는 7.2K-token 모델 카드 안에서 `index_topk`를 넘어선 위치다. 표는
+선택된 token의 평균 |Δ log-probability|를 보여 준다:
 
-| vLLM on A100 | Inside `index_topk` | Beyond `index_topk` | Max beyond |
+| A100의 vLLM | `index_topk` 이내 | `index_topk` 초과 | 초과 구간 최대 |
 | --- | ---: | ---: | ---: |
-| Native DSA, one node TP8 | 0.0116 | **0.0111** | 0.13 |
-| Native DSA, two nodes TP8 x PP2 | 0.0120 | **0.0115** | - |
-| Dense, one node TP8 | 0.0116 | 0.0123 | 0.22 |
+| Native DSA, 노드 1개 TP8 | 0.0116 | **0.0111** | 0.13 |
+| Native DSA, 노드 2개 TP8 x PP2 | 0.0120 | **0.0115** | - |
+| Dense, 노드 1개 TP8 | 0.0116 | 0.0123 | 0.22 |
 
-Inside `index_topk` both modes compute the same function, and 0.0116 is the
-BF16-versus-FP32 floor. Beyond it, native stays at that floor while dense
-drifts. Dense and native differ from each other 2.4 times more beyond
-`index_topk` (0.0120) than inside it (0.0051). Native therefore reproduces
-the trained sparse attention. Two layers bound the size of the effect; the
-full model cannot run in the FP32 CPU reference.
+`index_topk` 이내에서는 두 모드가 같은 함수를 계산한다. 0.0116은 BF16 대
+FP32의 하한이다. 그 너머에서 native는 그 하한에 머물고 dense는 벗어난다.
+Dense와 native의 서로 간 차이는 `index_topk` 초과 구간(0.0120)이 이내
+구간(0.0051)보다 2.4배 크다. 따라서 native는 학습된 sparse attention을
+재현한다. 이 비교는 layer 두 개로 효과의 크기를 가늠한 것이다. 전체 모델은
+FP32 CPU reference에서 실행할 수 없다.
 
-**Full 688B model, one endpoint, 16 x A100 80GB.** Settings: TP8 x PP2,
-`max_model_len` 65,536, up to 128 sequences.
+**전체 688B 모델, 엔드포인트 1개, 16 x A100 80GB.** 설정: TP8 x PP2,
+`max_model_len` 65,536, 최대 128 sequence.
 
 | | Native DSA | Dense |
 | --- | --- | --- |
-| Healthy after launch | 302 s | 171 s |
-| Weights / KV cache per GPU | 42.2 GiB / 26.4 GiB | 41.7 GiB / 26.8 GiB |
-| KV cache capacity | 724,544 tokens | 821,312 tokens |
-| Functional (Korean/English, translation, code) | 6/6 | 6/6 |
-| Reasoning mode | correct | correct |
-| Needles at 1.4K / 8K / 30K / 60K tokens, 3 depths each | 12/12 | 12/12 |
-| Arithmetic without thinking | 14/20 | 14/20 |
-| Two identical greedy requests bitwise equal | no | no |
+| 시작 후 healthy까지 | 302 s | 171 s |
+| GPU당 weight / KV cache | 42.2 GiB / 26.4 GiB | 41.7 GiB / 26.8 GiB |
+| KV cache 용량 | 724,544 token | 821,312 token |
+| 기능 (한국어/영어, 번역, 코드) | 6/6 | 6/6 |
+| Reasoning 모드 | 정답 | 정답 |
+| 1.4K / 8K / 30K / 60K token의 needle, 각 3개 깊이 | 12/12 | 12/12 |
+| Thinking 없는 산술 | 14/20 | 14/20 |
+| 동일한 greedy 요청 두 개가 bitwise 일치 | 아니다 | 아니다 |
 
-All six arithmetic misses ended normally (`stop`), with a wrong number, for
-example 86 x 8 + 83 answered as 761. That is the model's no-thinking mental
-arithmetic, not truncation; the same kind of problem was answered correctly
-in reasoning mode.
+산술 오답 여섯 개는 모두 정상 종료(`stop`)했고, 숫자만 틀렸다. 예를 들어
+86 x 8 + 83에 761로 답했다. 이는 잘림이 아니라 thinking 없는 모델의 암산
+결과다. 같은 유형의 문제는 reasoning 모드에서 정답을 냈다.
 
-The speed results below come from `vllm bench serve` with random-token prompts,
-256 output tokens and `--ignore-eos`.
+아래 속도 결과는 random-token prompt, 출력 token 256개, `--ignore-eos`로
+실행한 `vllm bench serve`에서 나온다.
 
-| Scenario | Native: output tok/s | Native: median TTFT | Native: median TPOT | Dense: output tok/s | Dense: median TTFT | Dense: median TPOT |
+| 시나리오 | Native: 출력 tok/s | Native: median TTFT | Native: median TPOT | Dense: 출력 tok/s | Dense: median TTFT | Dense: median TPOT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 request, 1K input | 49 | 355 ms | 19.2 ms | 60 | 199 ms | 15.8 ms |
-| 1 request, 8K input | 38 | 1.65 s | 20.0 ms | 50 | 0.85 s | 16.7 ms |
-| 1 request, 32K input | 20 | 7.21 s | 21.1 ms | 31 | 3.33 s | 19.1 ms |
-| 1K input, concurrency 8 | 216 | 1.51 s | 31.0 ms | 243 | 1.09 s | 28.4 ms |
-| 1K input, concurrency 32 | 360 | 1.83 s | 76.7 ms | 494 | 0.99 s | 58.1 ms |
-| 1K input, concurrency 64 | 618 | 1.70 s | 90.3 ms | 707 | 0.76 s | 85.8 ms |
-| 1K input, concurrency 128 | 812 | 2.94 s | 145.5 ms | 898 | 1.20 s | 132.9 ms |
-| 16K input, concurrency 4 | 53 | 6.30 s | 43.5 ms | 69 | 4.92 s | 37.5 ms |
-| 16K input, concurrency 16 | 51 | 25.4 s | 208 ms | 84 | 13.1 s | 140 ms |
+| 요청 1개, 1K 입력 | 49 | 355 ms | 19.2 ms | 60 | 199 ms | 15.8 ms |
+| 요청 1개, 8K 입력 | 38 | 1.65 s | 20.0 ms | 50 | 0.85 s | 16.7 ms |
+| 요청 1개, 32K 입력 | 20 | 7.21 s | 21.1 ms | 31 | 3.33 s | 19.1 ms |
+| 1K 입력, concurrency 8 | 216 | 1.51 s | 31.0 ms | 243 | 1.09 s | 28.4 ms |
+| 1K 입력, concurrency 32 | 360 | 1.83 s | 76.7 ms | 494 | 0.99 s | 58.1 ms |
+| 1K 입력, concurrency 64 | 618 | 1.70 s | 90.3 ms | 707 | 0.76 s | 85.8 ms |
+| 1K 입력, concurrency 128 | 812 | 2.94 s | 145.5 ms | 898 | 1.20 s | 132.9 ms |
+| 16K 입력, concurrency 4 | 53 | 6.30 s | 43.5 ms | 69 | 4.92 s | 37.5 ms |
+| 16K 입력, concurrency 16 | 51 | 25.4 s | 208 ms | 84 | 13.1 s | 140 ms |
 
-The two modes trade exactness for speed:
+두 모드는 정확성과 속도를 맞바꾼다:
 
-- **Native keeps the trained sparse-attention rule** (top 2048 keys per
-  query), computed with substitute kernels. Its decode cost per token is
-  almost flat from 1K to 32K tokens of context (19.2 to 21.1 ms), as designed.
-  The port is still unoptimized Triton, and the PR author calls it
-  "a concept".
-- **Dense on A100 is 10-60% faster.** Prefill uses the mature FlashAttention-2
-  path, and decode attention is cheap at these context lengths. Its decode
-  cost grows with context (15.8 to 19.1 ms), so the gap narrows. It is exact
-  only up to 2,048 context tokens.
+- **Native는 학습된 sparse-attention 규칙을 유지한다** (query당 상위 2048개
+  key). 이를 대체 kernel로 계산한다. Token당 디코드 비용은 context 1K에서
+  32K token까지 거의 일정하다 (19.2에서 21.1 ms). 이는 설계대로다.
+  포트는 아직 최적화되지 않은 Triton이다. PR 작성자는 이를
+  "a concept"라고 부른다.
+- **A100에서 dense는 10-60% 빠르다.** 프리필은 성숙한 FlashAttention-2
+  경로를 사용한다. 이 context 길이에서는 디코드 attention 비용이 작다.
+  디코드 비용은 context에 따라 늘어난다 (15.8에서 19.1 ms). 그래서 격차가
+  줄어든다. Dense는 context token 2,048개까지만 정확하다.
 
-Which mode to choose depends on the workload. Native is the configuration
-closest to the reference and the only one that retrieves information from
-long contexts: in 8.1 dense mode found no needle at 126K or 253K tokens. Dense
-is defensible when prompts plus output stay within about 60K tokens.
+어느 모드를 고를지는 workload에 달려 있다. Native는 reference에 가장 가까운
+구성이다. 또한 긴 context에서 정보를 찾아내는 유일한 구성이다: 8.1에서 dense
+모드는 126K나 253K token에서 needle을 하나도 찾지 못했다. Prompt와 출력의
+합이 약 60K token 이내라면 dense를 정당화할 수 있다.
 
-### 8.3 First full-model run, dense only (2026-10-02, italynorth)
+### 8.3 첫 전체 모델 실행, dense만 (2026-10-02, italynorth)
 
-Evidence: `evidence/axk2-dense-equivalence-cpu.json`,
+근거: `evidence/axk2-dense-equivalence-cpu.json`,
 `evidence/a100-2layer-vs-official.json`,
-`evidence/a100-full-model-tp8-pp2-results.json` and
-`evidence/a100-deployment-attempts.json` (every failure and fix).
+`evidence/a100-full-model-tp8-pp2-results.json`,
+`evidence/a100-deployment-attempts.json` (모든 실패와 수정).
 
-**B: real weights, vLLM on A100 vs official Transformers (FP32, sparse DSA).**
-Chosen-token log-probability over ~3,300 prompt positions:
+**B: 실제 weight, A100의 vLLM 대 공식 Transformers (FP32, sparse DSA).**
+약 3,300개 prompt 위치에서 선택된 token의 log-probability:
 
-| vLLM configuration | Pearson | Mean abs diff | Top-1 agreement |
+| vLLM 구성 | Pearson | 평균 절대 차이 | Top-1 일치율 |
 | --- | --- | --- | --- |
-| Single node, TP8 | 0.99995-0.999996 | 0.008-0.013 | 97-100% |
-| Two nodes, TP8 x PP2 | 0.99998-0.999996 | 0.008-0.013 | 93-100% |
+| 단일 노드, TP8 | 0.99995-0.999996 | 0.008-0.013 | 97-100% |
+| 노드 2개, TP8 x PP2 | 0.99998-0.999996 | 0.008-0.013 | 93-100% |
 
-This is the expected agreement between BF16 activations and an FP32
-reference. Two-node and single-node greedy tokens were identical, and 8
-concurrent requests all completed.
+이는 BF16 activation과 FP32 reference 사이에서 예상되는 일치 수준이다. 노드
+2개와 단일 노드의 greedy token은 동일했다. 동시 요청 8개도 모두 완료했다.
 
-**C: full 688B model, one endpoint on 16 x A100 80GB (2 x ND96amsr, TP8 x PP2).**
+**C: 전체 688B 모델, 16 x A100 80GB에서 엔드포인트 1개 (2 x ND96amsr, TP8 x PP2).**
 
-- Kernels selected by vLLM on SM80: `MarlinFP8ScaledMMLinearKernel` for
-  linears, the MARLIN FP8 MoE backend, TRITON_MLA decode and FLASH_ATTN MLA
-  prefill; ranks 0-7 on node 0 and 8-15 on node 1.
-- Weights: 41.7 GiB per GPU, loaded in ~78 s from page cache (the 694 GB
-  download took ~640 s per node at ~1.1 GB/s from the Hub, overlapped with B2).
-  The server was healthy 181 s after launch: engine initialisation took
-  50 s, including torch.compile and CUDA graphs.
-- KV cache: 27.6 GiB per GPU, 843,920 tokens, which is 103 concurrent
-  8K-token requests.
+- SM80에서 vLLM이 선택한 kernel: linear에 `MarlinFP8ScaledMMLinearKernel`,
+  MARLIN FP8 MoE backend, TRITON_MLA 디코드, FLASH_ATTN MLA 프리필. Rank
+  0-7은 노드 0에, 8-15는 노드 1에 있다.
+- Weight: GPU당 41.7 GiB, page cache에서 약 78 s 만에 load했다 (694 GB
+  다운로드는 Hub에서 약 1.1 GB/s로 노드당 약 640 s 걸렸고, B2와 겹쳐 진행했다).
+  서버는 시작 181 s 후 healthy 상태가 됐다: engine 초기화는 torch.compile과
+  CUDA graph를 포함해 50 s 걸렸다.
+- KV cache: GPU당 27.6 GiB, 843,920 token. 이는 8K-token 요청 103개를 동시에
+  처리할 수 있는 양이다.
 
-| Test | Result |
+| 테스트 | 결과 |
 | --- | --- |
-| Korean/English functional chat, translation, code | 6/6 correct |
-| Reasoning mode (`<think>`) | Correct, with reasoning trace |
-| Needle at 1,380 tokens (exact DSA region) / 5,469 tokens (dense approximation) | Found / found |
-| Short no-thinking arithmetic, 24-token cap | 14/20 (individual answers not recorded) |
-| Two identical greedy requests | Not bitwise identical (default kernels are not batch-invariant) |
-| Single stream | TTFT 72 ms, ~75 tokens/s |
+| 한국어/영어 기능 대화, 번역, 코드 | 6/6 정답 |
+| Reasoning 모드 (`<think>`) | 정답, reasoning trace 포함 |
+| 1,380 token(정확한 DSA 구간) / 5,469 token(dense 근사)의 needle | 찾음 / 찾음 |
+| 짧은 thinking 없는 산술, 24-token 상한 | 14/20 (개별 답은 기록하지 않음) |
+| 동일한 greedy 요청 두 개 | Bitwise 동일하지 않음 (기본 kernel은 batch-invariant가 아니다) |
+| 단일 stream | TTFT 72 ms, 약 75 tokens/s |
 
-Synthetic load, 1024-token prompts, 128 output tokens:
+합성 부하, 1024-token prompt, 출력 token 128개:
 
-| Concurrency | Output tok/s | Total tok/s | Median TTFT | Median TPOT |
+| Concurrency | 출력 tok/s | Total tok/s | Median TTFT | Median TPOT |
 | ---: | ---: | ---: | ---: | ---: |
 | 1 | 65 | 581 | 198 ms | 14.0 ms |
 | 8 | 228 | 2,052 | 917 ms | 26.1 ms |
 | 32 | 472 | 4,245 | 984 ms | 57.1 ms |
 
-Spend was about USD 34: 61 minutes of the winning 2-node cluster, 6
-minutes of a duplicate allocation that was cancelled, and CPU jobs.
-Everything was deleted afterwards. The native-DSA round (8.2) cost about
-USD 71 more, mostly 2.5 hours of the italynorth cluster; it was deleted too.
-The verification run (8.1) cost about USD 80-125.
+지출은 약 USD 34였다: 선택된 2-노드 cluster 61분, 취소한 중복 할당 6분,
+그리고 CPU 작업이다. 이후 모두 삭제했다. Native-DSA 라운드(8.2)는 약
+USD 71이 추가로 들었다. 대부분 italynorth cluster 2.5시간이다. 이것도
+삭제했다. 검증 실행(8.1)은 약 USD 80-125가 들었다.
 
-### 8.4 SKT's NVFP4 checkpoint on one A100 node (2026-10-04, uksouth)
+### 8.4 A100 노드 1개에서 SKT의 NVFP4 checkpoint (2026-10-04, uksouth)
 
-Evidence: `evidence/a100-nvfp4-single-node.json`. The job
-`aml/jobs/nvfp4-a100-nd96.yml` served SKT's 4-bit checkpoint
-`skt/A.X-K2-NVFP4` (revision 9e2e804e, all 61 layers) on **one**
-Standard_ND96amsr_A100_v4: 8 x A100 80GB, TP8, native DSA, one
-OpenAI-compatible endpoint. The server ran twice, with 8,192 and with 2,048
-batched tokens per step. Every phase passed.
+근거: `evidence/a100-nvfp4-single-node.json`. 작업
+`aml/jobs/nvfp4-a100-nd96.yml`은 SKT의 4-bit checkpoint
+`skt/A.X-K2-NVFP4`(revision 9e2e804e, 61개 layer 전체)를 Standard_ND96amsr_A100_v4
+**1대**에서 서빙했다: 8 x A100 80GB, TP8, native DSA, OpenAI 호환
+엔드포인트 1개. 서버는 두 번 실행했다. step당 batched token은 각각 8,192개와
+2,048개였다. 모든 단계를 통과했다.
 
-**Correction.** 8.1 first reported this checkpoint as impossible on A100
-because it needs compute capability 8.9. That was wrong. The 8.9 is a
-software check in vLLM 0.23 (`ModelOptMixedPrecisionConfig.get_min_capability()`),
-not a hardware requirement: both kinds of quantized layer in the checkpoint
-already have SM80 kernels. Upstream vLLM lowered the check to 8.0 in
-[#45306](https://github.com/vllm-project/vllm/pull/45306), released in v0.24.0.
+**정정.** 8.1은 처음에 이 checkpoint가 compute capability 8.9를 필요로 하므로
+A100에서 불가능하다고 보고했다. 이는 틀렸다. 8.9는 vLLM 0.23의 소프트웨어
+검사다 (`ModelOptMixedPrecisionConfig.get_min_capability()`). 하드웨어 요구
+사항이 아니다: checkpoint의 두 종류 quantized layer 모두 이미 SM80 kernel이
+있다. Upstream vLLM은
+[#45306](https://github.com/vllm-project/vllm/pull/45306)에서 이 검사를 8.0으로
+낮췄고, v0.24.0에 출시했다.
 
-**Checkpoint.** ModelOpt mixed precision, used unmodified. The routed experts
-of the 60 MoE layers (46,080 linear layers) are NVFP4: 4-bit, group size 16.
-Attention including the DSA indexer, the shared experts and layer 0's dense
-MLP stay FP8. Embeddings, LM head, norms and the MoE router stay BF16. The
-checkpoint is 398 GB, against 694 GB for the FP8 checkpoint.
+**Checkpoint.** ModelOpt mixed precision이며 수정 없이 사용했다. 60개 MoE
+layer의 routed expert(linear layer 46,080개)는 NVFP4다: 4-bit, group size 16.
+DSA indexer를 포함한 attention, shared expert, layer 0의 dense MLP는 FP8로
+남는다. Embedding, LM head, norm, MoE router는 BF16으로 남는다. Checkpoint는
+398 GB다. FP8 checkpoint는 694 GB다.
 
-**Engine change.** `aml/src/nvfp4_sm80_port.json` carries two upstream
-commits onto SKT's fork of vLLM 0.23.0: all of #45306 (capability 89 to 80),
-and the one `modelopt.py` line of
-[#45295](https://github.com/vllm-project/vllm/pull/45295) that sets
-`layer.orig_dtype` on FP8 linear layers, which the Marlin FP8 path reads. The
-rest of #45295, Marlin tile padding, is not needed: every per-rank matrix
-shape at TP8 is already aligned. `apply_overlay.py` applies the port only
-when `NVFP4_SM80_PORT=1` and checks the file's SHA-256 before and after, so
-other jobs are unchanged. vLLM 0.24.0 and later contain both changes; SKT's
-fork is still based on 0.23.0.
+**Engine 변경.** `aml/src/nvfp4_sm80_port.json`은 upstream commit 두 개를 SKT의
+vLLM 0.23.0 fork에 옮겨 온다: #45306 전체(capability 89에서 80으로), 그리고
+[#45295](https://github.com/vllm-project/vllm/pull/45295)의 `modelopt.py` 한 줄이다.
+이 한 줄은 FP8 linear layer에 `layer.orig_dtype`을 설정한다. Marlin FP8 경로가
+이 값을 읽는다. #45295의 나머지인 Marlin tile padding은 필요 없다: TP8에서
+rank별 행렬 shape는 모두 이미 정렬되어 있다. `apply_overlay.py`는
+`NVFP4_SM80_PORT=1`일 때만 포트를 적용한다. 적용 전후에 파일의 SHA-256을
+검사한다. 따라서 다른 작업은 변하지 않는다. vLLM 0.24.0 이상에는 두 변경이
+모두 들어 있다. SKT의 fork는 아직 0.23.0 기반이다.
 
-**Numerics.**
+**수치 연산.**
 
-| Layers | B200 (SKT: 4 x B200, TP4 + expert parallel) | This run on A100 |
+| Layer | B200 (SKT: 4 x B200, TP4 + expert parallel) | A100에서의 이 실행 |
 | --- | --- | --- |
-| Routed experts (NVFP4) | W4A4 on FP4 tensor cores | Marlin W4A16: 4-bit weights expanded in the kernel, BF16 activations (`MARLIN` NvFp4 MoE backend) |
-| Other quantized layers (FP8) | W8A8 on FP8 tensor cores | Marlin W8A16, as in 8.1-8.3 |
-| Sparse attention | FlashInfer sparse MLA | `TRITON_MLA_SPARSE` (PR #38476 port), as in 8.1-8.2 |
+| Routed expert (NVFP4) | FP4 tensor core에서 W4A4 | Marlin W4A16: 4-bit weight를 kernel 안에서 확장, BF16 activation (`MARLIN` NvFp4 MoE backend) |
+| 기타 quantized layer (FP8) | FP8 tensor core에서 W8A8 | Marlin W8A16, 8.1-8.3과 같음 |
+| Sparse attention | FlashInfer sparse MLA | `TRITON_MLA_SPARSE` (PR #38476 포트), 8.1-8.2와 같음 |
 | KV cache | BF16 | BF16 |
 
-vLLM's log says so: "Your GPU does not have native support for FP4
+vLLM 로그도 이를 밝힌다: "Your GPU does not have native support for FP4
 computation ... Weight-only FP4 compression will be used leveraging the
-Marlin kernel." The activations are not quantized, so the arithmetic is at
-least as precise as B200's W4A4 path on the same 4-bit weights, but not
-bit-identical. vLLM also logs a `W4A16_NVFP4` detection. It always builds
-that configuration beside the declared one (`modelopt.py` lines 2281-2300 in
-v0.23.0); this checkpoint's experts declare NVFP4.
+Marlin kernel." Activation은 quantize하지 않는다. 따라서 산술 정밀도는 같은
+4-bit weight에서 B200의 W4A4 경로와 최소한 같다. 그러나 bit 단위로 동일하지는
+않다. vLLM은 `W4A16_NVFP4` 감지도 로그에 남긴다. vLLM은 선언된 구성 옆에
+항상 그 구성을 함께 만든다 (v0.23.0의 `modelopt.py` 2281-2300행). 이
+checkpoint의 expert는 NVFP4를 선언한다.
 
-**Results.**
+**결과.**
 
-| Item | Result |
+| 항목 | 결과 |
 | --- | --- |
-| Download from the Hub | 398 GB in 404 s |
-| Weights per GPU | 48.5 GiB (FP8 checkpoint: 41.7 GiB on each of 16 GPUs) |
-| Healthy after launch | 433 s with 8,192 batched tokens, 352 s with 2,048 |
-| KV cache | 18.53 GiB per GPU, 254,016 tokens, with 8,192 batched tokens; 19.91 GiB, 272,960 tokens, with 2,048. Two FP8 nodes: 673,792 tokens |
-| Context length (`--max-model-len -1`, auto-fit) | 254,016 with 8,192 batched tokens; the full 262,144 with 2,048 |
-| Functional checks (Korean, English, translation, code) | 4/4 |
-| Tool calling, the 9 cases of 8.1 | 9/9 |
-| SKT's needle test at 32K / 128K / 256K | 9/9, at 31,597 / 126,368 / 244,898 prompt tokens (the 256K prompts were sized to the 254,016-token context) |
-| Peak GPU memory | 77,411 MiB on each GPU (`gpu_memory_utilization` 0.92) |
+| Hub에서 다운로드 | 398 GB를 404 s에 |
+| GPU당 weight | 48.5 GiB (FP8 checkpoint: GPU 16개 각각에 41.7 GiB) |
+| 시작 후 healthy까지 | batched token 8,192개로 433 s, 2,048개로 352 s |
+| KV cache | batched token 8,192개에서 GPU당 18.53 GiB, 254,016 token. 2,048개에서 19.91 GiB, 272,960 token. FP8 노드 2개: 673,792 token |
+| Context 길이 (`--max-model-len -1`, auto-fit) | batched token 8,192개에서 254,016. 2,048개에서 전체 262,144 |
+| 기능 검사 (한국어, 영어, 번역, 코드) | 4/4 |
+| Tool calling, 8.1의 9개 케이스 | 9/9 |
+| 32K / 128K / 256K에서 SKT의 needle 테스트 | 9/9, prompt token 31,597 / 126,368 / 244,898 (256K prompt는 254,016-token context에 맞춰 크기를 정했다) |
+| 최대 GPU 메모리 | 각 GPU에서 77,411 MiB (`gpu_memory_utilization` 0.92) |
 
-**Speed against the FP8 checkpoint on 16 A100.** The commands are those of
-the table in 8.2, which served the FP8 checkpoint on 16 A100 (TP8 x PP2, over
-TCP) with 2,048 batched tokens. The NVFP4 numbers below use the same setting.
+**16 A100의 FP8 checkpoint 대비 속도.** 명령은 8.2 표의 명령과 같다. 8.2는
+batched token 2,048개로 16 A100(TP8 x PP2, TCP 경유)에서 FP8 checkpoint를
+서빙했다. 아래 NVFP4 수치도 같은 설정을 사용한다.
 
-| Scenario | NVFP4, 8 A100: output tok/s | Median TTFT | Median TPOT | FP8, 16 A100: output tok/s | Median TTFT | Median TPOT | Output ratio |
+| 시나리오 | NVFP4, 8 A100: 출력 tok/s | Median TTFT | Median TPOT | FP8, 16 A100: 출력 tok/s | Median TTFT | Median TPOT | 출력 비율 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 request, 1K input | 49 | 349 ms | 19.0 ms | 49 | 355 ms | 19.2 ms | 1.01 |
-| 1 request, 8K input | 34 | 2.44 s | 19.7 ms | 38 | 1.65 s | 20.0 ms | 0.90 |
-| 1 request, 32K input | 15 | 11.56 s | 20.9 ms | 20 | 7.21 s | 21.1 ms | 0.74 |
-| 1K input, concurrency 8 | 229 | 0.94 s | 30.5 ms | 216 | 1.51 s | 31.0 ms | 1.06 |
-| 1K input, concurrency 32 | 363 | 1.83 s | 75.6 ms | 360 | 1.83 s | 76.7 ms | 1.01 |
-| 1K input, concurrency 64 | 533 | 1.65 s | 112.9 ms | 618 | 1.70 s | 90.3 ms | 0.86 |
-| 1K input, concurrency 128 | 655 | 3.06 s | 181.1 ms | 812 | 2.94 s | 145.5 ms | 0.81 |
-| 16K input, concurrency 4 | 34 | 10.57 s | 76.6 ms | 53 | 6.30 s | 43.5 ms | 0.64 |
-| 16K input, concurrency 16 | 50 | 25.4 s | 219 ms | 51 | 25.4 s | 208 ms | 0.98 |
+| 요청 1개, 1K 입력 | 49 | 349 ms | 19.0 ms | 49 | 355 ms | 19.2 ms | 1.01 |
+| 요청 1개, 8K 입력 | 34 | 2.44 s | 19.7 ms | 38 | 1.65 s | 20.0 ms | 0.90 |
+| 요청 1개, 32K 입력 | 15 | 11.56 s | 20.9 ms | 20 | 7.21 s | 21.1 ms | 0.74 |
+| 1K 입력, concurrency 8 | 229 | 0.94 s | 30.5 ms | 216 | 1.51 s | 31.0 ms | 1.06 |
+| 1K 입력, concurrency 32 | 363 | 1.83 s | 75.6 ms | 360 | 1.83 s | 76.7 ms | 1.01 |
+| 1K 입력, concurrency 64 | 533 | 1.65 s | 112.9 ms | 618 | 1.70 s | 90.3 ms | 0.86 |
+| 1K 입력, concurrency 128 | 655 | 3.06 s | 181.1 ms | 812 | 2.94 s | 145.5 ms | 0.81 |
+| 16K 입력, concurrency 4 | 34 | 10.57 s | 76.6 ms | 53 | 6.30 s | 43.5 ms | 0.64 |
+| 16K 입력, concurrency 16 | 50 | 25.4 s | 219 ms | 51 | 25.4 s | 208 ms | 0.98 |
 
-With 8,192 batched tokens, decode was slightly slower (TPOT 20.4 ms for one
-1K request) and concurrency 128 reached 673 tok/s. The evidence file has
-both runs.
+Batched token 8,192개에서는 디코드가 약간 느렸다 (1K 요청 1개의 TPOT
+20.4 ms). Concurrency 128은 673 tok/s에 도달했다. 근거 파일에는 두 실행이
+모두 들어 있다.
 
-**Under the tech report's Fig. 7 conditions** (concurrency 32, 1,024 output
-tokens, 8,192 batched tokens, as in 8.1):
+**기술 보고서 Fig. 7 조건에서** (concurrency 32, 출력 token 1,024개,
+batched token 8,192개, 8.1과 같음):
 
-| Input tokens | NVFP4, 8 A100: total tok/s | Median TTFT | Peak requests running | vs one B200 node | vs FP8 on 16 A100 | Per GPU vs FP8 on 16 A100 |
+| 입력 token | NVFP4, 8 A100: total tok/s | Median TTFT | 최대 실행 중 요청 | B200 노드 1개 대비 | 16 A100의 FP8 대비 | GPU당, 16 A100의 FP8 대비 |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1K | 925 | 5.0 s | 32 | 0.49x | 1.14x | 2.27x |
 | 2K | 1,309 | 6.5 s | 32 | 0.48x | 1.12x | 2.25x |
@@ -701,696 +693,648 @@ tokens, 8,192 batched tokens, as in 8.1):
 | 16K | 1,875 | 163 s | 15 | 0.30x | 0.82x | 1.65x |
 | 32K | 1,674 | 317 s | 7 | 0.20x | 0.87x | 1.73x |
 
-A B200 node also has 8 GPUs, so the "vs one B200 node" column is also the
-per-GPU ratio: about half at 1K-4K inputs, against 0.21-0.24 for the FP8
-checkpoint on 16 A100 (8.1).
+B200 노드도 GPU가 8개다. 따라서 "B200 노드 1개 대비" 열은 GPU당 비율이기도
+하다: 1K-4K 입력에서 약 절반이다. 16 A100의 FP8 checkpoint는 0.21-0.24다
+(8.1).
 
-**Cost per million output tokens.** Measured throughput and Azure retail
-prices for Standard_ND96amsr_A100_v4 in uksouth, in USD per node-hour: on
-demand 40.96, 1-year reserved 26.22, 3-year reserved 18.02, Spot 12.89, low
-priority 8.19. Each cell lists the five prices in that order.
+**출력 token 100만 개당 비용.** 측정한 처리량과 uksouth의
+Standard_ND96amsr_A100_v4 Azure 소매 가격을 사용했다. Node-hour당 USD로: on
+demand 40.96, 1년 예약 26.22, 3년 예약 18.02, Spot 12.89, low priority 8.19.
+각 셀은 다섯 가격을 이 순서로 나열한다.
 
-| Workload | NVFP4, 1 node | FP8, 2 nodes | Change |
+| Workload | NVFP4, 노드 1개 | FP8, 노드 2개 | 변화 |
 | --- | --- | --- | ---: |
-| Concurrency 32, 1K in, 1K out (Fig. 7, 8,192 batched tokens) | 24.60 / 15.75 / 10.82 / 7.74 / 4.92 | 55.87 / 35.76 / 24.58 / 17.58 / 11.17 | -56% |
-| Concurrency 128, 1K in, 256 out (2,048 batched tokens) | 17.38 / 11.12 / 7.64 / 5.47 / 3.47 | 28.01 / 17.93 / 12.32 / 8.82 / 5.60 | -38% |
+| Concurrency 32, 입력 1K, 출력 1K (Fig. 7, batched token 8,192개) | 24.60 / 15.75 / 10.82 / 7.74 / 4.92 | 55.87 / 35.76 / 24.58 / 17.58 / 11.17 | -56% |
+| Concurrency 128, 입력 1K, 출력 256 (batched token 2,048개) | 17.38 / 11.12 / 7.64 / 5.47 / 3.47 | 28.01 / 17.93 / 12.32 / 8.82 / 5.60 | -38% |
 
-With 8,192 batched tokens the second NVFP4 cell is 40% lower than FP8
-(16.90 on demand).
+Batched token 8,192개에서는 두 번째 NVFP4 셀이 FP8보다 40% 낮다
+(on demand 16.90).
 
-**What this means.**
+**의미.**
 
-- Decode at low and moderate concurrency is limited by reading weights, and
-  the routed experts are most of those bytes. NVFP4 halves them, so 8 A100
-  decode as fast as 16 A100 with the FP8 checkpoint: 1.01-1.06x the output
-  tok/s at concurrency 1-32.
-- With more requests in flight, compute and attention dominate and the
-  halved GPU count shows: 0.86x at concurrency 64 and 0.81x at 128.
-- Prefill is compute-bound, and A100 has neither FP8 nor FP4 tensor cores,
-  so prefill is BF16 arithmetic with either checkpoint, here on half the
-  GPUs. One 32K-token prompt waits 11.6 s for its first token, against 7.2 s.
-- The KV cache limits long inputs. The BF16 MLA cache is replicated on every
-  TP rank, so one node holds 254,016 tokens against 673,792 on two. Under the
-  Fig. 7 conditions only 15 of 32 requests ran at once with 16K inputs, and
-  7 with 32K.
-- The rest of the gap to B200 is hardware: 3.9 times the memory bandwidth
-  (8 against 2.0 TB/s) and FP8/FP4 tensor cores (4,500 / 9,000 dense TFLOPS,
-  against 312 BF16 TFLOPS on A100). On B200, SKT runs the experts W4A4.
-  Software cannot close that gap on A100.
-- Two NVFP4 replicas on the two nodes that the FP8 deployment uses, behind a
-  load balancer, would give about twice its short-input throughput and two
-  independent KV caches. This is an estimate from the one-node numbers, not
-  a measurement.
+- 낮거나 중간 수준의 concurrency에서 디코드는 weight 읽기에 제한된다. 그
+  바이트 대부분은 routed expert다. NVFP4는 이를 절반으로 줄인다. 그래서
+  8 A100이 FP8 checkpoint의 16 A100만큼 빠르게 디코드한다: concurrency
+  1-32에서 출력 tok/s가 1.01-1.06x다.
+- 처리 중인 요청이 많아지면 compute와 attention이 지배한다. 그러면 절반으로
+  줄어든 GPU 수가 드러난다: concurrency 64에서 0.86x, 128에서 0.81x다.
+- 프리필은 compute-bound다. A100에는 FP8 tensor core도 FP4 tensor core도 없다.
+  그래서 어느 checkpoint든 프리필은 BF16 산술이고, 여기서는 GPU가 절반이다.
+  32K-token prompt 하나는 첫 token까지 11.6 s를 기다린다. FP8에서는 7.2 s다.
+- KV cache가 긴 입력을 제한한다. BF16 MLA cache는 모든 TP rank에 복제된다.
+  그래서 노드 1개는 254,016 token을 담고, 노드 2개는 673,792 token을 담는다.
+  Fig. 7 조건에서 16K 입력은 32개 요청 중 15개만 동시에 실행됐고, 32K 입력은
+  7개만 실행됐다.
+- B200과의 나머지 격차는 하드웨어다: 메모리 대역폭이 3.9배다 (8 대
+  2.0 TB/s). 그리고 FP8/FP4 tensor core가 있다 (dense TFLOPS 4,500 / 9,000,
+  A100은 BF16 312 TFLOPS). B200에서 SKT는 expert를 W4A4로 실행한다.
+  A100에서는 소프트웨어로 이 격차를 메울 수 없다.
+- FP8 배포가 사용하는 노드 두 개에 NVFP4 replica 두 개를 load balancer 뒤에
+  두면, 짧은 입력 처리량이 FP8 배포의 약 두 배가 되고 독립된 KV cache 두
+  개를 갖게 될 것이다. 이는 노드 1개 수치로 추정한 값이며 측정값이 아니다.
 
-**Limits.** The capability change is our backport of upstream commits onto
-vLLM 0.23. Prefer vLLM 0.24 or later, or an SKT fork rebased on it, and
-re-run this job after any engine change. Quality was checked only with the
-functional checks, tool calls and needles above. SKT reports NVFP4 quality
-comparable to FP8; that was not re-measured on A100. Determinism, EAGLE3 and
-NVFP4 across two nodes were not tested.
+**한계.** Capability 변경은 upstream commit을 vLLM 0.23에 우리가 backport한
+것이다. vLLM 0.24 이상, 또는 그 위로 rebase한 SKT fork를 우선 사용한다.
+Engine을 바꾼 뒤에는 이 작업을 다시 실행한다. 품질은 위의 기능 검사, tool
+호출, needle로만 확인했다. SKT는 NVFP4 품질이 FP8과 비슷하다고 보고한다.
+이는 A100에서 다시 측정하지 않았다. 결정성, EAGLE3, 노드 두 개에 걸친
+NVFP4는 테스트하지 않았다.
 
-**Cost.** `first_capacity_wins.sh` with `NODES=1` queued the job in the same
-12 regions. uksouth held its node at 13:32Z. francecentral and italynorth
-also allocated one node each, and the watcher deleted both within minutes.
-The uksouth node ran for about 2.1 hours, so the run used at most about 2.4
-node-hours: about USD 20 at the low-priority meter or USD 31 at the Spot
-meter. The GPU cluster was deleted at 15:36Z and the resource group at
-15:51Z.
+**비용.** `NODES=1`로 실행한 `first_capacity_wins.sh`가 같은 12개 region에
+작업을 대기열에 넣었다. uksouth가 13:32Z에 노드를 확보했다. francecentral과
+italynorth도 각각 노드 하나를 할당했고, watcher가 몇 분 안에 둘 다 삭제했다.
+uksouth 노드는 약 2.1시간 실행했다. 따라서 이 실행은 최대 약 2.4
+node-hour를 사용했다: low-priority 요금으로 약 USD 20, Spot 요금으로 약
+USD 31이다. GPU cluster는 15:36Z에, resource group은 15:51Z에 삭제했다.
 
-## 8.5 Dual-model persistent demo profiles
+## 8.5 이중 모델 상시 demo profile
 
-The frontend separates the existing FP8 TP8/PP2 two-node service from an official
-NVFP4 TP8/PP1 one-node service. The user approved the existing UKSouth LowPriority
-compute maximum changing from 2 to 3, without changing its minimum, priority or
-running FP8 job. Available quota/configuration is not guaranteed Spot inventory.
-The new `demo-nvfp4-nd96.yml` is persistent serving, not the section 8.4 benchmark:
-one-node MP execution and a local checkpoint barrier, using the verified SM80
-Marlin W4A16/BF16 activation port, not native FP4 Tensor Core computation.
+Frontend는 기존 FP8 TP8/PP2 2-노드 서비스와 공식 NVFP4 TP8/PP1 1-노드 서비스를
+분리한다. 사용자는 기존 UKSouth LowPriority compute의 최대값을 2에서 3으로
+바꾸는 것을 승인했다. 최소값, priority, 실행 중인 FP8 작업은 바꾸지 않는다.
+사용 가능한 quota/구성이 Spot 재고를 보장하지는 않는다. 새
+`demo-nvfp4-nd96.yml`은 section 8.4의 benchmark가 아니라 상시 서빙이다: 노드
+1개 MP 실행과 로컬 checkpoint barrier를 사용한다. 검증된 SM80 Marlin
+W4A16/BF16 activation 포트를 사용하며, native FP4 Tensor Core 연산은 아니다.
 
-Each profile owns its supervisor, reverse link, queue and persistent job state.
-Shared-compute node accounting uses actual AML RunIds. New NVFP4 readiness checks
-actual staged repo/revision, TP/PP/world size and source hash; a running legacy FP8
-link remains compatible without an intrusive restart. Its actual AML configuration
-and runtime model/context metadata are exposed separately from requested labels.
+각 profile은 자체 supervisor, reverse link, queue, 영속 작업 상태를 가진다.
+공유 compute의 노드 계산은 실제 AML RunId를 사용한다. 새 NVFP4 readiness
+검사는 실제로 staging된 repo/revision, TP/PP/world size, source hash를
+확인한다. 실행 중인 기존 FP8 link는 침습적인 재시작 없이 호환성을 유지한다.
+실제 AML 구성과 runtime 모델/context metadata는 요청된 label과 별도로
+노출한다.
 
-Source bundles have gzip mtime 0 and immutable SHA-addressed storage independent
-of deployment code. Legacy active jobs require their exact original archive and
-job/hash mapping before rollout. Missing mappings fail rather than substituting
-a newly rendered archive with a different pinned checksum.
+Source bundle은 gzip mtime이 0이다. 그리고 배포 코드와 독립된, SHA 주소 기반의
+불변 저장소를 사용한다. 기존 활성 작업은 rollout 전에 정확한 원본 archive와
+작업/hash 매핑이 필요하다. 매핑이 없으면 실패한다. 다른 고정 checksum을 가진
+새로 렌더링한 archive로 대체하지 않는다.
 
-The chat-style comparison freezes common inputs and separates model workspaces/
-artifacts. Independent/common-context modes omit prior model replies; continuation
-has deliberately different per-model histories. Tool execution can diverge.
-Displayed timing/token metrics use actual frontend lifecycle and model usage,
-not estimates or the earlier GPU-direct measurements. See `demo/README.md`.
+Chat 형식 비교는 공통 입력을 고정하고 모델별 workspace/artifact를 분리한다.
+독립/공통 context 모드는 이전 모델 응답을 생략한다. Continuation 모드는 의도적으로
+모델마다 다른 history를 가진다. Tool 실행은 갈라질 수 있다. 표시되는
+timing/token 지표는 추정값이나 이전 GPU 직접 측정값이 아니라 실제 frontend
+lifecycle과 모델 usage를 사용한다. `demo/README.md`를 참조한다.
 
-## 8.6 Model-only API for a Foundry BYOM pre-demo
+## 8.6 Foundry BYOM 사전 데모용 모델 전용 API
 
-This is a bring-your-own-model (BYOM) pre-demo path. It is not a Model Catalog
-registration, and nothing in this section implies one. A Foundry agent that
-uses its own model needs an OpenAI-compatible chat-completions endpoint:
-Foundry appends `chat/completions` to the connection's base URL and names the
-model in the `model` field of the request body. The chain is
+이 경로는 bring-your-own-model(BYOM) 사전 데모 경로다. Model Catalog
+등록이 아니며, 이 절의 어떤 내용도 그런 등록을 뜻하지 않는다. 자체 모델을
+쓰는 Foundry agent에는 OpenAI 호환 chat-completions endpoint가 필요하다.
+Foundry는 connection의 base URL 뒤에 `chat/completions`를 붙이고, 요청 본문의
+`model` 필드에 모델 이름을 넣는다. 호출 체인은 다음과 같다.
 
     Foundry agent -> gateway (key check, forwarding) -> web app model API
       -> reverse GPU link -> vLLM
 
-The API lives in the demo web app (`demo/frontend/model_api.py`) because the hub
-that holds the reverse GPU link exists only inside that process. It sends only
-`/v1/chat/completions` over the link, one of the two upstream paths the link
-already allows, so nothing on the GPU side changed. The demo chat (`/api/chat`)
-and the Agent Framework demo (`/api/agent`) are separate paths and are
-unchanged. This section covers the model API only; the gateway and the Foundry
-agent are configured elsewhere, and no performance figures for this path are
-recorded here (measure latency and load with the customer's scenario once the
-connection works).
+API는 데모 web app(`demo/frontend/model_api.py`) 안에 있다. reverse GPU link를
+잡고 있는 hub가 그 프로세스 안에만 있기 때문이다. API는 link로
+`/v1/chat/completions`만 보낸다. 이 경로는 link가 이미 허용하는 두 upstream 경로
+중 하나이므로 GPU 쪽은 바뀌지 않았다. 데모 채팅(`/api/chat`)과 Agent Framework
+데모(`/api/agent`)는 별도 경로이며 바뀌지 않았다. 이 절은 모델 API만 다룬다.
+gateway와 Foundry agent는 다른 곳에서 설정한다. 이 경로의 성능 수치는 여기에
+기록하지 않는다(connection이 동작하면 고객 시나리오로 지연 시간과 부하를
+측정한다).
 
-**Endpoints.** Each profile has its own base path, model name and alias:
+**Endpoint.** 각 profile은 자체 base path, 모델 이름, alias를 가진다.
 
-| Profile | Base path | Model name | Alias |
+| Profile | Base path | 모델 이름 | Alias |
 | --- | --- | --- | --- |
 | FP8 | `/v1` | `ax-k2-fp8` | `skt/A.X-K2` |
 | NVFP4 | `/models/nvfp4/v1` | `ax-k2-nvfp4` | `skt/A.X-K2-NVFP4` |
 
-- `POST {base}/chat/completions`: chat, tools and streaming.
-- `GET {base}/models` and `GET {base}/models/{id}`: a static OpenAI-style list
-  with the model name only. It does not depend on the GPU, so a connection
-  check never mixes in the GPU state. `{id}` may be the name or the alias.
-- `GET {base}/health`: 200 when the profile is ready (the link is up and, for
-  NVFP4, the node has reported the expected model evidence), otherwise 503 with
-  `Retry-After: 30`. The body is `{status, ready, state, profile, model}`
-  (`status` is `ok` or `unavailable`; `state` is the profile's power state, for
-  example `ready` or `off`) and has no region or job details.
-- The names contain no slash because an agent refers to a model as
-  `<connection>/<model name>`. A name that is neither the model name nor an
-  alias is 404 `model_not_found`. vLLM always receives its own served name,
-  `axk2`.
+- `POST {base}/chat/completions`: 채팅, tool, streaming을 처리한다.
+- `GET {base}/models`와 `GET {base}/models/{id}`: 모델 이름만 담은 정적 OpenAI
+  형식 목록이다. GPU에 의존하지 않으므로 connection 점검에 GPU 상태가 섞이지
+  않는다. `{id}`는 이름이나 alias일 수 있다.
+- `GET {base}/health`: profile이 준비되면 200을 반환한다(link가 연결되어 있고,
+  NVFP4는 node가 예상한 모델 근거를 보고한 상태). 그렇지 않으면
+  `Retry-After: 30`과 함께 503을 반환한다. 본문은 `{status, ready, state, profile, model}`이다
+  (`status`는 `ok` 또는 `unavailable`이고, `state`는 profile의 전원 상태로, 예를 들어
+  `ready` 또는 `off`다). 본문에 region이나 job 세부 정보는 없다.
+- agent는 모델을 `<connection>/<model name>`으로 가리키므로 이름에 slash가
+  없다. 모델 이름도 alias도 아닌 이름은 404 `model_not_found`다. vLLM은 항상
+  자체 served name인 `axk2`를 받는다.
 
-**Authentication.** Every route needs the key as `Authorization: Bearer <key>`
-or `api-key: <key>`. The settings hold only the SHA-256 digest (hex) of the
-key; several digests may be listed while a key rotates, and they are compared
-in constant time. Without a valid digest the routes are not mounted and `/v1`
-answers 404 (fail closed). The demo's cookies, passwords and admin token do not
-open this API, and the key opens nothing under `/api`. A missing or wrong key
-is 401 (`missing_api_key`, `invalid_api_key`).
+**인증.** 모든 route는 key를 `Authorization: Bearer <key>`
+또는 `api-key: <key>`로 요구한다. 설정에는 key의 SHA-256 digest(hex)만
+저장한다. key 교체 중에는 digest를 여러 개 나열할 수 있고, 비교는 constant
+time으로 한다. 유효한 digest가 없으면 route가 mount되지 않고 `/v1`은 404로
+응답한다(fail closed). 데모의 cookie, password, admin token으로는 이 API를 열 수
+없고, key로는 `/api` 아래의 어떤 것도 열 수 없다. key가 없거나 틀리면 401
+(`missing_api_key`, `invalid_api_key`)이다.
 
-**Requests.** The upstream body is built from an allow-list, so a caller cannot
-set vLLM extensions such as `chat_template_kwargs`, `guided_*` or `priority`.
+**요청.** upstream 본문은 allow-list로 만든다. 따라서 호출자는
+`chat_template_kwargs`, `guided_*`, `priority` 같은 vLLM 확장을 설정할 수 없다.
 
-- Accepted: `model`; `messages` (roles `system`, `developer` (sent as
-  `system`), `user`, `assistant` with `tool_calls`, and `tool` with
-  `tool_call_id`; content as a string or an array of text parts); `tools`
-  (function tools) with `tool_choice` (default `auto`) and
-  `parallel_tool_calls`, which are forwarded only when tools are present;
-  `max_completion_tokens` or `max_tokens` (the first wins); `temperature` (0 to
-  2, default 0.6); `top_p` (0 to 1, default 0.95); `stop` (up to four strings);
-  `seed`; `stream`; `stream_options.include_usage`; `response_format` with
-  `type` `text`. A `null` field counts as absent.
-- Refused with 400 `unsupported_value`: image, audio and file content, `n`
-  above 1, `logprobs`, `top_logprobs` above 0, `logit_bias`, `functions`, audio
-  output and other `response_format` types. `logprobs: false` and
-  `top_logprobs: 0` are accepted because SDKs send them.
-- Dropped without an error: every other field (`store`, `metadata`, `user`,
-  `service_tier`, `reasoning_effort`, vLLM extensions and so on). Only the
-  field names are logged.
-- Thinking is always off (`enable_thinking` false); a caller cannot turn it on.
-  A token limit above the cap is clamped to it, not refused. An invalid value
-  (zero, negative, fractional, wrong type) is 400 `invalid_value`.
-- Text that UTF-8 cannot carry (a JSON escape such as `\ud800` is an unpaired
-  UTF-16 surrogate) and JSON nested too deeply are 400 `invalid_json`, checked
-  before the request is queued or sent. One such value would make the hub's
-  writer fail and close that profile's GPU link under every request in flight,
-  and a client may retry a 5xx answer.
+- 허용: `model`; `messages`(role은 `system`, `developer`(`system`으로 전송),
+  `user`, `tool_calls`가 있는 `assistant`, `tool_call_id`가 있는 `tool`이다.
+  content는 문자열 또는 text part 배열이다); `tools`(function tool)와
+  `tool_choice`(기본값 `auto`), `parallel_tool_calls`. 이 둘은 tool이 있을 때만
+  전달한다; `max_completion_tokens` 또는 `max_tokens`(먼저 있는 것이 우선한다);
+  `temperature`(0~2, 기본값 0.6); `top_p`(0~1, 기본값 0.95); `stop`(최대 문자열
+  4개); `seed`; `stream`; `stream_options.include_usage`; `type`이 `text`인
+  `response_format`. `null` 필드는 없는 것으로 본다.
+- 400 `unsupported_value`로 거부: image, audio, file content, 1보다 큰 `n`,
+  `logprobs`, 0보다 큰 `top_logprobs`, `logit_bias`, `functions`, audio
+  출력, 그 밖의 `response_format` type. `logprobs: false`와
+  `top_logprobs: 0`은 SDK가 보내므로 허용한다.
+- 오류 없이 버림: 그 밖의 모든 필드(`store`, `metadata`, `user`,
+  `service_tier`, `reasoning_effort`, vLLM 확장 등). 필드 이름만 log에
+  남긴다.
+- thinking은 항상 꺼져 있다(`enable_thinking` false). 호출자는 이를 켤 수 없다.
+  상한을 넘는 token 한도는 거부하지 않고 상한으로 줄인다. 잘못된 값(0, 음수,
+  소수, 잘못된 type)은 400 `invalid_value`다.
+- UTF-8로 담을 수 없는 텍스트(`\ud800` 같은 JSON escape는 짝 없는 UTF-16
+  surrogate다)와 너무 깊게 중첩된 JSON은 400 `invalid_json`이다. 이 검사는
+  요청을 queue에 넣거나 보내기 전에 한다. 이런 값 하나가 hub의 writer를
+  실패시키면, 진행 중인 모든 요청 아래에서 해당 profile의 GPU link가 닫힌다.
+  또한 client는 5xx 응답을 재시도할 수 있다.
 
-**Responses.**
+**응답.**
 
-- Stream: vLLM's `data:` chunks pass through unchanged and the stream ends with
-  `data: [DONE]`; there are no `event:` lines. vLLM always gets
-  `include_usage`; the final usage chunk is removed unless the caller asked for
-  it. `reasoning_content` is removed. A tool call whose name is not declared
-  but differs from exactly one declared name only by `mcp_` parts gets that
-  declared name (a non-stream answer, built from the same chunks, gets it too);
-  only that chunk is re-serialized as compact JSON. When the first token takes
-  longer than ten seconds, the response starts (HTTP 200) and `: keepalive`
-  comment lines follow every ten seconds of silence. A failure after the first
-  byte is an error object in a `data:` chunk followed by `[DONE]`; before that
-  it is an ordinary HTTP error.
-- Non-stream: one `chat.completion` JSON built from vLLM's chunks, with
-  `tool_calls` deltas merged by index, `function.arguments` as a JSON string,
-  `finish_reason` (`stop`, `length` or `tool_calls`) and `usage`.
-- Every response carries `x-request-id` (the caller's value when it matches
-  `[A-Za-z0-9._:-]{1,128}`, otherwise a generated one), `x-axk2-profile`
-  (`fp8` or `nvfp4`) and `Cache-Control: no-store`.
+- Stream: vLLM의 `data:` chunk를 그대로 통과시키고, stream은
+  `data: [DONE]`으로 끝난다. `event:` 줄은 없다. vLLM은 항상
+  `include_usage`를 받는다. 호출자가 요청하지 않으면 마지막 usage chunk를
+  제거한다. `reasoning_content`는 제거한다. 선언되지 않은 tool call 이름이
+  선언된 이름 중 정확히 하나와 `mcp_` 부분만 다르면, 그 선언된 이름으로
+  바꾼다(같은 chunk로 만드는 non-stream 응답도 마찬가지다). 그 chunk만 compact
+  JSON으로 다시 직렬화한다. 첫 token이 10초보다 오래 걸리면 응답을 시작하고
+  (HTTP 200), 10초 동안 조용할 때마다 `: keepalive` comment 줄을 보낸다. 첫
+  byte 이후의 실패는 `data:` chunk 안의 error 객체와 그 뒤의 `[DONE]`이다. 첫
+  byte 이전의 실패는 일반 HTTP 오류다.
+- Non-stream: vLLM의 chunk로 만든 `chat.completion` JSON 하나다.
+  `tool_calls` delta는 index별로 합치고, `function.arguments`는 JSON 문자열이며,
+  `finish_reason`(`stop`, `length`, `tool_calls`)과 `usage`를 포함한다.
+- 모든 응답에는 `x-request-id`(호출자의 값이
+  `[A-Za-z0-9._:-]{1,128}`에 맞으면 그 값, 아니면 생성한 값), `x-axk2-profile`
+  (`fp8` 또는 `nvfp4`), `Cache-Control: no-store`가 붙는다.
 
-**Errors.** Every error is `{"error": {"message", "type", "param", "code"}}`
-with no stack trace, internal detail or secret.
+**오류.** 모든 오류는 `{"error": {"message", "type", "param", "code"}}`
+형식이며, stack trace, 내부 세부 정보, secret은 없다.
 
-| Status | `code` | Meaning |
+| Status | `code` | 의미 |
 | --- | --- | --- |
-| 400 | `invalid_json`, `invalid_value`, `missing_required_parameter`, `unsupported_value`, `invalid_request` | Malformed or unsupported request |
-| 400 | `context_length_exceeded` | The prompt does not fit the model's context (from vLLM) |
-| 401 | `missing_api_key`, `invalid_api_key` | Authentication, with `WWW-Authenticate: Bearer` |
-| 404 | `model_not_found`, `not_found` | Unknown model name, unknown URL |
-| 405, 408, 413 | `method_not_allowed`, `request_timeout`, `request_too_large` | Wrong method, body not received in 30 seconds, body over the limit |
-| 429 | `capacity_exceeded`, `rate_limit_exceeded` | No place in the gate, request limit, or wrong-key limit; with `Retry-After` |
-| 500 | `internal_error` | Server fault, no detail |
-| 502 | `upstream_error` | vLLM or the link returned something unusable |
-| 503 | `backend_unavailable` | Link not ready (answered at once, `Retry-After: 30`), or link lost during the request or vLLM busy (`Retry-After: 5`) |
-| 504 | `timeout` | No complete answer within the time limit |
+| 400 | `invalid_json`, `invalid_value`, `missing_required_parameter`, `unsupported_value`, `invalid_request` | 형식이 잘못되었거나 지원하지 않는 요청 |
+| 400 | `context_length_exceeded` | prompt가 모델의 context에 맞지 않음(vLLM에서 옴) |
+| 401 | `missing_api_key`, `invalid_api_key` | 인증 오류, `WWW-Authenticate: Bearer` 포함 |
+| 404 | `model_not_found`, `not_found` | 알 수 없는 모델 이름, 알 수 없는 URL |
+| 405, 408, 413 | `method_not_allowed`, `request_timeout`, `request_too_large` | 잘못된 method, 30초 안에 본문을 받지 못함, 한도를 넘는 본문 |
+| 429 | `capacity_exceeded`, `rate_limit_exceeded` | gate에 자리가 없음, 요청 한도, 또는 잘못된 key 한도. `Retry-After` 포함 |
+| 500 | `internal_error` | 서버 결함, 세부 정보 없음 |
+| 502 | `upstream_error` | vLLM 또는 link가 쓸 수 없는 것을 반환함 |
+| 503 | `backend_unavailable` | link가 준비되지 않음(즉시 응답, `Retry-After: 30`), 또는 요청 중 link가 끊기거나 vLLM이 바쁨(`Retry-After: 5`) |
+| 504 | `timeout` | 시간 한도 안에 완전한 응답이 없음 |
 
-Clients may retry 5xx answers (in the first trace Foundry sent four requests
-for one call, and each got a 503), so a request that can never succeed must
-stay a 4xx.
+client는 5xx 응답을 재시도할 수 있다(첫 trace에서 Foundry는 호출 하나에 요청
+4개를 보냈고, 각각 503을 받았다). 따라서 결코 성공할 수 없는 요청은 4xx로
+남아야 한다.
 
-**Protection.**
+**보호.**
 
-- Each profile has its own gate (default 4 running, 8 waiting), separate from
-  the demo chat's, so API traffic cannot use up the demo's places and the
-  reverse holds too. A request waits at most `QUEUE_TIMEOUT` seconds for a
-  place, and the model has `TIMEOUT` seconds from the send to the end of the
-  answer.
-- Each profile accepts at most `RATE_PER_MINUTE` authenticated chat requests
-  per minute; refused ones count too.
-- Wrong keys are counted per caller address (10 in a minute) and across all
-  addresses (300 in a minute), for both profiles together. Once a count is
-  reached, requests get 429 before their key is checked, so even a right key is
-  refused until the minute has passed.
-- A caller that leaves is noticed (within about a second for a plain call or
-  before the first byte): its place is returned and a cancel goes to vLLM,
-  which aborts the generation.
-- A request the API refuses itself (authentication, validation, size, limits,
-  or a link that is not ready) never reaches the link, and any gate place it
-  held is returned.
+- 각 profile은 데모 채팅과 별개인 자체 gate(기본값 실행 4개, 대기 8개)를
+  가진다. 따라서 API 트래픽이 데모의 자리를 다 쓸 수 없고, 그 반대도 같다.
+  요청은 자리를 최대 `QUEUE_TIMEOUT`초 기다리고, 모델은 전송부터 응답 끝까지
+  `TIMEOUT`초를 가진다.
+- 각 profile은 인증된 채팅 요청을 분당 최대 `RATE_PER_MINUTE`개 받는다. 거부된
+  요청도 센다.
+- 잘못된 key는 호출자 주소별(1분에 10개)과 전체 주소 합계(1분에 300개)로
+  세며, 두 profile을 합쳐서 센다. 한도에 도달하면 key를 검사하기 전에 요청이
+  429를 받는다. 따라서 올바른 key도 1분이 지날 때까지 거부된다.
+- 떠난 호출자를 감지한다(일반 호출이거나 첫 byte 이전이면 약 1초 안에). 그
+  자리를 반환하고 vLLM에 cancel을 보내며, vLLM은 생성을 중단한다.
+- API가 스스로 거부한 요청(인증, 검증, 크기, 한도, 또는 준비되지 않은 link)은
+  link에 도달하지 않으며, 잡고 있던 gate 자리는 반환된다.
 
-**Settings.** All names start with `AXK2_MODEL_API_`. None of them holds a key;
-`KEY_SHA256` holds only digests. A value that cannot be parsed falls back to
-its default, and a number outside its allowed range is clamped.
+**설정.** 모든 이름은 `AXK2_MODEL_API_`로 시작한다. 어떤 설정도 key를 담지
+않는다. `KEY_SHA256`은 digest만 담는다. parse할 수 없는 값은 기본값으로
+돌아가고, 허용 범위를 벗어난 숫자는 범위 안으로 줄인다.
 
-| Name (after the prefix) | Default | Meaning |
+| 이름(prefix 뒤) | 기본값 | 의미 |
 | --- | --- | --- |
-| `KEY_SHA256` | none (API off) | SHA-256 hex digests of the accepted keys, separated by commas, semicolons or white space |
-| `NAME_FP8`, `NAME_NVFP4` | `ax-k2-fp8`, `ax-k2-nvfp4` | Model names |
-| `ALIASES_FP8`, `ALIASES_NVFP4` | `skt/A.X-K2`, `skt/A.X-K2-NVFP4` | Extra accepted names, separated by commas or new lines |
-| `MAX_ACTIVE`, `MAX_QUEUE` | 4, 8 | Running and waiting requests per profile |
-| `QUEUE_TIMEOUT`, `TIMEOUT` | 30, 300 | Seconds to wait for a place; seconds for the model to answer |
-| `RATE_PER_MINUTE` | 60 | Chat requests per minute per profile |
-| `MAX_TOKENS`, `DEFAULT_MAX_TOKENS` | 8192, 4096 | Output cap (a larger request is clamped); default when none is given |
-| `MAX_BODY_BYTES` | 2097152 | Request body size |
-| `MAX_MESSAGES`, `MAX_TOOLS`, `MAX_SCHEMA_BYTES` | 400, 64, 131072 | Messages, tools, serialized tool definitions |
+| `KEY_SHA256` | 없음(API 꺼짐) | 허용할 key의 SHA-256 hex digest. comma, semicolon, 공백으로 구분 |
+| `NAME_FP8`, `NAME_NVFP4` | `ax-k2-fp8`, `ax-k2-nvfp4` | 모델 이름 |
+| `ALIASES_FP8`, `ALIASES_NVFP4` | `skt/A.X-K2`, `skt/A.X-K2-NVFP4` | 추가로 허용할 이름. comma 또는 줄바꿈으로 구분 |
+| `MAX_ACTIVE`, `MAX_QUEUE` | 4, 8 | profile별 실행 요청과 대기 요청 수 |
+| `QUEUE_TIMEOUT`, `TIMEOUT` | 30, 300 | 자리를 기다리는 초; 모델이 응답하는 초 |
+| `RATE_PER_MINUTE` | 60 | profile별 분당 채팅 요청 수 |
+| `MAX_TOKENS`, `DEFAULT_MAX_TOKENS` | 8192, 4096 | 출력 상한(더 큰 요청은 상한으로 줄임); 값이 없을 때의 기본값 |
+| `MAX_BODY_BYTES` | 2097152 | 요청 본문 크기 |
+| `MAX_MESSAGES`, `MAX_TOOLS`, `MAX_SCHEMA_BYTES` | 400, 64, 131072 | message 수, tool 수, 직렬화한 tool 정의 크기 |
 
-**Logs.** One JSON line per request on stdout (logger `axk2.model_api`):
+**Log.** 요청마다 stdout에 JSON 한 줄을 쓴다(logger `axk2.model_api`).
 `request_id`, `profile`, `route`, `stream`, `status`, `prompt_tokens`,
-`completion_tokens`, `ttft_ms`, `queue_ms`, `total_ms`, `finish_reason`, a short
-`error` code, `dropped_fields` (names only) and, only when a tool name was
-replaced, `tool_name_repairs` (lengths only, never the names: `emitted_len` of
-the name the model sent and `declared_len` of the declared name; 8 entries at
-most). Prompts, answers, headers, keys and caller addresses are never logged.
-Once the model API has started to read vLLM's answer, the line also has
-`tool_calls`: `count` (the tool calls in the answer), `names` (8 entries at
-most, one per call, each with `len`, `declared`, `repaired`, `mcp_parts` (how
-often `mcp_` occurs in the name), `functions_prefix` and `has_dot`, all for the
-name as the model wrote it, before any replacement), `finish_without_calls`
-(`finish_reason` is `tool_calls` but the answer holds no call) and
-`marker_in_text` (a `<tool_call>` or `</tool_call>` tag is left in the answer's
-text). It holds counts, lengths and flags only, and it only observes: the
-answer is the same with or without it. It does not check the arguments and it
-does not look at the reasoning text. A request that was refused, or that failed
-before any of vLLM's answer was read, has no `tool_calls` key.
+`completion_tokens`, `ttft_ms`, `queue_ms`, `total_ms`, `finish_reason`, 짧은
+`error` code, `dropped_fields`(이름만)를 담는다. tool 이름을 바꾼 경우에만
+`tool_name_repairs`를 담는다(길이만 담고 이름은 절대 담지 않는다. 모델이 보낸
+이름의 `emitted_len`과 선언된 이름의 `declared_len`이며, 최대 8개 항목이다).
+prompt, 응답, header, key, 호출자 주소는 절대 log에 남기지 않는다.
+모델 API가 vLLM의 응답을 읽기 시작하면, 그 줄에 `tool_calls`도 담는다.
+`count`(응답 안의 tool call 수), `names`(최대 8개 항목, call마다 하나이며 각각
+`len`, `declared`, `repaired`, `mcp_parts`(이름에 `mcp_`가 나오는 횟수),
+`functions_prefix`, `has_dot`를 담는다. 모두 교체 전, 모델이 쓴 그대로의 이름
+기준이다), `finish_without_calls`(`finish_reason`이 `tool_calls`인데 응답에
+call이 없음), `marker_in_text`(응답 텍스트에 `<tool_call>` 또는 `</tool_call>`
+tag가 남아 있음)로 구성된다. 이 항목은 개수, 길이, flag만 담고 관찰만 한다.
+이 항목이 있든 없든 응답은 같다. arguments는 검사하지 않고 reasoning 텍스트도
+보지 않는다. 거부된 요청이나 vLLM의 응답을 읽기 전에 실패한 요청에는
+`tool_calls` key가 없다.
 
-**Foundry's request.** Traces at the API Management gateway show what a Foundry
-agent sends: `POST {base}/chat/completions` with no query string (no
-`api-version`) and no `User-Agent` header. The top-level fields are `messages`,
-`stream` (true), `max_completion_tokens` (not `max_tokens`), `stream_options`,
-`model` (the connection's model name), `temperature` and `top_p`; the last two
-are Foundry's defaults, 1.0 each, when the agent sets none. A turn with tools
-adds `tools`, `parallel_tool_calls` and `tool_choice` (`auto`), and an MCP tool
-reaches the model as a function named `mcp___<label>___<tool>`. When the
-backend was not ready, Foundry sent four requests for one call in about 11
-seconds and each got a 503. This was seen once; whether they were retries
-is not confirmed. No other field has been seen; any other field is accepted
-or dropped as described above and tested only with fakes. The tests pin the
-plain shape, with `stream_options` as `{"include_usage": true}`, `{}` and
-`{"include_obfuscation": false}`, and with a number or null for `temperature`
-and `top_p`.
+**Foundry의 요청.** API Management gateway의 trace는 Foundry agent가 보내는
+내용을 보여 준다. query string(`api-version` 없음)과 `User-Agent` header 없이
+`POST {base}/chat/completions`를 보낸다. 최상위 필드는 `messages`,
+`stream`(true), `max_completion_tokens`(`max_tokens` 아님), `stream_options`,
+`model`(connection의 모델 이름), `temperature`, `top_p`다. 마지막 두 필드는
+agent가 설정하지 않으면 Foundry 기본값인 각각 1.0이다. tool이 있는 turn은
+`tools`, `parallel_tool_calls`, `tool_choice`(`auto`)를 더하고, MCP tool은
+`mcp___<label>___<tool>`이라는 이름의 function으로 모델에 전달된다. backend가
+준비되지 않았을 때 Foundry는 호출 하나에 약 11초 동안 요청 4개를 보냈고, 각각
+503을 받았다. 이는 한 번 관찰되었으며, 재시도였는지는 확인되지 않았다. 그 밖의
+필드는 관찰되지 않았다. 다른 필드는 위에서 설명한 대로 허용하거나 버리며, fake로만
+테스트했다. 테스트는 기본 형태를 고정한다. `stream_options`는
+`{"include_usage": true}`, `{}`, `{"include_obfuscation": false}`로, `temperature`와
+`top_p`는 숫자 또는 null로 테스트한다.
 
-**Smoke test.** `demo/tools/model_api_smoke.py` runs the checks `models`,
-`chat`, `stream`, `tool`, `tool_result` and `auth` (`--only` selects a subset):
+**Smoke test.** `demo/tools/model_api_smoke.py`는 `models`, `chat`, `stream`,
+`tool`, `tool_result`, `auth` 검사를 실행한다(`--only`로 일부를 고른다).
 
     python demo/tools/model_api_smoke.py --base-url https://<host>/v1 \
         --model ax-k2-fp8 --key-file <file> --out <result.json>
 
-For a gateway that takes the key only in `api-key`, add `--auth-header api-key`.
-For NVFP4 use the `/models/nvfp4/v1` base path and `--model ax-k2-nvfp4`. The
-key comes from `--key-file`, `--key-stdin` or the variable named by `--key-env`
-(default `AXK2_MODEL_API_KEY`) and is never printed. At most four calls reach
-the GPU, one at a time, with no retry, a small output limit (`--max-tokens`) and
-thinking off. The JSON summary has no secrets. It records the `x-request-id` of
-every check and, for the stream check, the chunk count, the delay to the first
-chunk, time to first token, time per output token, and the span and longest gap
-between chunks (to show whether a gateway buffers the stream). The `auth` check
-asserts status 401 only, so a gateway's own 401 body is fine.
+key를 `api-key`로만 받는 gateway에는 `--auth-header api-key`를 더한다.
+NVFP4에는 `/models/nvfp4/v1` base path와 `--model ax-k2-nvfp4`를 쓴다. key는
+`--key-file`, `--key-stdin`, 또는 `--key-env`가 가리키는 변수(기본값
+`AXK2_MODEL_API_KEY`)에서 가져오며, 절대 출력하지 않는다. GPU에 도달하는 호출은
+최대 4개이며, 한 번에 하나씩, 재시도 없이, 작은 출력 한도(`--max-tokens`)와
+thinking off로 보낸다. JSON 요약에는 secret이 없다. 요약은 모든 검사의
+`x-request-id`를 기록한다. stream 검사에는 chunk 수, 첫 chunk까지의 지연, time to
+first token, time per output token, chunk 사이의 전체 구간과 가장 긴 간격을
+기록한다(gateway가 stream을 buffer하는지 보여 주기 위해서다). `auth` 검사는 status
+401만 확인하므로 gateway 자체의 401 본문이어도 괜찮다.
 
-The tests (`tests/test_demo_model_api*.py`) use a fake hub link and a fake
-vLLM. They cover authentication, validation, the stream and non-stream relay,
-the tool-call round trip, error mapping, limits, cancellation, malformed text
-and the absence of secrets in responses and logs. They are not live results.
+테스트(`tests/test_demo_model_api*.py`)는 fake hub link와 fake vLLM을 쓴다.
+인증, 검증, stream과 non-stream relay, tool-call 왕복, 오류 매핑, 한도,
+취소, 잘못된 형식의 텍스트, 응답과 log에 secret이 없음을 다룬다. 이는 live
+결과가 아니다.
 
-**Deployment and live checks.** The first deployment, `e70debb`, was used from
-a Foundry agent for plain chat, a function tool and an MCP tool (approval
-`never` and `always`), the NVFP4 route included. Failure-path tests with the
-fake link found two input defects in that version, an unpaired surrogate and
-JSON nested too deeply (see Requests). `9cd2220` fixes both and changes
-`model_api.py` alone. It was deployed as an exact package of that commit (52
-files), which used the last of the three web app restarts allowed at first. A
-regression check and the direct smoke test then passed (4 of 4). The earlier
-behaviour on these inputs was reproduced with the fake link only; the old code
-was not probed live.
+**배포와 live 점검.** 첫 배포 `e70debb`는 Foundry agent에서 일반 채팅,
+function tool, MCP tool(approval `never`와 `always`)에 사용했고, NVFP4 route도
+포함했다. fake link를 쓴 실패 경로 테스트에서 그 버전의 입력 결함 두 가지를
+찾았다. 짝 없는 surrogate와 너무 깊게 중첩된 JSON이다("요청" 참조).
+`9cd2220`은 두 가지를 모두 고치며 `model_api.py`만 바꾼다. 이 commit의 정확한
+package(파일 52개)로 배포했고, 이 배포로 처음 허용된 web app 재시작 3회 중 마지막
+1회를 썼다. 그 뒤 회귀 점검과 직접 smoke test를 통과했다(4/4). 이 입력에 대한
+이전 동작은 fake link로만 재현했다. 이전 코드는 live로 탐색하지 않았다.
 
-Later, on 2026-10-20, the demo owner approved additional maintenance. The web
-app was then redeployed twice (web only, each time as an exact revision), and
-the App Service plan was restored to B1 with Always On (limit 9). After each
-restart of the web app, the GPU link was connected again within a minute, and
-the GPU job was not restarted.
+이후 2026-10-20에 데모 소유자가 추가 유지보수를 승인했다. 그 뒤 web app을 두
+번 다시 배포했고(web만, 매번 정확한 revision으로), App Service plan을 Always
+On이 켜진 B1로 복원했다(한도 9). web app을 재시작할 때마다 GPU link는 1분 안에
+다시 연결되었고, GPU job은 재시작하지 않았다.
 
-**Live probes of the fix.** To show that the fix is the running code, three
-probes were sent to the web app's own address, one at a time and without
-retry. Each is an input on which the earlier version also failed before
-anything was written to the hub (a 500 in the fake-link tests), so none could
-close a link.
+**수정 사항의 live probe.** 수정 사항이 실행 중인 코드임을 보이기 위해 web
+app 자체 주소로 probe 3개를 보냈다. 한 번에 하나씩, 재시도 없이 보냈다. 각
+probe는 이전 버전도 hub에 무엇이든 쓰기 전에 실패했던 입력이다(fake link
+테스트에서 500). 따라서 어느 probe도 link를 닫을 수 없었다.
 
-| Probe | Profile | Input | Answer | Time |
+| Probe | Profile | 입력 | 응답 | 시간 |
 | --- | --- | --- | --- | --- |
-| P1 | NVFP4 | An unpaired surrogate in a tool definition | 400 `invalid_json`, `param` null | 187.7 ms |
-| P1 | FP8 | The same | 400 `invalid_json`, `param` null | 135.3 ms |
-| P2 | NVFP4 | A tool call in the history with `arguments` nested too deeply | 400 `invalid_value`, `param` `messages[1].tool_calls[0].function.arguments` | 354.4 ms |
+| P1 | NVFP4 | tool 정의 안의 짝 없는 surrogate | 400 `invalid_json`, `param` null | 187.7 ms |
+| P1 | FP8 | 같은 입력 | 400 `invalid_json`, `param` null | 135.3 ms |
+| P2 | NVFP4 | 이력 안의 tool call에서 `arguments`가 너무 깊게 중첩됨 | 400 `invalid_value`, `param` `messages[1].tool_calls[0].function.arguments` | 354.4 ms |
 
-Before and after the probes, both profiles had the same link, readiness,
-health, model verification and activation state, the queue stayed empty and the
-vLLM token counter did not move, so nothing reached the GPU. The times are
-those of refused requests and are not performance figures. A further probe,
-P3, was not approved or sent. Reading the code, it would have told the two
-versions apart by the error code (400 `invalid_value` before the fix, 400
-`invalid_json` after it), but P1 had already shown how an unpaired surrogate
-is rejected, on both profiles.
+probe 전후로 두 profile의 link, readiness, health, 모델 검증, activation
+상태가 같았다. queue는 비어 있었고 vLLM token counter는 움직이지 않았다. 따라서
+GPU에 도달한 것은 없었다. 시간은 거부된 요청의 시간이며 성능 수치가 아니다.
+추가 probe P3는 승인되지 않았고 보내지 않았다. 코드를 읽어 보면, P3는 오류
+code로 두 버전을 구별했을 것이다(수정 전 400 `invalid_value`, 수정 후 400
+`invalid_json`). 그러나 P1이 이미 두 profile 모두에서 짝 없는 surrogate가 어떻게
+거부되는지 보여 주었다.
 
-**Evidence that K2 answers.** Foundry's usage was compared with the vLLM token
-counter, read before and after a turn. Output tokens matched exactly: 16 and 16
-for an NVFP4 turn, 142 and 142 for a turn with an MCP tool. Three more calls to
-an FP8 agent with an MCP tool matched in the same way (129, 131 and 123 output
-tokens in Foundry's usage and in the counter), while the NVFP4 counters did not
-move. The figures of each call are in a redacted record,
-`demo/evidence/fp8-foundry-default-temperature-repeat-redacted.json`. That is
-independent evidence that those turns used this model. Prompt tokens differ, by
-4 in the first turn, by 488 in the second and by 486 in each of the three
-repeats. One reading is that Foundry's usage counts only the input of the last
-model request in a turn, while vLLM counts all of them, so that the difference
-is the input of the first request. The same difference in all three repeats
-fits that reading, but it was not checked directly: the counter was sampled
-every 12 seconds, which cannot separate the first request from the second. A
-later measurement fits the reading too: the first model request of a
-successful run has 482 tokens at vLLM (see "Replay of the captured request"
-below), and 482 plus the 4 seen in the first turn is 486.
+**K2가 응답한다는 근거.** Foundry의 usage를 turn 전후에 읽은 vLLM token
+counter와 비교했다. output token은 정확히 일치했다. NVFP4 turn은 16과 16,
+MCP tool이 있는 turn은 142와 142였다. MCP tool이 있는 FP8 agent에 대한 추가
+호출 3개도 같은 방식으로 일치했다(Foundry의 usage와 counter 모두 output token
+129, 131, 123). 그동안 NVFP4 counter는 움직이지 않았다. 각 호출의 수치는
+redacted 기록
+`demo/evidence/fp8-foundry-default-temperature-repeat-redacted.json`에 있다. 이는
+그 turn들이 이 모델을 사용했다는 독립적인 근거다. prompt token은 다르다. 첫
+turn에서 4, 두 번째 turn에서 488, 세 번의 반복에서 각각 486 차이가 난다. 한 가지
+해석은 Foundry의 usage가 turn 안 마지막 모델 요청의 input만 세고 vLLM은 모든
+요청을 센다는 것이다. 그러면 차이는 첫 요청의 input이다. 세 번의 반복에서 같은
+차이가 나온 것은 이 해석과 맞지만, 직접 확인하지는 않았다. counter를 12초마다
+sample했기 때문에 첫 요청과 두 번째 요청을 구분할 수 없었다. 이후의 측정도 이
+해석과 맞는다. 성공한 run의 첫 모델 요청은 vLLM에서 482 token이며(아래
+"캡처한 요청의 replay" 참조), 482에 첫 turn에서 본 4를 더하면 486이다.
 
-**An unexplained Foundry `model_error`.** One run of an FP8 agent with an MCP
-tool (approval `never`) ended in a Foundry 500 `model_error` ("The model
-produced invalid content. Consider modifying your prompt...") after about 2
-seconds. The agent had the same instructions as an agent that had worked at
-`temperature` 0.3, but it set no `temperature`, so Foundry sent its default,
-1.0. The request reached vLLM, which generated 37 tokens, and the API
-Management gateway recorded a 200 from the backend after 1.1 seconds. Foundry
-did not retry. In Foundry's trace the span of the tool run was named
-differently from the spans of successful runs (details: the Foundry BYOM
-README, `demo/foundry-byom/README.md`, section 9). One guess is that the model
-wrote a tool name that did not match the declared one, so that Foundry did not
-treat the call as an MCP call. A trace does not show the name the model wrote:
-in the traces of successful runs the tool name also differs from the declared
-name (it has an `mcp_` form), so a trace holds the name after Foundry's own
-conversion. The guess has not been verified.
+**설명되지 않은 Foundry `model_error`.** MCP tool(approval `never`)이 있는 FP8
+agent의 run 하나가 약 2초 뒤 Foundry 500 `model_error`("The model
+produced invalid content. Consider modifying your prompt...")로 끝났다. 이
+agent는 `temperature` 0.3에서 동작했던 agent와 같은 instructions를 가졌지만
+`temperature`를 설정하지 않았다. 그래서 Foundry는 기본값 1.0을 보냈다. 요청은
+vLLM에 도달했고 vLLM은 37 token을 생성했다. API Management gateway는 1.1초 뒤
+backend의 200을 기록했다. Foundry는 재시도하지 않았다. Foundry의 trace에서 tool
+실행 span의 이름은 성공한 run의 span과 다르게 붙어 있었다(세부 사항: Foundry BYOM
+README `demo/foundry-byom/README.md`의 9절). 한 가지 추측은 모델이 선언된
+이름과 맞지 않는 tool 이름을 써서 Foundry가 그 call을 MCP call로 다루지 않았다는
+것이다. trace는 모델이 쓴 이름을 보여 주지 않는다. 성공한 run의 trace에서도
+tool 이름이 선언된 이름과 다르다(`mcp_` 형태를 가진다). 따라서 trace에는
+Foundry 자체 변환 후의 이름이 담긴다. 이 추측은 검증되지 않았다.
 
-The same agent definition, with no `temperature` and the same prompt, was then
-run three more times from Foundry through the Responses API, one call after
-another at least 45 seconds apart, with the SDK's retries off. All three
-completed, each with an MCP tool call made by Foundry, and none ended in
-`model_error`. Because none failed, no control call at temperature 0.3 was
-sent.
+그 뒤 같은 agent 정의를 `temperature` 없이, 같은 prompt로 Foundry에서
+Responses API를 통해 세 번 더 실행했다. 호출은 하나씩 최소 45초 간격으로 보냈고
+SDK의 재시도는 껐다. 세 번 모두 완료되었고, 각각 Foundry가 만든 MCP tool call을
+포함했으며, 어느 것도 `model_error`로 끝나지 않았다. 실패한 것이 없었으므로
+temperature 0.3의 대조 호출은 보내지 않았다.
 
-Direct replays through the model API did not reproduce the error. The request
-of the failed run was reconstructed (one function tool, `tool_choice` `auto`,
-`stream` true and `stream_options`) and sent 44 times to the FP8 route at the
-web app's own address: 29 times at temperature 1.0 and 15 times at 0.3. The
-calls were sequential, at least 15 seconds apart, and none was retried. Every
-call returned HTTP 200 and one `[DONE]`.
+모델 API를 통한 직접 replay에서는 오류가 재현되지 않았다. 실패한 run의 요청을
+재구성하여(function tool 하나, `tool_choice` `auto`, `stream` true,
+`stream_options`) web app 자체 주소의 FP8 route로 44번 보냈다. temperature
+1.0에서 29번, 0.3에서 15번이다. 호출은 순차적이었고 최소 15초 간격이었으며
+재시도는 없었다. 모든 호출이 HTTP 200과 `[DONE]` 하나를 반환했다.
 
-| Temperature | Calls | A tool call, no text | Text, then a tool call | Text only |
+| Temperature | 호출 | 텍스트 없이 tool call | 텍스트 후 tool call | 텍스트만 |
 | --- | --- | --- | --- | --- |
 | 1.0 | 29 | 26 | 2 | 1 |
 | 0.3 | 15 | 15 | 0 | 0 |
 
-All 43 tool calls carried exactly the declared tool name, and their
-`arguments` were valid JSON. No stream contained a `functions.` prefix on a
-tool name, U+FFFD, NUL, an `error` chunk or a `data:` line, other than
-`[DONE]`, that was not JSON. A call generated 40 to 91 tokens at 1.0 (median
-42) and 42 at 0.3; the failed call generated 37. After the replays, both
-profiles had the same link, readiness, health, model verification and
-activation state as before, and the queue was empty.
+43개 tool call 모두 선언된 tool 이름을 정확히 담았고, `arguments`는 유효한
+JSON이었다. 어떤 stream에도 tool 이름의 `functions.` prefix, U+FFFD, NUL,
+`error` chunk, 또는 `[DONE]` 외에 JSON이 아닌 `data:` 줄이 없었다. 호출 하나는
+1.0에서 40~91 token(중앙값 42), 0.3에서 42 token을 생성했다. 실패한 호출은 37
+token을 생성했다. replay 후 두 profile의 link, readiness, health, 모델 검증,
+activation 상태는 이전과 같았고 queue는 비어 있었다.
 
-The prompt sizes do not agree. The failed request had 482 tokens at vLLM. The
-reconstruction used in the replays had 472 in every call, so the replays are
-not token-identical to the failed request. The exact body of a successful
-run's first model request, taken later (see "Replay of the captured request"
-below), also has 482 tokens at vLLM, the same as the failed request. That
-replaces the earlier estimate of about 486 for the first request of the Foundry
-retests. The 486 in "Evidence that K2 answers" fits 482, measured for a
-successful run of the same agent, plus the difference of 4 that Foundry's input
-count showed in a turn with one request. This was not checked directly, and the
-cause of the difference of 4 is not known.
+prompt 크기가 일치하지 않는다. 실패한 요청은 vLLM에서 482 token이었다. replay에
+쓴 재구성은 모든 호출에서 472였다. 따라서 replay는 실패한 요청과 token 단위로
+동일하지 않다. 이후에 얻은 성공한 run의 첫 모델 요청의 정확한 본문(아래
+"캡처한 요청의 replay" 참조)도 vLLM에서 482 token으로, 실패한 요청과 같다. 이
+값은 Foundry 재테스트의 첫 요청에 대한 이전 추정치인 약 486을 대체한다. "K2가
+응답한다는 근거"의 486은 같은 agent의 성공한 run에서 측정한 482에, 요청이 하나인
+turn에서 Foundry의 input count가 보인 차이 4를 더한 값과 맞는다. 이는 직접
+확인하지 않았고, 차이 4의 원인은 알려지지 않았다.
 
-What these results show: the error was not reproduced, and its cause is not
-known. The 44 direct replays (29 at temperature 1.0, 15 at 0.3) had no
-abnormal stream. From Foundry, the agent definition without `temperature` has
-run four times, with one failure and three successes, and the same
-instructions at `temperature` 0.3 have run twice, with two successes. These
-samples cannot separate an effect of temperature from chance. The cause may be
-the model's output, how Foundry read the stream, or a difference in the
-request. There is no evidence that the model API caused it: none of the 44
-replays showed an abnormal stream, the three Foundry retests completed, and
-the stream analysis below shows the few ways in which the model API changes a
-stream. Setting `temperature` to 0.3 on the agent is a precaution that needs
-no redeployment: 15 of 15 direct replays and 2 of 2 Foundry runs at that
-value were clean. Those counts are not statistical evidence that it prevents
-the error. The counts of Foundry runs in this paragraph are those at the time
-of the 44 replays; later runs, including a second failure, are counted in
-section 9 of the Foundry BYOM README (`demo/foundry-byom/README.md`).
+이 결과가 보여 주는 것: 오류는 재현되지 않았고, 그 원인은 알려지지 않았다. 44번의
+직접 replay(temperature 1.0에서 29번, 0.3에서 15번)에는 비정상 stream이 없었다.
+Foundry에서 `temperature`가 없는 agent 정의는 네 번 실행되어 실패 1번, 성공
+3번이었다. 같은 instructions에 `temperature` 0.3을 쓴 경우는 두 번 실행되어 두 번
+성공했다. 이 sample로는 temperature의 효과와 우연을 구분할 수 없다. 원인은 모델의
+출력, Foundry가 stream을 읽은 방식, 또는 요청의 차이일 수 있다. 모델 API가 원인이라는
+근거는 없다. 44번의 replay 중 어느 것도 비정상 stream을 보이지 않았고, Foundry
+재테스트 세 번이 완료되었으며, 아래의 stream 분석은 모델 API가 stream을 바꾸는 몇
+안 되는 방식을 보여 준다. agent에 `temperature`를 0.3으로 설정하는 것은 재배포가
+필요 없는 예방 조치다. 그 값에서 직접 replay 15/15와 Foundry run 2/2가 문제
+없었다. 이 개수는 그것이 오류를 막는다는 통계적 근거가 아니다. 이 단락의 Foundry
+run 개수는 44번 replay 당시의 개수다. 두 번째 실패를 포함한 이후의 run은 Foundry
+BYOM README(`demo/foundry-byom/README.md`)의 9절에서 센다.
 
-**Replay of the captured request.** A successful Foundry run of the same agent
-as the failed run left a gateway trace, and the exact body of its first model
-request was taken from it (2,333 bytes). It has 482 prompt tokens at vLLM, the
-same count as the failed request; the reconstruction above had 472. The body
-was sent unchanged, directly to the FP8 route (not through API Management or
-Foundry), 100 times at temperature 1.0, and 100 more times with only the value
-of `temperature` changed to 0.3. The calls were sequential, at least 3 seconds
-apart, and none was retried. The two series ran one after the other, not
-interleaved. Every call returned HTTP 200, and no stream had an `error` chunk.
+**캡처한 요청의 replay.** 실패한 run과 같은 agent의 성공한 Foundry run이 gateway
+trace를 남겼고, 그 trace에서 첫 모델 요청의 정확한 본문을 얻었다(2,333 byte). 이
+본문은 vLLM에서 prompt token 482개로, 실패한 요청과 같은 개수다. 위의 재구성은
+472였다. 본문을 바꾸지 않고 FP8 route로 직접(API Management나 Foundry를 거치지
+않고) temperature 1.0에서 100번 보냈다. 그리고 `temperature` 값만 0.3으로 바꿔
+100번 더 보냈다. 호출은 순차적이었고 최소 3초 간격이었으며 재시도는 없었다. 두
+series는 섞지 않고 차례로 실행했다. 모든 호출이 HTTP 200을 반환했고, 어떤
+stream에도 `error` chunk가 없었다.
 
-| Temperature | Calls | Declared tool name | Name with one `mcp_` missing | Text only |
+| Temperature | 호출 | 선언된 tool 이름 | `mcp_` 하나가 빠진 이름 | 텍스트만 |
 | --- | --- | --- | --- | --- |
 | 1.0 | 100 | 91 | 3 | 6 |
 | 0.3 | 100 | 100 | 0 | 0 |
 
-The 3 near names had 45 characters, not the 49 of the declared name:
-`mcp___<label>___<tool>` in place of `mcp___mcp_<label>___<tool>`. The model
-API sent them as it received them; the tool-name replacement in the table of
-stream shapes below was added after this replay. The responses that did not
-carry the declared tool name were 9 of 100 at 1.0 (3 near names and 6 text
-only) and 0 of 100 at 0.3. The difference in near names alone, 3 against 0, is
-within what chance can produce; the difference in all responses without the
-declared name, 9 against 0, is unlikely to be chance. Because the two series
-ran one after the other, a change between them cannot be ruled out. The replays
-show that the model can return a name other than the declared one, here with
-one `mcp_` missing. They do not show whether such a name causes the Foundry
-`model_error`: the replayed body comes from a successful run and the body of
-the failed response was not kept, so any link between the two is a guess.
+가까운 이름 3개는 선언된 이름의 49자가 아니라 45자였다.
+`mcp___mcp_<label>___<tool>` 대신 `mcp___<label>___<tool>`였다. 모델 API는 받은
+그대로 보냈다. 아래 stream 형태 표의 tool 이름 교체는 이 replay 이후에 추가했다.
+선언된 tool 이름을 담지 않은 응답은 1.0에서 100개 중 9개(가까운 이름 3개와 텍스트만
+6개), 0.3에서 100개 중 0개였다. 가까운 이름만의 차이인 3 대 0은 우연으로 생길 수
+있는 범위 안이다. 선언된 이름이 없는 응답 전체의 차이인 9 대 0은 우연일 가능성이
+낮다. 두 series를 차례로 실행했으므로 그 사이의 변화를 배제할 수 없다. replay는
+모델이 선언된 이름과 다른 이름, 여기서는 `mcp_` 하나가 빠진 이름을 반환할 수
+있음을 보여 준다. 그런 이름이 Foundry `model_error`를 일으키는지는 보여 주지
+않는다. replay한 본문은 성공한 run에서 왔고 실패한 응답의 본문은 보관되지
+않았으므로, 둘 사이의 연결은 추측이다.
 
-**Stream shapes (offline analysis).** To see what the model API can add to a
-stream that Foundry might call invalid, 69 synthetic upstream streams were fed
-through the real relay code with a fake link. The bytes sent were compared with
-the bytes received, and each output was parsed with the OpenAI Python SDK. 44
-streams left the model API as vLLM sent them (line endings aside); the other 25
-were changed or answered by the model API as the table shows, and one of those
-is an ordinary HTTP error, not a stream.
+**Stream 형태(offline 분석).** 모델 API가 Foundry가 invalid로 볼 수 있는 무엇을
+stream에 더할 수 있는지 보기 위해, 합성 upstream stream 69개를 fake link와 함께 실제
+relay 코드에 넣었다. 보낸 byte와 받은 byte를 비교했고, 각 출력을 OpenAI Python
+SDK로 parse했다. 44개 stream은 vLLM이 보낸 그대로 모델 API를 나갔다(줄 끝 제외).
+나머지 25개는 표에 나온 대로 모델 API가 바꾸거나 응답했고, 그중 하나는 stream이
+아니라 일반 HTTP 오류다.
 
-| The upstream stream has | The model API sends | Responsible |
+| upstream stream에 있는 것 | 모델 API가 보내는 것 | 책임 |
 | --- | --- | --- |
-| Tool-call `arguments` that are not valid JSON or are cut off (`finish_reason` `length`); a tool name that was not declared, misspelled or prefixed (for example `functions.`), except the case of the `mcp_` row below; an empty answer; text mixed with tool calls; `tool_calls` with no call, or a call with `stop`; a missing `id`, `type` or `index`; a repeated `finish_reason`; a usage chunk in an odd place when the caller asked for usage | The same bytes | Model |
-| U+FFFD, `\u0000` or `\ud800` escapes, invalid UTF-8 bytes, a multi-byte character split across reads | The same bytes | Model |
-| A usage chunk (empty `choices`) that the caller did not ask for | Nothing: the chunk is removed | Model API, by design |
-| `reasoning_content` | A chunk with only reasoning is dropped; with other delta fields it is re-serialized as compact JSON | Model API, by design |
-| A tool name that is not declared and equals exactly one declared name once every `mcp_` is removed from both | The declared name in its place; the chunk is re-serialized as compact JSON | Model API, by design |
-| No `[DONE]`, a second `[DONE]`, events after it, `event:`, `id:` or `retry:` lines, CRLF | One `[DONE]` at the end, the rest dropped, CRLF as LF | Model API, by design |
-| No data for ten seconds or more before the first chunk | `: keepalive` comment lines, which the OpenAI Python SDK ignores | Model API, by design |
-| An upstream error event, an end without `finish_reason`, a lost link, the time limit, an upstream 4xx after the response started, a raw NUL byte in a JSON string | A `data:` chunk with an `error` object, then `[DONE]`, in an HTTP 200 response; the log's `error` field is set (limit 7) | Model API |
-| An upstream 4xx before any byte | An ordinary HTTP error with the OpenAI error body | Model API |
-| `reasoning_content` and an unpaired surrogate escape in the same chunk | An `internal_error` chunk, then `[DONE]` (limit 8) | Model API, a defect |
+| 유효한 JSON이 아니거나 잘린 tool-call `arguments`(`finish_reason` `length`); 선언되지 않았거나, 철자가 틀렸거나, prefix(예: `functions.`)가 붙은 tool 이름(아래 `mcp_` 행의 경우 제외); 빈 응답; tool call과 섞인 텍스트; call이 없는 `tool_calls`, 또는 `stop`이 있는 call; 빠진 `id`, `type`, `index`; 반복된 `finish_reason`; 호출자가 usage를 요청했을 때 이상한 위치의 usage chunk | 같은 byte | 모델 |
+| U+FFFD, `\u0000` 또는 `\ud800` escape, 유효하지 않은 UTF-8 byte, 여러 read에 걸쳐 나뉜 multi-byte 문자 | 같은 byte | 모델 |
+| 호출자가 요청하지 않은 usage chunk(빈 `choices`) | 없음: chunk를 제거함 | 모델 API, 설계상 |
+| `reasoning_content` | reasoning만 있는 chunk는 버림. 다른 delta 필드가 있으면 compact JSON으로 다시 직렬화함 | 모델 API, 설계상 |
+| 선언되지 않았고, 양쪽에서 모든 `mcp_`를 제거하면 선언된 이름 중 정확히 하나와 같은 tool 이름 | 그 자리에 선언된 이름. chunk를 compact JSON으로 다시 직렬화함 | 모델 API, 설계상 |
+| `[DONE]` 없음, 두 번째 `[DONE]`, 그 뒤의 event, `event:`, `id:`, `retry:` 줄, CRLF | 끝에 `[DONE]` 하나, 나머지는 버림, CRLF는 LF로 | 모델 API, 설계상 |
+| 첫 chunk 전에 10초 이상 데이터 없음 | `: keepalive` comment 줄. OpenAI Python SDK는 이를 무시함 | 모델 API, 설계상 |
+| upstream error event, `finish_reason` 없는 종료, 끊긴 link, 시간 한도, 응답 시작 후의 upstream 4xx, JSON 문자열 안의 raw NUL byte | HTTP 200 응답 안에 `error` 객체가 있는 `data:` chunk, 그 뒤 `[DONE]`. log의 `error` 필드가 설정됨(한계 7) | 모델 API |
+| byte 전송 전의 upstream 4xx | OpenAI 오류 본문이 있는 일반 HTTP 오류 | 모델 API |
+| 같은 chunk 안의 `reasoning_content`와 짝 없는 surrogate escape | `internal_error` chunk, 그 뒤 `[DONE]`(한계 8) | 모델 API, 결함 |
 
-The `mcp_` row is not part of the offline analysis above;
-`tests/test_demo_model_api_tool_names.py` covers it, with fakes. What the
-replacement did in live calls is described under "The replacement in live
-traffic" below.
+`mcp_` 행은 위 offline 분석의 일부가 아니다.
+`tests/test_demo_model_api_tool_names.py`가 fake로 이를 다룬다. live 호출에서
+교체가 한 일은 아래 "live 트래픽에서의 교체"에서 설명한다.
 
-The model API changes a tool name only in the `mcp_` case above. It never
-changes arguments, `finish_reason`, ids or indexes, and it does not validate or
-retry tool calls: any other malformed tool call from the model reaches Foundry
-as it is, because the stream otherwise passes through unchanged by design. The
-`error` chunk has no `choices`. The OpenAI Python SDK raises `APIError` on it
-and ignores comment lines; how Foundry's parser treats either is not known.
+모델 API는 위의 `mcp_` 경우에만 tool 이름을 바꾼다. arguments,
+`finish_reason`, id, index는 절대 바꾸지 않으며, tool call을 검증하거나
+재시도하지 않는다. 모델이 만든 그 밖의 잘못된 tool call은 그대로 Foundry에
+도달한다. 설계상 stream은 그 외에는 바뀌지 않고 통과하기 때문이다. `error`
+chunk에는 `choices`가 없다. OpenAI Python SDK는 이 chunk에서 `APIError`를 발생시키고
+comment 줄은 무시한다. Foundry의 parser가 둘을 어떻게 다루는지는 알려지지 않았다.
 
-To tell the model's output from a fault of the model API, find the request's
-`x-request-id` in the model API's log line. A `status` of 200 with an empty
-`error` means the stream was the model's own output, apart from the changes
-marked "by design" above. A `tool_name_repairs` key in the line means that the
-model API changed a tool name in that request, and that the name the model sent
-differed from the declared name; the line holds lengths only, never the names.
-In `tool_calls`, a name with `declared` false and `repaired` false reached
-the caller as the model wrote it. A `finish_without_calls` of true is a
-`finish_reason` of `tool_calls` with no tool call in the answer, and a
-`marker_in_text` of true is a tag left in the text; the model API reports both
-and does not change them.
-A `finish_reason` of `length`, or `completion_tokens` near the token cap, means
-an answer that was cut off. A `status` of 200 with a non-empty `error` (for
-example `upstream_error`, `backend_unavailable`, `timeout` or `internal_error`)
-means the model API sent an error chunk.
+모델의 출력과 모델 API의 결함을 구분하려면, 모델 API의 log 줄에서 요청의
+`x-request-id`를 찾는다. `status`가 200이고 `error`가 비어 있으면, 위에서
+"설계상"으로 표시한 변경을 제외하면 stream은 모델 자체의 출력이었다. 줄에
+`tool_name_repairs` key가 있으면 모델 API가 그 요청에서 tool 이름을 바꿨고, 모델이
+보낸 이름이 선언된 이름과 달랐다는 뜻이다. 그 줄은 길이만 담고 이름은 절대 담지
+않는다. `tool_calls`에서 `declared`가 false이고 `repaired`가 false인 이름은 모델이 쓴
+그대로 호출자에게 도달했다. `finish_without_calls`가 true이면 `finish_reason`이
+`tool_calls`인데 응답에 tool call이 없다는 뜻이다. `marker_in_text`가 true이면
+텍스트에 tag가 남았다는 뜻이다. 모델 API는 둘 다 보고하고 바꾸지 않는다.
+`finish_reason`이 `length`이거나 `completion_tokens`가 token 상한에 가까우면
+응답이 잘렸다는 뜻이다. `status`가 200이고 `error`가 비어 있지 않으면(예:
+`upstream_error`, `backend_unavailable`, `timeout`, `internal_error`) 모델 API가
+error chunk를 보냈다는 뜻이다.
 
-**The replacement in live traffic.** With the replacement in the model API,
-43 calls went through Foundry: 30 in a series, 3 further calls and 10 in a
-demonstration. None ended in a Foundry 500 `model_error`. The first 12 calls
-of the series ran before the model API's log lines were saved, so it is not
-known whether the replacement acted in them. The log lines that were saved
-show 22 calls of the Microsoft Learn tool, and 5 of them had a near name: 45
-characters, not the 49 of the declared name, with one `mcp_` missing. The
-model API replaced each with the declared name, and all 5 calls completed. In
-their `tool_calls` entries the near names had one `mcp_` part (the declared
-name has two), no dot and no `functions.` prefix. The name of the Web IQ
-tool, which also has two `mcp_` parts (22 characters in all), was never
-shortened in 7 calls. `finish_without_calls` and `marker_in_text` were never
-true in the log lines that were saved. Before the replacement, the same agent
-setup ended in a 500 `model_error` twice in about 15 calls.
+**live 트래픽에서의 교체.** 모델 API에 교체가 들어간 상태에서 Foundry를 통해
+43개 호출이 지나갔다. series 30개, 추가 호출 3개, 시연 10개다. 어느 것도 Foundry
+500 `model_error`로 끝나지 않았다. series의 처음 12개 호출은 모델 API의 log 줄을
+저장하기 전에 실행되었으므로, 그 호출들에서 교체가 작동했는지는 알 수 없다. 저장된
+log 줄에는 Microsoft Learn tool 호출 22개가 있고, 그중 5개에 가까운 이름이 있었다.
+선언된 이름의 49자가 아니라 45자였고 `mcp_` 하나가 빠져 있었다. 모델 API는 각각을
+선언된 이름으로 바꿨고, 5개 호출 모두 완료되었다. 그 `tool_calls` 항목에서 가까운
+이름은 `mcp_` 부분이 하나였고(선언된 이름은 둘이다), dot과 `functions.` prefix는
+없었다. 역시 `mcp_` 부분이 둘인 Web IQ tool의 이름(전체 22자)은 7개 호출에서 한
+번도 짧아지지 않았다. 저장된 log 줄에서 `finish_without_calls`와 `marker_in_text`는
+한 번도 true가 아니었다. 교체 이전에는 같은 agent 설정이 약 15개 호출 중 두 번 500
+`model_error`로 끝났다.
 
-These counts support the guess in "An unexplained Foundry `model_error`" that
-the model wrote a tool name that did not match the declared one, and they
-agree with the replacement having prevented the 500. They are not statistical
-evidence of either. The sample is small, and the first 12 calls of the series
-were not observed. Each near name was replaced before it reached Foundry, so
-no call shows what Foundry does with an unreplaced one. The calls before the
-replacement are earlier history, not a control run with the replacement
-switched off.
+이 개수는 "설명되지 않은 Foundry `model_error`"의 추측, 즉 모델이 선언된 이름과
+맞지 않는 tool 이름을 썼다는 추측을 뒷받침한다. 또한 교체가 500을 막았다는 것과도
+맞는다. 그러나 둘 중 어느 것에 대한 통계적 근거도 아니다. sample이 작고, series의
+처음 12개 호출은 관찰되지 않았다. 가까운 이름은 모두 Foundry에 도달하기 전에
+교체되었으므로, 교체되지 않은 이름을 Foundry가 어떻게 다루는지 보여 주는 호출은
+없다. 교체 이전의 호출은 과거 이력이지, 교체를 끈 대조 run이 아니다.
 
-**Known limits.**
+**알려진 한계.**
 
-1. Foundry's requests are only partly observed. Foundry has called both
-   profiles, and the turns seen are plain chat, function tools and MCP tools
-   (approval `never` and `always`). The request fields above are what the
-   gateway traces recorded. A field not in that list, such as
-   `response_format`, `reasoning_effort`, `store`, `metadata` or `user`, is
-   accepted or dropped by design and tested with fakes only.
-2. The `model` field in a response is vLLM's served name (`axk2`), not the
-   public model name, because stream chunks pass through unchanged.
-3. The NVFP4 routes use the same code as FP8. The tests reach them only with a
-   fake link that reports the model evidence (checkpoint, revision,
-   parallelism, source) the hub requires before it calls the NVFP4 profile
-   ready; the live NVFP4 runs are the direct smoke test and the Foundry turns
-   above.
-4. Wrong keys are limited per caller address, taken from the last
-   `X-Forwarded-For` entry. Behind a gateway every caller shares one address,
-   so ten wrong keys in a minute also block the right key (429
-   `rate_limit_exceeded`, `Retry-After: 60`) until the window passes. Let the
-   gateway reject wrong keys, and do not retry a 401 blindly.
-5. A caller that leaves a stream while the model is silent may be noticed only
-   at the next write, up to about ten seconds later (the keepalive interval).
-   The cancel to vLLM and the release of the place follow then.
-6. The smoke test's `models` check accepts the model name only: `--model` must
-   be the name the list returns, so an alias fails that check even though chat
-   accepts it.
-7. A failure after the first byte of a stream cannot change the HTTP status,
-   which was sent with that byte. It is an `error` chunk inside an HTTP 200
-   response, so the App Service HTTP 5xx metric, and alerts built on it, do
-   not count it. Use the `status` and `error` fields of the model API's log
-   line instead. A failure before the first byte is an ordinary 4xx or 5xx.
-8. A chunk from vLLM that holds a `reasoning_content` key and also a lone
-   surrogate escape (such as `\ud800`) cannot be forwarded: the compact JSON
-   the model API writes after it removes the reasoning (`ensure_ascii=False`)
-   cannot be encoded as UTF-8, so the client gets an `internal_error` chunk
-   and `[DONE]` instead of that chunk. vLLM does not emit a lone surrogate and
-   thinking is off, so this is practically out of reach. It is a known limit
-   and was not corrected, because that needs a redeployment. The minimal fix
-   for the next deployment is in `Events.chunk`: write the chunk with
-   `ensure_ascii=True` when the UTF-8 encoding fails, which keeps the
-   reasoning removal. A standalone check shows that the escaped text encodes
-   and parses back to the same chunk.
-9. A subscription-level automation outside this repository lowered the web
-   app's App Service plan to the Free tier and turned Always On off, at the
-   same time of day on two days in a row. The plan was restored each time (B1,
-   Always On). At that time the web app restarts, and the first model request
-   can get a 503 (seen once).
+1. Foundry의 요청은 일부만 관찰되었다. Foundry는 두 profile을 모두 호출했고,
+   관찰된 turn은 일반 채팅, function tool, MCP tool(approval `never`와
+   `always`)이다. 위의 요청 필드는 gateway trace가 기록한 것이다. 그 목록에 없는
+   필드, 예를 들어 `response_format`, `reasoning_effort`, `store`, `metadata`,
+   `user`는 설계상 허용하거나 버리며, fake로만 테스트했다.
+2. 응답의 `model` 필드는 공개 모델 이름이 아니라 vLLM의 served name(`axk2`)이다.
+   stream chunk가 바뀌지 않고 통과하기 때문이다.
+3. NVFP4 route는 FP8과 같은 코드를 쓴다. 테스트는 hub가 NVFP4 profile을 ready로
+   판단하기 전에 요구하는 모델 근거(checkpoint, revision, parallelism, source)를
+   보고하는 fake link로만 이 route에 도달한다. live NVFP4 실행은 직접 smoke
+   test와 위의 Foundry turn이다.
+4. 잘못된 key는 마지막 `X-Forwarded-For` 항목에서 얻은 호출자 주소별로
+   제한한다. gateway 뒤에서는 모든 호출자가 주소 하나를 공유한다. 따라서 1분에
+   잘못된 key 10개가 들어오면 window가 지날 때까지 올바른 key도 막힌다(429
+   `rate_limit_exceeded`, `Retry-After: 60`). gateway가 잘못된 key를 거부하게
+   하고, 401을 무작정 재시도하지 않는다.
+5. 모델이 조용한 동안 stream을 떠난 호출자는 다음 write 때에야, 즉 최대 약 10초
+   뒤(keepalive 간격)에야 감지될 수 있다. vLLM에 대한 cancel과 자리 반환은 그때
+   이루어진다.
+6. smoke test의 `models` 검사는 모델 이름만 허용한다. `--model`은 목록이
+   반환하는 이름이어야 하므로, 채팅은 alias를 허용하지만 alias는 이 검사에서
+   실패한다.
+7. stream의 첫 byte 이후의 실패는 HTTP status를 바꿀 수 없다. status는 그 byte와
+   함께 이미 보냈기 때문이다. 실패는 HTTP 200 응답 안의 `error` chunk이므로, App
+   Service HTTP 5xx metric과 그 metric 기반 alert는 이를 세지 않는다. 대신 모델
+   API log 줄의 `status`와 `error` 필드를 쓴다. 첫 byte 이전의 실패는 일반 4xx
+   또는 5xx다.
+8. `reasoning_content` key와 단독 surrogate escape(`\ud800` 등)를 함께 담은
+   vLLM의 chunk는 전달할 수 없다. 모델 API가 reasoning을 제거한 뒤 쓰는 compact
+   JSON(`ensure_ascii=False`)을 UTF-8로 encode할 수 없기 때문이다. 그래서
+   client는 그 chunk 대신 `internal_error` chunk와 `[DONE]`을 받는다. vLLM은 단독
+   surrogate를 내보내지 않고 thinking이 꺼져 있으므로, 실제로는 도달하기 어렵다.
+   이는 알려진 한계이며, 재배포가 필요하므로 고치지 않았다. 다음 배포를 위한 최소
+   수정은 `Events.chunk`에 있다. UTF-8 encoding이 실패하면 `ensure_ascii=True`로
+   chunk를 쓰는 것이며, 이렇게 해도 reasoning 제거는 유지된다. 별도 점검은
+   escape된 텍스트가 encode되고 같은 chunk로 다시 parse됨을 보여 준다.
+9. 이 저장소 밖의 subscription 수준 automation이 web app의 App Service plan을 Free
+   tier로 낮추고 Always On을 껐다. 이틀 연속 하루 중 같은 시각에 일어났다. plan은
+   매번 복원했다(B1, Always On). 그 시각에 web app이 재시작되고, 첫 모델 요청이
+   503을 받을 수 있다(한 번 관찰됨).
 
-**Not yet verified.**
+**아직 검증되지 않은 사항.**
 
-- What caused the one Foundry `model_error`: the model's output, how Foundry
-  read the stream, or a difference in the request. It was not reproduced in 44
-  direct replays or in 3 Foundry retests. In replays of the captured request
-  the model returned a name with one `mcp_` missing in 3 of 100 calls at
-  temperature 1.0 and in 0 of 100 at 0.3; whether such a name causes the error
-  has not been checked. Live calls with the replacement in place support that
-  but do not check it (see "The replacement in live traffic").
-- Whether the tool-name replacement prevents the Foundry `model_error`. In the
-  live calls that were logged it replaced 5 near names, and none of 43 calls
-  through Foundry ended in the error, but the sample is small and the first 12
-  calls of the series of 30 were not observed (see "The replacement in live
-  traffic").
-- How often the real model ends an answer with `finish_reason` `tool_calls`
-  and no call, or leaves a tag in the text: `finish_without_calls` and
-  `marker_in_text` were never true in the log lines saved so far, a small
-  sample.
-- Which layer takes the 4 tokens off Foundry's input count. In 27 of 27 calls
-  through Foundry that were checked, its input count was the prompt tokens of
-  the call's last model request minus 4, and its output count was the
-  completion tokens of all the call's model requests added up. In direct calls
-  (not through Foundry), the usage the API returned was equal to the vLLM token
-  counter. That Foundry's usage reporting takes the 4 off is a guess and was
-  not checked.
-- How Foundry's parser treats an `error` chunk in a stream.
-- How Foundry treats a tool call with a wrong argument. One case was seen: the
-  Web IQ tool rejected the `location` argument as badly formatted, Foundry
-  ended that run with a 400 `tool_user_error`, and it sent no second model
-  request. Not checked: other arguments, other tools, and a tool call whose
-  `arguments` are not valid JSON.
-- What the Foundry console shows for this connection: the model setting, the
-  conversation and the tool runs. This needs a person signed in to the console.
-- The header name of the Web IQ key. With a real key, 3 of 3 calls through
-  Foundry succeeded, and so did later demonstration calls to the tool. That
-  Foundry sends the key name set in its connection unchanged as the request
-  header name is a guess and was not checked.
+- 한 번의 Foundry `model_error`를 일으킨 원인: 모델의 출력, Foundry가 stream을
+  읽은 방식, 또는 요청의 차이. 44번의 직접 replay와 3번의 Foundry 재테스트에서
+  재현되지 않았다. 캡처한 요청의 replay에서 모델은 temperature 1.0에서 100번 중
+  3번, 0.3에서 100번 중 0번 `mcp_` 하나가 빠진 이름을 반환했다. 그런 이름이 오류를
+  일으키는지는 확인하지 않았다. 교체를 적용한 live 호출은 이를 뒷받침하지만
+  확인하지는 않는다("live 트래픽에서의 교체" 참조).
+- tool 이름 교체가 Foundry `model_error`를 막는지 여부. log가 남은 live 호출에서
+  교체는 가까운 이름 5개를 바꿨고, Foundry를 통한 43개 호출 중 어느 것도 이 오류로
+  끝나지 않았다. 그러나 sample이 작고, 30개 series의 처음 12개 호출은 관찰되지
+  않았다("live 트래픽에서의 교체" 참조).
+- 실제 모델이 얼마나 자주 `finish_reason` `tool_calls`로 call 없이 응답을
+  끝내는지, 또는 텍스트에 tag를 남기는지. 지금까지 저장된 log 줄에서
+  `finish_without_calls`와 `marker_in_text`는 한 번도 true가 아니었다. 작은
+  sample이다.
+- Foundry의 input count에서 어느 계층이 4 token을 빼는지. 확인한 Foundry 경유
+  호출 27개 중 27개에서, input count는 그 호출의 마지막 모델 요청의 prompt
+  token에서 4를 뺀 값이었고, output count는 그 호출의 모든 모델 요청의 completion
+  token을 더한 값이었다. 직접 호출(Foundry를 거치지 않음)에서는 API가 반환한
+  usage가 vLLM token counter와 같았다. Foundry의 usage 보고가 4를 뺀다는 것은
+  추측이며 확인하지 않았다.
+- Foundry의 parser가 stream 안의 `error` chunk를 어떻게 다루는지.
+- Foundry가 잘못된 argument가 있는 tool call을 어떻게 다루는지. 한 사례가
+  관찰되었다. Web IQ tool이 `location` argument를 형식이 잘못되었다고 거부했고,
+  Foundry는 그 run을 400 `tool_user_error`로 끝냈으며 두 번째 모델 요청을 보내지
+  않았다. 확인하지 않은 것: 다른 argument, 다른 tool, `arguments`가 유효한 JSON이
+  아닌 tool call.
+- Foundry console이 이 connection에 대해 보여 주는 것: 모델 설정, 대화, tool
+  실행. 이는 console에 로그인한 사람이 확인해야 한다.
+- Web IQ key의 header 이름. 실제 key로 Foundry를 통한 호출 3개 중 3개가
+  성공했고, 이후 그 tool에 대한 시연 호출도 성공했다. Foundry가 connection에
+  설정된 key 이름을 그대로 요청 header 이름으로 보낸다는 것은 추측이며 확인하지
+  않았다.
 
-**A related issue in the demo chat (unchanged).** `POST /api/chat` has the same
-exposure that the model API now closes. A user message with an unpaired
-surrogate (a JSON escape such as `\ud800`) passes its validation, makes the
-hub's writer fail and closes the profile's GPU link, which ends every request
-in flight on it, other users' demo chats and model API calls included; the
-link reconnects. It needs the demo login. It was reproduced with a fake link,
-is recorded here as a pre-existing issue, and was not changed with this API
-because the hub and the demo chat are outside it. A fix would apply the same
-encodability check to the demo chat's request validation.
+**데모 채팅의 관련 문제(변경 없음).** `POST /api/chat`은 모델 API가 이제 막은
+것과 같은 노출을 가진다. 짝 없는 surrogate(`\ud800` 같은 JSON escape)가 있는 사용자
+message는 검증을 통과하고, hub의 writer를 실패시키며, profile의 GPU link를 닫는다.
+그러면 그 link 위에서 진행 중인 모든 요청이 끝난다. 다른 사용자의 데모 채팅과 모델
+API 호출도 포함된다. link는 다시 연결된다. 이 문제를 일으키려면 데모 로그인이
+필요하다. fake link로 재현했고, 기존 문제로 여기에 기록한다. hub와 데모 채팅은 이
+API 범위 밖이므로 이 API와 함께 바꾸지 않았다. 수정한다면 데모 채팅의 요청 검증에
+같은 encodability 검사를 적용한다.
 
-## 8.7 Expert parallelism on A100 (2026-10-21, uksouth)
+## 8.7 A100에서의 expert parallelism (2026-10-21, uksouth)
 
-Evidence: `evidence/a100-expert-parallel-comparison.json`. Templates:
-`aml/jobs/ep-compare-fp8-nd96.yml` (two nodes) and `aml/jobs/ep-compare-nvfp4-nd96.yml`
-(one node). The question was whether expert parallelism (EP) makes the A.X K2 deployment
-faster. Every layout ran the engine of sections 4 and 5b without changes; the layouts
-differ only in launch flags. The baselines were measured again in the same allocation, so
-the TP16 dense numbers of 8.1 are not reused.
+근거: `evidence/a100-expert-parallel-comparison.json`. 템플릿:
+`aml/jobs/ep-compare-fp8-nd96.yml`(2노드)과 `aml/jobs/ep-compare-nvfp4-nd96.yml`
+(1노드)이다. 질문은 expert parallelism(EP)이 A.X K2 배포를 더 빠르게 만드는가였다.
+모든 layout은 4절과 5b절의 엔진을 변경 없이 실행했다. layout 간 차이는 실행 flag뿐이다.
+baseline은 같은 할당에서 다시 측정했다. 따라서 8.1의 TP16 dense 수치는 재사용하지
+않았다.
 
-**How vLLM 0.23 forms expert parallelism** (read in the SKT fork `023bc760`):
+**vLLM 0.23이 expert parallelism을 구성하는 방식** (SKT fork `023bc760`에서 확인):
 
-- `--enable-expert-parallel` (`-ep`) is a switch, not a size; there is no EP size option.
-  With the switch on, `FusedMoEParallelConfig.make` (`fused_moe/config.py`) gives every
-  MoE layer an EP size of DP x PCP x TP of its pipeline stage and sets its TP to 1. The
-  EP group holds the ranks of one stage across DP, PCP and TP (`parallel_state.py`,
-  rank order ExternalDP x DP x PP x PCP x TP). So "TP16 + EP16" is TP16 with the switch,
-  TP8 x PP2 gives EP8 in each stage, DP2 x TP8 gives EP16, and one-node TP8 gives EP8.
-- Only the 256 routed experts move. Attention keeps its TP (or DP) layout and the shared
-  expert stays TP-sharded. With the default linear placement, EP rank r owns experts
-  r x 256/EP to (r+1) x 256/EP - 1. The run logged EP rank 8 (second node) owning
-  experts 128-143 at EP16.
-- With DP = 1 nothing is dispatched. Every rank keeps all tokens, runs its own experts and
-  all-reduces the sum of routed and shared output over the TP group
-  (`MoEPrepareAndFinalizeNoDPEPModular`). That is the same collective as without EP. With
-  DP > 1, vLLM uses the default all2all backend, `allgather_reducescatter`
-  (`AgRsAll2AllManager`), and sequence-parallel MoE.
-- vLLM 0.23 removed the `pplx` and `naive` backends. The image ships DeepEP 1.2.1, but the
-  v0.23.0 Dockerfile builds it for `9.0a 10.0a` only, so it has no A100 kernels.
-- On A100 the experts run on Marlin in every layout (FP8 W8A16, NVFP4 W4A16), and
-  `MarlinExperts` takes the expert map.
-- `AXK2MoE` is built like DeepSeek-V3 (FusedMoE, top-8, EPLB and sequence-parallel
-  wiring), so EP needs no model change. Its 64 attention heads leave 4 per rank at TP16.
-  The ported sparse-MLA kernel masks heads in blocks of 16 and served correctly at 4
-  heads per rank.
+- `--enable-expert-parallel`(`-ep`)은 크기가 아니라 스위치다. EP 크기 옵션은 없다.
+  스위치를 켜면 `FusedMoEParallelConfig.make`(`fused_moe/config.py`)가 모든
+  MoE layer에 해당 pipeline stage의 DP x PCP x TP를 EP 크기로 주고, TP를 1로 설정한다.
+  EP group은 한 stage의 rank를 DP, PCP, TP 전체에 걸쳐 묶는다(`parallel_state.py`,
+  rank 순서 ExternalDP x DP x PP x PCP x TP). 따라서 "TP16 + EP16"은 스위치를 켠 TP16이다.
+  TP8 x PP2는 각 stage에서 EP8이 되고, DP2 x TP8은 EP16이 되며, 1노드 TP8은 EP8이 된다.
+- 256개의 routed expert만 이동한다. attention은 TP(또는 DP) layout을 유지하고, shared
+  expert는 TP로 분할된 상태를 유지한다. 기본 linear 배치에서 EP rank r은
+  expert r x 256/EP부터 (r+1) x 256/EP - 1까지를 소유한다. 실행 로그에는 EP16에서
+  EP rank 8(두 번째 노드)이 expert 128-143을 소유한다고 기록되었다.
+- DP = 1이면 아무것도 dispatch하지 않는다. 모든 rank가 모든 token을 유지하고, 자기 expert를
+  실행한 뒤, routed 출력과 shared 출력의 합을 TP group에서 all-reduce한다
+  (`MoEPrepareAndFinalizeNoDPEPModular`). 이는 EP가 없을 때와 같은 collective다.
+  DP > 1이면 vLLM은 기본 all2all backend인 `allgather_reducescatter`
+  (`AgRsAll2AllManager`)와 sequence-parallel MoE를 사용한다.
+- vLLM 0.23은 `pplx`와 `naive` backend를 제거했다. 이미지에는 DeepEP 1.2.1이 들어 있지만,
+  v0.23.0 Dockerfile은 이를 `9.0a 10.0a` 용으로만 빌드한다. 따라서 A100 kernel이 없다.
+- A100에서는 모든 layout에서 expert가 Marlin으로 실행된다(FP8 W8A16, NVFP4 W4A16).
+  `MarlinExperts`는 expert map을 받는다.
+- `AXK2MoE`는 DeepSeek-V3처럼 구성되어 있다(FusedMoE, top-8, EPLB, sequence-parallel
+  연결). 따라서 EP에 모델 변경이 필요 없다. attention head 64개는 TP16에서 rank당 4개가 된다.
+  이식한 sparse-MLA kernel은 head를 16개 단위 블록으로 masking하며, rank당 4 head에서도
+  올바르게 서빙했다.
 
-**Method.** Every layout used the same settings:
+**방법.** 모든 layout에 같은 설정을 사용했다.
 
-- the same weights and native DSA, with the demo's parsers, priority scheduling and
-  8,192 batched tokens;
-- the context auto-fitted to the KV cache (`--max-model-len -1`);
-- 64 sequences at 0.90 GPU memory for FP8, and 128 at 0.92 for NVFP4.
+- 같은 weight와 native DSA, 그리고 데모의 parser, priority scheduling,
+  8,192 batched token;
+- KV cache에 맞춰 자동으로 정한 context(`--max-model-len -1`);
+- FP8은 GPU memory 0.90에서 64 sequence, NVFP4는 0.92에서 128 sequence.
 
-Each layout passed the 4 functional checks and the 9 tool-calling cases of 8.1. It then
-ran one matrix with `vllm bench serve`:
+각 layout은 8.1의 기능 점검 4개와 tool-calling 사례 9개를 통과했다. 그다음
+`vllm bench serve`로 matrix 하나를 실행했다.
 
-- random dataset with `--ignore-eos`;
-- inputs of 1K, 8K and 32K tokens;
-- concurrency 1 (4 requests) and 32 (64 requests, 32 at 32K);
-- 1,024 output tokens and a seed per point;
-- warm-up requests before each input length;
-- one sample per point.
+- `--ignore-eos`를 적용한 random dataset;
+- 1K, 8K, 32K token 입력;
+- concurrency 1(요청 4개)과 32(요청 64개, 32K에서는 32개);
+- 출력 1,024 token과 측정점별 seed;
+- 입력 길이마다 그 전에 warm-up 요청;
+- 측정점당 sample 1개.
 
-**Layouts and capacity (FP8, 16 x A100).** Every layout started with CUDA graphs and
-passed 4/4 and 9/9.
+**Layout과 용량 (FP8, 16 x A100).** 모든 layout이 CUDA graph로 시작했고
+4/4와 9/9를 통과했다.
 
-| Layout | EP size (experts per GPU) | Healthy after | KV cache tokens | Context | Weights / KV per GPU |
+| Layout | EP 크기 (GPU당 expert 수) | healthy까지 걸린 시간 | KV cache token | Context | GPU당 Weight / KV |
 | --- | --- | ---: | ---: | ---: | --- |
-| A. TP8 x PP2, the demo layout | none | 261 s | 673,792 | 262,144 | 42.3 / 25.0 GiB |
+| A. TP8 x PP2, 데모 layout | 없음 | 261 s | 673,792 | 262,144 | 42.3 / 25.0 GiB |
 | B. TP16 + EP | EP16 (16) | 231 s | 309,376 | 262,144 | 43.3 / 22.6 GiB |
-| C1. TP8 x PP2 + EP | EP8 per stage (32) | 151 s | 673,216 | 262,144 | 42.3 / 25.0 GiB |
-| B0. TP16 without EP (control for B) | none | 251 s | 310,080 | 262,144 | 43.3 / 22.6 GiB |
+| C1. TP8 x PP2 + EP | stage당 EP8 (32) | 151 s | 673,216 | 262,144 | 42.3 / 25.0 GiB |
+| B0. EP 없는 TP16 (B의 대조군) | 없음 | 251 s | 310,080 | 262,144 | 43.3 / 22.6 GiB |
 | C2. DP2 x TP8 + EP (Ray data-parallel backend) | EP16 (16) | 221 s | 238,720 + 238,656 | 238,656 | 46.4 / 17.4 GiB |
 
-- TP16 replicates the MLA cache on 16 ranks, each holding all 61 layers, so it keeps 0.46x
-  of A's tokens.
-- DP2 keeps the attention weights of every layer on each 8-GPU replica. Each replica then
-  holds about 239K tokens, and the context shrinks to 238,656.
-- At 32K inputs and concurrency 32, the number of requests running at once was 20 for A
-  and C1, 9 for the TP16 layouts and 14 for C2 (7 per replica).
+- TP16은 MLA cache를 16개 rank에 복제하고, 각 rank가 61개 layer 전체를 보유한다. 따라서
+  A의 token 수의 0.46x만 유지한다.
+- DP2는 8-GPU replica마다 모든 layer의 attention weight를 유지한다. 그 결과 각 replica는
+  약 239K token을 보유하고, context는 238,656으로 줄어든다.
+- 32K 입력과 concurrency 32에서 동시에 실행된 요청 수는 A와 C1이 20개, TP16 layout이
+  9개, C2가 14개(replica당 7개)였다.
 
-**Speed (FP8).** Output tokens per second, with the ratio to A in brackets:
+**속도 (FP8).** 초당 출력 token 수이며, 괄호 안은 A 대비 비율이다.
 
 | Layout | 1K, c1 | 1K, c32 | 8K, c1 | 8K, c32 | 32K, c1 | 32K, c32 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -1400,8 +1344,8 @@ passed 4/4 and 9/9.
 | B0. TP16 | 38 (0.79) | 421 (1.04) | 34 (0.82) | 218 (1.04) | 25 (0.77) | 54 (0.89) |
 | C2. DP2 x TP8 + EP | 24 (0.50) | 454 (1.12) | 23 (0.54) | 284 (1.36) | 18 (0.56) | 72 (1.18) |
 
-Median TPOT / median TTFT. TPOT at 32K and c32 depends on how many requests fit, so read
-output tok/s there.
+TPOT 중앙값 / TTFT 중앙값. 32K, c32의 TPOT는 동시에 들어가는 요청 수에 좌우된다. 따라서
+그 지점은 출력 tok/s로 읽는다.
 
 | Layout | 1K, c1 | 1K, c32 | 8K, c1 | 8K, c32 | 32K, c1 | 32K, c32 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -1411,245 +1355,215 @@ output tok/s there.
 | B0. TP16 | 26.2 / 0.35 | 70.1 / 5.7 | 26.9 / 2.3 | 137.3 / 9.3 | 28.2 / 12.7 | 143.1 / 261 |
 | C2. DP2 x TP8 + EP | 41.3 / 0.51 | 66.8 / 5.5 | 41.8 / 2.7 | 98.9 / 15.4 | 42.7 / 14.0 | 154.5 / 213 |
 
-**NVFP4, one node.** TP8 + EP (EP8, 32 experts per GPU) started in 312 s against 442 s and
-passed 4/4 and 9/9. It held 253,120 KV tokens (TP8: 254,016) with the same 48.5 GiB of
-weights per GPU. It was slower at every point: 0.93-0.95x output tok/s, and 1.05-1.09x
-TPOT and TTFT. For example, at 1K and c32 TPOT was 69.2 ms against 65.7, and at 8K and
-c32 output was 175 tok/s against 188.
+**NVFP4, 1노드.** TP8 + EP(EP8, GPU당 expert 32개)는 442 s 대비 312 s 만에 시작했고
+4/4와 9/9를 통과했다. KV token 253,120개를 보유했고(TP8: 254,016), GPU당 weight는
+같은 48.5 GiB였다. 모든 측정점에서 더 느렸다. 출력 tok/s는 0.93-0.95x였고, TPOT와 TTFT는
+1.05-1.09x였다. 예를 들어 1K, c32에서 TPOT는 65.7 대비 69.2 ms였고, 8K,
+c32에서 출력은 188 대비 175 tok/s였다.
 
-**Findings.**
+**결과.**
 
-- EP on its own never paid off. Turning it on in an otherwise identical layout cost 6%
-  of throughput at TP16 (B vs B0), 8% at TP8 x PP2 (C1 vs A) and 5-7% for one-node
-  NVFP4. At one request it cost 13-14% TPOT on two nodes and 8% on one.
-- TP16 + EP, the layout asked about, is no faster than the demo layout. With 32 requests
-  it reaches 0.98x up to 8K inputs and 0.83x at 32K. With one request it is 1.4x slower,
-  and it holds 0.46x of the KV cache. TP16 itself costs 24-26% TPOT at one request: every
-  layer's all-reduce crosses InfiniBand, because custom all-reduce is disabled when a group
-  spans nodes.
-- DP2 x TP8 + EP is the only EP layout that beat the demo layout under load: 1.12x, 1.36x
-  and 1.18x output tok/s at 1K, 8K and 32K, and 0.69x TPOT at 8K. It pays with about 2x
-  TPOT for a lone request, 1.56x TTFT at 8K and c32, and a context of 238,656 instead of
-  262,144.
-- The DP/EP lock-step, which SKT avoided because it hung in their long-context
-  evaluation (section 1), did not hang here, but only inputs up to 32K were tested.
+- EP 단독으로는 한 번도 이득이 없었다. 다른 조건이 같은 layout에서 EP를 켜면
+  TP16에서 throughput이 6%(B vs B0), TP8 x PP2에서 8%(C1 vs A), 1노드
+  NVFP4에서 5-7% 줄었다. 요청 1개에서는 2노드에서 TPOT가 13-14%, 1노드에서 8% 늘었다.
+- 질문받은 layout인 TP16 + EP는 데모 layout보다 빠르지 않다. 요청 32개에서
+  8K 입력까지 0.98x, 32K에서 0.83x에 그친다. 요청 1개에서는 1.4x 느리고,
+  KV cache는 0.46x만 보유한다. TP16 자체가 요청 1개에서 TPOT를 24-26% 늘린다. 모든
+  layer의 all-reduce가 InfiniBand를 거치기 때문이다. group이 노드를 넘으면
+  custom all-reduce가 비활성화된다.
+- DP2 x TP8 + EP는 부하 상태에서 데모 layout을 이긴 유일한 EP layout이다. 1K, 8K,
+  32K에서 출력 tok/s가 1.12x, 1.36x, 1.18x였고, 8K에서 TPOT는 0.69x였다. 대가로 단일
+  요청의 TPOT가 약 2x, 8K와 c32의 TTFT가 1.56x가 되고, context가 262,144 대신
+  238,656이 된다.
+- SKT가 장문 context 평가에서 hang이 발생해 피했던 DP/EP lock-step(1절)은
+  여기서 hang이 나지 않았다. 다만 32K까지의 입력만 시험했다.
 
-**Interpretation (not measured).** On average TP and EP read the same share of the
-activated expert weights per rank. TP slices every activated expert over all ranks. EP
-gives whole experts to the ranks that routing picks, so a step waits for the busiest rank.
-That imbalance would explain the steady EP penalty. Per-rank expert load was not measured,
-and EPLB (`--enable-eplb` with redundant experts) was not tried. C2 gains under load
-because attention runs as two independent TP8 groups over NVLink, each with half the
-requests. It loses with one request because every MoE layer then gathers and scatters
-over InfiniBand while the idle replica runs dummy steps.
+**해석 (측정하지 않음).** 평균적으로 TP와 EP는 rank당 활성화된 expert weight 중 같은
+비율을 읽는다. TP는 활성화된 모든 expert를 전체 rank에 나눠 자른다. EP는 routing이
+고른 rank에 expert를 통째로 준다. 따라서 한 step은 가장 바쁜 rank를 기다린다.
+이 불균형이 일정한 EP 손실을 설명할 수 있다. rank별 expert 부하는 측정하지 않았고,
+EPLB(redundant expert를 쓰는 `--enable-eplb`)도 시도하지 않았다. C2가 부하 상태에서
+이득을 보는 이유는 attention이 NVLink 위의 독립 TP8 group 두 개로 실행되고, 각 group이
+요청의 절반을 처리하기 때문이다. 요청 1개에서 손해를 보는 이유는 그때 모든 MoE layer가
+InfiniBand로 gather와 scatter를 하고, 유휴 replica는 dummy step을 실행하기 때문이다.
 
-**Decision for the demo.** Keep TP8 x PP2 for FP8 and TP8 for NVFP4. They give the lowest
-latency for single chats, the full 262,144-token context and the most KV cache.
-DP2 x TP8 + EP suits only throughput-bound batch serving that accepts higher single-request
-latency and contexts up to 238,656 tokens. TP16 + EP has no advantage here.
+**데모 결정.** FP8은 TP8 x PP2, NVFP4는 TP8을 유지한다. 이 layout이 단일 대화에서 가장
+낮은 지연, 262,144 token 전체 context, 가장 많은 KV cache를 제공한다.
+DP2 x TP8 + EP는 단일 요청 지연이 커지는 것과 238,656 token까지의 context를 받아들이는
+throughput 중심 batch 서빙에만 맞는다. TP16 + EP는 여기서 이점이 없다.
 
-**Cost.** The FP8 job ran 3 h 2 min on two nodes and the NVFP4 job 1 h 29 min on one, 7.5
-node-hours in all. Counting node preparation and release, it was at most about 8.2. That is
-about USD 97-105 at the Spot meter; the actual bill was not checked. Both jobs were queued
-before the demo stopped. AML did not hand them the freed nodes: it released all three and
-allocated new ones, which took about ten minutes. There was no preemption.
+**비용.** FP8 job은 2노드에서 3 h 2 min, NVFP4 job은 1노드에서 1 h 29 min 실행되어 합계
+7.5 node-hour였다. 노드 준비와 해제를 포함하면 최대 약 8.2였다. Spot meter 기준으로
+약 USD 97-105다. 실제 청구액은 확인하지 않았다. 두 job은 데모를 멈추기 전에
+queue에 넣었다. AML은 비워진 노드를 이 job에 넘기지 않았다. 세 노드를 모두 해제하고
+새 노드를 할당했으며, 이에 약 10분이 걸렸다. preemption은 없었다.
 
-**Limits.**
+**한계.**
 
-- One sample per point; a repeat could change differences of a few percent.
-- Random prompts only, concurrency 1 and 32, inputs up to 32K tokens.
-- Not tested: EPLB, `--enable-ep-weight-filter`, round-robin placement and DeepEP.
-- Quality was checked only with the functional and tool-calling suites.
-- vLLM's `info_once` writes the rank and expert-placement lines on one rank per node. The
-  rest of the mapping follows from the source.
+- 측정점당 sample 1개다. 반복하면 몇 퍼센트 수준의 차이는 바뀔 수 있다.
+- random prompt만, concurrency 1과 32만, 32K token까지의 입력만 시험했다.
+- 시험하지 않음: EPLB, `--enable-ep-weight-filter`, round-robin 배치, DeepEP.
+- 품질은 기능 suite와 tool-calling suite로만 점검했다.
+- vLLM의 `info_once`는 rank와 expert 배치 줄을 노드당 rank 하나에서만 기록한다.
+  나머지 mapping은 소스에서 도출했다.
 
-## 9. Known limits and next steps
+## 9. 알려진 한계와 다음 단계
 
-- Low-priority/Spot capacity can be preempted and was scarce: 2 x ND96amsr
-  was available in two of twelve regions when asked. Production needs
-  on-demand or reserved capacity in the customer subscription. Run the
-  same image and command there, on AKS + KubeRay/LWS or CycleCloud Slurm.
-- **Reverse GPU link stability.** The demo's low-priority nodes were kept
-  running. Over about 16 hours across 2026-10-19 and 2026-10-20, the reverse
-  GPU link between a serving job and the web app closed 8 times, counted per
-  profile (FP8 4, NVFP4 4). Two pairs closed within seconds of each other, so
-  there were 6 incidents. Counted from the close to the first ready state, a
-  profile was not ready for about 32 to 116 minutes. These are observed
-  times, some estimated from the start-up phase, and not a guarantee. The
-  likely cause is Spot eviction (see Cause below); it is not confirmed. Two of
-  the incidents, both on 2026-10-19, are in a redacted record,
-  `demo/evidence/recurrent-link-loss-recovery-redacted.json`; they are the
-  first and second loss below. The raw data is not published.
-  - *Recovery times.* The observed times included about 32, 43, 56, 66 and
-    67 minutes, and the longest was about 116 minutes (NVFP4). The 32-minute
-    recovery (the 8th close) needed no action from the supervisor: AML re-ran
-    the same job by itself, on the same node ID. There was no supervisor
-    release and no new submit, and the vLLM counters were reset to 0. The 43,
-    56, 66 and 67 minute recoveries followed a supervisor release (it cancels
-    the job and starts a replacement) or an approved manual restart. Some
-    values, including the longest, are estimates from the start-up phase the
-    job reported, not a ready state seen directly.
-  - *First loss.* Both profiles lost the link, 3.1 seconds apart. The
-    supervisor released the FP8 job 20 minutes 39 seconds after the loss, and
-    FP8 was ready 22 minutes 15 seconds later, 43 minutes after the loss.
-    NVFP4 had one approved manual restart, requested 44 minutes after the
-    loss, and was stably ready 22 minutes after the request, 66 minutes after
-    the loss.
-  - *Second loss.* Only FP8 lost the link. About 7 minutes later its job went
-    to Queued with no usable node, and the supervisor released it by its rule:
-    no link for 1,200 seconds and fewer than two usable nodes. FP8 was first
-    ready 66 minutes 49.7 seconds after the loss, 46 minutes 18.6 seconds after
-    the release and 31 minutes 47.8 seconds after both nodes were allocated.
-    Counted from the allocation alone, that is still longer than the first FP8
-    replacement took from release to ready (22 minutes 15 seconds). The reason
-    was not found; Spot capacity and the cache state are candidates only and
-    were not checked. No link loss was observed on NVFP4, but its samples
-    around the loss were up to 112 seconds apart, so a short reconnection
-    cannot be excluded.
-  - *Cause: Spot eviction is likely; not confirmed.* Azure ML retired
-    low-priority VMs on 2026-03-31. A cluster that specifies
-    `tier: low_priority` still runs jobs, but Azure Batch now allocates its
-    nodes as Spot VMs, so Spot eviction behaviour applies. Nodes are evicted
-    only for capacity reasons (Microsoft Learn, "Manage and optimize Azure
-    Machine Learning costs", section "Use low-priority virtual machines"). The
-    demo's nodes come from such a cluster (section 2), so Spot eviction can
-    explain the closes. The signs that fit it are circumstantial. Run History
-    shows a preemption warning on all 5 AML jobs that have ended. The warning
-    has no time or code field, and a one-to-one match with the closes is not
-    confirmed. In some cases AML ran the same job again on another node
-    without a submit from the supervisor. That matches an automatic requeue,
-    but Run History did not confirm it for the one job that was read: its
-    attempt fields showed attempt 1, no retry or requeue property and no last
-    start time. GPU telemetry stopped 5 to 21 seconds before the close (40
-    seconds for the last one).
-  - *Cause: open points.* One contradiction is unresolved: the Azure Monitor
-    metric `Preempted Nodes` (1-minute grain) and the diagnostic settings show
-    0 in every minute that was measured. Microsoft Learn defines this metric
-    as the low-priority nodes that are taken away from the available node pool
-    (Azure Machine Learning monitoring data reference). That it does not count
-    nodes that Azure Batch evicts as Spot VMs is an inference; the
-    documentation does not confirm it. None of the time-stamped records
-    checked shows an eviction. The Azure Activity Log for a ten-minute window
-    around the second loss has 52 entries, all reads, and no Resource Health
-    or Service Health event. The Resource Health query was unavailable, so
-    that source was not observed. So an eviction or re-creation of a node is
-    unconfirmed, and so is a restart of the worker process alone. Load does
-    not look like the cause: GPU utilisation was 0% in the ten minutes before
-    each of the first 7 closes (per-minute snapshots, 800 device samples). A
-    short request between snapshots is not excluded.
-  - *Timing pattern.* The first 7 closes all happened at a clock time whose
-    minute ends in 7. The 8th did not, so this must not be used as a periodic
-    rule. Why the first 7 shared it is unknown. The FP8 closes of the first
-    and second loss are 10,804.9 seconds (3 hours 4.9 seconds) apart; that may
-    be chance and is not evidence of a periodic cause.
-  - *What the supervisor sees.* It checks every 45 seconds. It releases a
-    job at its next check when AML reports a terminal status. Its stale rule
-    releases the active job only when the job has had no link for more than
-    1,200 seconds and fewer nodes are usable than the job needs. The time a
-    link was last seen is refreshed whenever a link exists, so a link process
-    that reconnects over a dead model server keeps that rule from firing. The
-    job status is AML's coarse status and does not show a re-run of the same
-    run. Inside the job, `phase` is set to `ready` when a start first becomes
-    healthy and stays `ready` until the job restarts the server, so it does
-    not follow later `/health` failures. The job restarts the server when the
-    process exits or when 18 `/health` checks in a row fail (about 3 to 6
-    minutes). A start that never becomes healthy is restarted too, after it
-    has waited up to 3,600 seconds and retried once with `--enforce-eager` for
-    up to 3,600 seconds more. On the Ray executor (the two-node job), the job
-    restarts the server only while every node is still in the Ray cluster; if
-    a node has left, it fails at once with `a node left the Ray cluster`. At
-    most 2 restarts are allowed. When they run out, the job exits with code 40
-    and the supervisor replaces it.
-  - *Decision.* No supervisor rule was added. A rule such as "cancel after N
-    minutes not ready" could cut a job that AML is about to recover (the
-    32-minute case). A cancel and resubmit is not shown to be faster: the
-    release-to-ready times seen were 22 minutes 15 seconds and 46 minutes
-    18.6 seconds (above), the one self-rerun took 32 minutes in all, and a
-    cancel before the 1,200-second rule was never tested. In the 8th close,
-    the job showed no usable node at about 13 to 19 minutes after the loss,
-    the link was back at about 19 minutes and the profile was first ready at
-    about 32 minutes, about 13 minutes after the link. A later rule should
-    test for no progress, not for not ready: the tuple `phase`, `since`,
-    `download_gb`, `load_pct` and the `started` time of the link's hello is
-    unchanged for N minutes. N must be well above the 45-second check, the
-    30-second status freshness limit, a web app redeploy gap and the link's
-    reconnect backoff. The timer would live in each profile's own job state.
-    This is a design proposal; it was not implemented or verified.
-  - *Alternative: dedicated nodes.* The dedicated quota for the NDAMSv4 A100
-    family is 0 in the demo subscription (section 2), so dedicated nodes
-    need a quota increase first. Retail list prices for
-    `Standard_ND96amsr_A100_v4` in uksouth (Linux), in USD per node-hour:
-    dedicated 40.96, Spot 12.89 and the former low-priority meter 8.19 (also
-    listed in 8.4). No change was made. The automatic recovery path stays as
-    it is. Switching to dedicated nodes is a cost and quota decision for the
-    demo owner.
-  - *Effect.* While the link is down, the model API answers 503
-    `backend_unavailable` at once with `Retry-After: 30` (8.6). That 503 was
-    seen in the first loss (Foundry sent four requests for one NVFP4 call and
-    each got it, 8.6). The session that monitored the recovery sent no model
-    call during the second loss (its record: 0). `GET {base}/health` shows
-    readiness, but it needs the key and the gateway does not expose it, so
-    behind the gateway the state shows only as the 503 of a model call.
-    Before a demo starts, call `GET {base}/health` for both profiles on the
-    web app's own address and check that each answers 200.
-  - *Conclusion.* On this capacity a profile can be not ready for tens of
-    minutes (about 32 to 116 observed, not a guarantee). The VM quota for
-    the A100 families is 0 (section 2), so the nodes come from Azure ML
-    low-priority (Spot) compute, and Spot eviction is the likely cause of
-    the closes (not confirmed, see Cause above). Production needs on-demand
-    or reserved capacity, as the limit above says. No code was changed, no
-    supervisor rule was added, the cluster was not switched to dedicated
-    nodes and nothing was redeployed for this (no web app restart was made
-    for the link-loss question), and the hub's reconnection behaviour is
-    unchanged.
-- Native DSA depends on an unmerged upstream PR carried as a hash-checked
-  overlay. Re-validate (kernel tests plus the 2-layer comparison in
-  `native-dsa-bench-nd96-hub.yml`) before moving to another vLLM version, and
-  prefer upstream support once it lands.
-- The one-node NVFP4 variant needs a backport of two upstream vLLM commits
-  (`aml/src/nvfp4_sm80_port.json`); vLLM 0.24.0 and later include them. Its
-  quality was checked only with functional checks, tool calls and needles.
-  Evaluate it on the customer's data before choosing it over FP8 (8.4).
-- The v0.23 `persistent_topk` decode kernel lacks upstream fix #49139 (two
-  sequences longer than 32K tokens batched around a shorter one). Serving
-  many concurrent sequences longer than 32K tokens should wait for a vLLM
-  build that includes it.
-- Needles, tool calls, functional probes and the 2-layer comparison are not a
-  full quality evaluation; run AA-LCR, RULER or the customer's own set.
-- Dense mode is limited to about 60K tokens of context. It found no needle at
-  126K or 253K tokens; use native DSA for longer prompts.
-- KV capacity limits long inputs. The BF16 MLA cache is replicated on every
-  TP rank, so the 16 GPUs hold about 674K tokens: 20 concurrent 32K requests,
-  10 at 64K, 5 at 120K. Add data-parallel replicas (another 2-node group per
-  replica) to serve more long requests. DP2 x TP8 + EP (8.7) holds two pools of
-  about 239K tokens and a 238,656-token context, because each replica still
-  replicates its cache over 8 TP ranks. Data-parallel attention without TP
-  (DP16 x TP1 + EP), which would avoid the replication, was not tested. The
-  one-node NVFP4 variant holds 254,016-272,960 tokens (8.4).
-- Output is not bitwise reproducible across identical requests, and vLLM
-  0.23's batch-invariant mode cannot start on A100 for this FP8 MoE model.
-  Exact reproducibility needs FP8-capable GPUs (compute capability 8.9 or
-  newer) and has to be verified there.
-- Speed is about half of one B200 node at short inputs and 10-36% from 16K
-  upward (8.1). Of the tech report's two speed-ups, EAGLE3 is not usable on
-  A100. NVFP4 runs on one A100 node at about the same short-input speed as
-  the two FP8 nodes, which is about half of B200 per GPU instead of a
-  quarter. A100 has no FP4 tensor cores, so its experts run W4A16, and the
-  rest of the gap is hardware (8.4).
-- Every configuration now uses InfiniBand for NCCL when the start-up probe
-  confirms it (`aml/src/ib_probe.py`). Azure's NDv4 topology file is fetched
-  from the azhpc-images repository and used only if it matches the VM.
-- Hub downloads of 694 GB can stall (observed once at 68%); the watchdog in
-  `stage_weights.py` restarts and resumes. Production should stage the
-  weights once into same-region storage or an image cache.
-- Expert parallelism was measured (8.7). On A100 it beat the demo layouts only
-  as DP2 x TP8 + EP under load, at twice the single-request latency. Data-parallel
-  replicas and `fastsafetensors` loading are still out of scope for this proof.
-- The model-only API (8.6) is a BYOM pre-demo path, not a Model Catalog
-  registration. Its open items are listed at the end of 8.6: the cause of one
-  unexplained Foundry `model_error` and whether the tool-name replacement
-  prevents it, which layer takes 4 tokens off Foundry's input count, how
-  Foundry handles a stream error chunk and wrong tool arguments other than the
-  one case seen, console visibility and whether the Web IQ key's header name
-  is sent unchanged. Its latency and load are not measured; do that with the
-  customer's scenario once the connection is complete.
+- Low-priority/Spot 용량은 preemption될 수 있고 부족했다. 요청 시점에 2 x ND96amsr를
+  쓸 수 있는 region은 12개 중 2개였다. 프로덕션에는 고객 subscription의
+  on-demand 또는 reserved 용량이 필요하다. 그곳에서 같은 이미지와 명령을
+  AKS + KubeRay/LWS 또는 CycleCloud Slurm으로 실행한다.
+- **역방향 GPU link 안정성.** 데모의 low-priority 노드는 계속 실행 상태로 두었다.
+  2026-10-19부터 2026-10-20까지 약 16시간 동안 serving job과 web app 사이의 역방향
+  GPU link가 profile별로 세어 8번 닫혔다(FP8 4, NVFP4 4). 그중 두 쌍은 서로 몇 초
+  간격으로 닫혔다. 따라서 사건은 6건이다. 닫힌 시점부터 첫 ready 상태까지로 세면,
+  profile이 ready가 아닌 시간은 약 32분에서 116분이었다. 이는 관측 시간이며, 일부는
+  시작 단계로부터 추정한 값이고, 보장값이 아니다. 유력한 원인은 Spot eviction이다
+  (아래 원인 참고). 확정되지 않았다. 사건 중 두 건(둘 다 2026-10-19)은 비식별화 기록
+  `demo/evidence/recurrent-link-loss-recovery-redacted.json`에 있다. 이 두 건이 아래의
+  첫 번째 손실과 두 번째 손실이다. 원시 데이터는 공개하지 않는다.
+  - *복구 시간.* 관측된 시간에는 약 32, 43, 56, 66, 67분이 있었고, 가장 긴 시간은
+    약 116분(NVFP4)이었다. 32분 복구(8번째 닫힘)에는 supervisor 조치가 필요 없었다. AML이
+    같은 job을 같은 node ID에서 스스로 다시 실행했다. supervisor 해제도, 새 submit도
+    없었고, vLLM counter는 0으로 초기화되었다. 43, 56, 66, 67분 복구는 supervisor
+    해제(job을 cancel하고 대체 job을 시작한다) 또는 승인된 수동 재시작 뒤에 이루어졌다.
+    가장 긴 값을 포함한 일부 값은 job이 보고한 시작 단계로부터 추정한 값이다. 직접 본
+    ready 상태가 아니다.
+  - *첫 번째 손실.* 두 profile 모두 3.1초 간격으로 link를 잃었다. supervisor는
+    손실 20분 39초 뒤 FP8 job을 해제했고, FP8은 그로부터 22분 15초 뒤,
+    즉 손실 43분 뒤 ready가 되었다. NVFP4는 승인된 수동 재시작이 한 번 있었다.
+    재시작은 손실 44분 뒤 요청되었고, 요청 22분 뒤, 즉 손실 66분 뒤 안정적으로
+    ready가 되었다.
+  - *두 번째 손실.* FP8만 link를 잃었다. 약 7분 뒤 job이 사용 가능한 노드 없이
+    Queued 상태가 되었고, supervisor가 규칙에 따라 해제했다. 규칙은 1,200초 동안
+    link 없음, 그리고 사용 가능한 노드 2개 미만이다. FP8이 처음
+    ready가 된 시점은 손실 66분 49.7초 뒤, 해제 46분 18.6초 뒤, 두 노드가 모두
+    할당된 31분 47.8초 뒤였다. 할당 시점부터만 세어도 첫 FP8 대체 job의 해제부터
+    ready까지 시간(22분 15초)보다 길다. 원인은 찾지 못했다. Spot 용량과 cache 상태는
+    후보일 뿐이며 확인하지 않았다. NVFP4에서는 link 손실이 관측되지 않았다. 다만 손실
+    전후의 sample 간격이 최대 112초였으므로 짧은 재연결을 배제할 수 없다.
+  - *원인: Spot eviction이 유력하나 확정되지 않음.* Azure ML은 2026-03-31에
+    low-priority VM을 퇴역시켰다. `tier: low_priority`를 지정한 cluster는 여전히
+    job을 실행하지만, 이제 Azure Batch가 노드를 Spot VM으로 할당한다. 따라서 Spot
+    eviction 동작이 적용된다. 노드는 용량 사유로만 evict된다(Microsoft Learn, "Manage
+    and optimize Azure Machine Learning costs", "Use low-priority virtual machines"
+    절). 데모 노드는 이런 cluster에서 온다(2절). 따라서 Spot eviction으로 닫힘을
+    설명할 수 있다. 이에 부합하는 징후는 정황 증거다. Run History는 종료된 AML job
+    5개 모두에 preemption 경고를 표시한다. 이 경고에는 시간이나 code 필드가 없고,
+    닫힘과의 일대일 대응은 확인되지 않았다. 일부 경우 AML은 supervisor의 submit 없이
+    같은 job을 다른 노드에서 다시 실행했다. 이는 자동 requeue와 맞는다. 그러나 읽어 본
+    job 하나에 대해 Run History는 이를 확인하지 못했다. 그 job의 attempt 필드는
+    attempt 1, retry나 requeue 속성 없음, 마지막 시작 시간 없음을 보여 주었다. GPU
+    telemetry는 닫히기 5초에서 21초 전에 멈췄다(마지막 건은 40초).
+  - *원인: 미해결 사항.* 한 가지 모순이 해결되지 않았다. Azure Monitor metric
+    `Preempted Nodes`(1분 단위)와 진단 설정은 측정한 모든 분에서 0을 보였다.
+    Microsoft Learn은 이 metric을 사용 가능한 노드 pool에서 빠진 low-priority 노드로
+    정의한다(Azure Machine Learning monitoring data reference). 이 metric이 Azure
+    Batch가 Spot VM으로 evict한 노드를 세지 않는다는 것은 추론이다. 문서로 확인되지
+    않았다. 확인한 시간 기록 중 eviction을 보여 주는 것은 없다. 두 번째 손실 전후
+    10분 구간의 Azure Activity Log에는 항목 52개가 있었고, 모두 read였으며, Resource
+    Health나 Service Health 이벤트는 없었다. Resource Health 조회는 사용할 수
+    없었으므로 그 source는 관측하지 못했다. 따라서 노드의 eviction이나 재생성은
+    확인되지 않았고, worker process만의 재시작도 확인되지 않았다. 부하는 원인으로
+    보이지 않는다. 처음 7번의 닫힘 각각 직전 10분 동안 GPU 사용률은 0%였다(분 단위
+    snapshot, device sample 800개). snapshot 사이의 짧은 요청은 배제하지 않는다.
+  - *시간 패턴.* 처음 7번의 닫힘은 모두 분의 끝자리가 7인 시각에 일어났다. 8번째는
+    그렇지 않았다. 따라서 이를 주기 규칙으로 사용하면 안 된다. 처음 7번이 이 패턴을
+    공유한 이유는 알 수 없다. 첫 번째와 두 번째 손실의 FP8 닫힘은 10,804.9초
+    (3시간 4.9초) 간격이다. 우연일 수 있으며 주기적 원인의 증거가 아니다.
+  - *supervisor가 보는 것.* supervisor는 45초마다 점검한다. AML이 terminal status를
+    보고하면 다음 점검에서 job을 해제한다. stale 규칙은 active job이 1,200초 넘게
+    link가 없고, 사용 가능한 노드가 job에 필요한 수보다 적을 때만 해제한다. link를
+    마지막으로 본 시각은 link가 있을 때마다 갱신된다. 따라서 죽은 model server 위에서
+    재연결하는 link process가 있으면 이 규칙이 발동하지 않는다. job status는 AML의
+    대략적인 status이며, 같은 run의 재실행을 보여 주지 않는다. job 내부의 `phase`는
+    시작이 처음 healthy가 될 때 `ready`로 설정된다. job이 server를 재시작할 때까지
+    `ready`로 남는다. 따라서 이후의 `/health` 실패를 따라가지 않는다. job은 process가
+    종료되거나 `/health` 점검이 18번 연속 실패하면(약 3분에서 6분) server를
+    재시작한다. healthy가 되지 못한 시작도 재시작된다. 최대 3,600초를 기다리고,
+    `--enforce-eager`로 최대 3,600초 동안 한 번 더 재시도한 뒤다. Ray executor(2노드
+    job)에서는 모든 노드가 아직 Ray cluster에 있을 때만 job이 server를 재시작한다.
+    노드 하나가 떠났으면 `a node left the Ray cluster`로 즉시 실패한다. 재시작은
+    최대 2번 허용된다. 횟수를 다 쓰면 job은 code 40으로 종료하고 supervisor가 대체한다.
+  - *결정.* supervisor 규칙을 추가하지 않았다. "N분 동안 ready가 아니면 cancel" 같은
+    규칙은 AML이 곧 복구할 job을 끊을 수 있다(32분 사례). cancel 후 재submit이 더
+    빠르다는 것은 보여지지 않았다. 관측된 해제부터 ready까지 시간은 22분 15초와
+    46분 18.6초였고(위 참고), 한 번의 자체 재실행은 전체 32분이 걸렸으며, 1,200초
+    규칙 이전의 cancel은 시험한 적이 없다. 8번째 닫힘에서 job은 손실 약 13분에서
+    19분 뒤 사용 가능한 노드가 없음을 보였고, link는 약 19분에 돌아왔으며, profile은
+    약 32분에, 즉 link 복귀 약 13분 뒤에 처음 ready가 되었다. 이후 규칙은 ready가
+    아닌 상태가 아니라 진행 없음을 검사해야 한다. 즉 `phase`, `since`,
+    `download_gb`, `load_pct`, 그리고 link hello의 `started` 시각으로 된 tuple이
+    N분 동안 변하지 않는지 본다. N은 45초 점검 주기, 30초 status 신선도 한계,
+    web app 재배포 공백, link의 재연결 backoff보다 충분히 커야 한다. timer는 각
+    profile 자신의 job 상태에 둔다. 이는 설계 제안이며, 구현하거나 검증하지 않았다.
+  - *대안: dedicated 노드.* 데모 subscription에서 NDAMSv4 A100 family의 dedicated
+    quota는 0이다(2절). 따라서 dedicated 노드에는 먼저 quota 증설이 필요하다.
+    uksouth(Linux)의 `Standard_ND96amsr_A100_v4` 소매 정가는 node-hour당 USD로
+    dedicated 40.96, Spot 12.89, 이전 low-priority meter 8.19다(8.4에도
+    기재). 변경은 하지 않았다. 자동 복구 경로는 그대로 둔다. dedicated 노드로의 전환은
+    데모 소유자의 비용 및 quota 결정이다.
+  - *영향.* link가 끊긴 동안 model API는 즉시 503 `backend_unavailable`과
+    `Retry-After: 30`으로 응답한다(8.6). 이 503은 첫 번째 손실에서 관측되었다(Foundry가
+    NVFP4 호출 하나에 요청 4개를 보냈고 각각 이를 받았다, 8.6). 복구를 감시한 session은
+    두 번째 손실 동안 model 호출을 보내지 않았다(기록: 0). `GET {base}/health`는
+    readiness를 보여 주지만 key가 필요하고 gateway가 이를 노출하지 않는다. 따라서
+    gateway 뒤에서는 상태가 model 호출의 503으로만 드러난다. 데모 시작 전에
+    web app 자체 주소에서 두 profile 모두 `GET {base}/health`를 호출하고 각각
+    200으로 응답하는지 확인한다.
+  - *결론.* 이 용량에서는 profile이 수십 분 동안 ready가 아닐 수 있다(관측 약
+    32분에서 116분, 보장값 아님). A100 family의 VM quota는 0이다(2절). 따라서 노드는
+    Azure ML low-priority(Spot) compute에서 오며, Spot eviction이 닫힘의 유력한
+    원인이다(확정되지 않음, 위 원인 참고). 위 한계에서 말했듯이 프로덕션에는 on-demand
+    또는 reserved 용량이 필요하다. 코드는 변경하지 않았고, supervisor 규칙도 추가하지
+    않았으며, cluster를 dedicated 노드로 전환하지 않았고, 이 일로 재배포한 것도
+    없다(link 손실 문제로 web app을 재시작하지 않았다). hub의 재연결 동작도
+    변경되지 않았다.
+- Native DSA는 hash 검사 overlay로 넣은, 아직 merge되지 않은 upstream PR에 의존한다.
+  다른 vLLM 버전으로 옮기기 전에 다시 검증한다(kernel test와
+  `native-dsa-bench-nd96-hub.yml`의 2-layer 비교). upstream 지원이 들어오면
+  그쪽을 우선한다.
+- 1노드 NVFP4 변형에는 upstream vLLM commit 두 개의 backport가 필요하다
+  (`aml/src/nvfp4_sm80_port.json`). vLLM 0.24.0 이후에는 이 commit이 포함되어 있다.
+  품질은 기능 점검, tool call, needle로만 확인했다. FP8 대신 선택하기 전에
+  고객 데이터로 평가한다(8.4).
+- v0.23의 `persistent_topk` decode kernel에는 upstream 수정 #49139가 없다(32K token보다
+  긴 sequence 두 개가 더 짧은 sequence 하나를 사이에 두고 batch될 때의 문제). 32K
+  token보다 긴 sequence를 다수 동시에 서빙하는 것은 이 수정을 포함한 vLLM
+  build를 기다려야 한다.
+- Needle, tool call, 기능 probe, 2-layer 비교는 전체 품질 평가가 아니다.
+  AA-LCR, RULER 또는 고객 자체 set을 실행한다.
+- Dense 모드는 약 60K token의 context로 제한된다. 126K나 253K token에서는 needle을
+  하나도 찾지 못했다. 더 긴 prompt에는 native DSA를 사용한다.
+- KV 용량이 긴 입력을 제한한다. BF16 MLA cache는 모든 TP rank에 복제된다. 따라서
+  GPU 16개가 약 674K token을 보유한다. 이는 32K 요청 20개, 64K 요청 10개, 120K 요청
+  5개를 동시에 처리하는 양이다. 더 많은 긴 요청을 서빙하려면 data-parallel replica를
+  추가한다(replica마다 2노드 group 하나 추가). DP2 x TP8 + EP(8.7)는 약 239K token의
+  pool 두 개와 238,656 token context를 보유한다. 각 replica가 여전히 cache를 TP rank
+  8개에 복제하기 때문이다. 복제를 피할 수 있는 TP 없는 data-parallel attention
+  (DP16 x TP1 + EP)은 시험하지 않았다. 1노드 NVFP4 변형은
+  254,016-272,960 token을 보유한다(8.4).
+- 동일한 요청 간에 출력이 bitwise로 재현되지 않는다. vLLM 0.23의 batch-invariant
+  모드는 이 FP8 MoE 모델로 A100에서 시작할 수 없다. 정확한 재현성에는 FP8을 지원하는
+  GPU(compute capability 8.9 이상)가 필요하고, 그 환경에서 검증해야 한다.
+- 속도는 짧은 입력에서 B200 노드 1개의 약 절반이고, 16K 이상에서는 10-36%다
+  (8.1). tech report의 두 가지 가속 기법 중 EAGLE3는 A100에서 사용할 수 없다.
+  NVFP4는 A100 노드 1개에서 FP8 노드 2개와 거의 같은 짧은 입력 속도로 실행된다.
+  이는 GPU당 B200의 4분의 1이 아니라 약 절반이다. A100에는 FP4 tensor core가 없어서
+  expert가 W4A16으로 실행되며, 나머지 격차는 하드웨어 때문이다(8.4).
+- 이제 모든 구성이 시작 probe가 InfiniBand를 확인하면 NCCL에 InfiniBand를 사용한다
+  (`aml/src/ib_probe.py`). Azure의 NDv4 topology 파일은 azhpc-images 저장소에서
+  가져오며, VM과 일치할 때만 사용한다.
+- 694 GB의 Hub 다운로드는 멈출 수 있다(68%에서 한 번 관측). `stage_weights.py`의
+  watchdog가 재시작하고 이어받는다. 프로덕션에서는 weight를 같은 region의
+  storage나 이미지 cache에 한 번 staging해야 한다.
+- Expert parallelism을 측정했다(8.7). A100에서 데모 layout을 이긴 것은 부하 상태의
+  DP2 x TP8 + EP뿐이었고, 단일 요청 지연은 두 배였다. Data-parallel
+  replica와 `fastsafetensors` 로딩은 여전히 이 검증의 범위 밖이다.
+- Model 전용 API(8.6)는 BYOM 사전 데모 경로이며, Model Catalog 등록이 아니다.
+  미해결 항목은 8.6 끝에 있다. 설명되지 않은 Foundry `model_error` 한 건의 원인과
+  tool 이름 치환이 이를 막는지 여부, 어느 layer가 Foundry의 입력 token 수에서 4를
+  빼는지, Foundry가 stream 오류 chunk와 관측된 한 사례 외의 잘못된 tool 인자를 어떻게
+  처리하는지, console 표시 여부, Web IQ key의 header 이름이 그대로 전송되는지
+  여부다. 지연과 부하는 측정하지 않았다. 연결이 완성되면 고객 시나리오로
+  측정한다.

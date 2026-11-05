@@ -1,4 +1,6 @@
 import importlib.util
+import copy
+import hashlib
 import json
 import tempfile
 import unittest
@@ -140,6 +142,107 @@ class BenchmarkTests(unittest.TestCase):
             self.assertTrue(make_figures.render_benchmarks(bench, Path(tmp)))
             self.assertGreater((Path(tmp) / "benchmarks-vs-published.png").stat().st_size, 10_000)
             self.assertFalse(make_figures.render_benchmarks(make_figures.load_benchmarks(Path(tmp) / "x.json"), Path(tmp)))
+
+
+class LogprobFigureTests(unittest.TestCase):
+    def test_counts_and_recomputed_means(self):
+        summary = make_figures.logprob_summary(make_figures.load_logprob())
+        expected = {
+            "native_tp8": (0.011357863592830761, 0.01162928085916264, 0.01108293307628752),
+            "native_tp8_pp2": (0.011741000136817625, 0.011979215606307733, 0.011499701184246772),
+        }
+        self.assertEqual(set(summary), set(expected))
+        for key, (total, inside, outside) in expected.items():
+            with self.subTest(group=key):
+                stats = summary[key]
+                self.assertEqual(stats["positions"], 14618)
+                self.assertEqual(stats["within_first_2048"], 7356)
+                self.assertEqual(stats["beyond_first_2048"], 7262)
+                self.assertAlmostEqual(stats["mean_abs_delta"], total, places=14)
+                self.assertAlmostEqual(stats["within_mean_abs_delta"], inside, places=14)
+                self.assertAlmostEqual(stats["beyond_mean_abs_delta"], outside, places=14)
+
+    def test_invalid_series_rejected(self):
+        original = make_figures.load_logprob()
+        mutations = [
+            lambda d: d["prompts"][0]["oracle"].pop(),
+            lambda d: d["prompts"][0]["native_tp8"].__setitem__(0, float("nan")),
+            lambda d: d["prompts"][0]["native_tp8"].__setitem__(0, float("-inf")),
+            lambda d: d["prompts"][0]["native_tp8"].__setitem__(0, 0.1),
+            lambda d: d["prompts"][0]["native_tp8"].__setitem__(0, True),
+            lambda d: d["prompts"][0].update(dense=[]),
+            lambda d: d["prompts"].pop(),
+            lambda d: d.update(schema_version=2),
+        ]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                data = copy.deepcopy(original)
+                mutate(data)
+                with self.assertRaises(ValueError):
+                    make_figures.validate_logprob(data)
+
+    def test_bom_extraction_preserves_only_plot_series(self):
+        original = make_figures.load_logprob()
+        reports = {"oracle": {}, "native": {}}
+        specs = {"oracle": ("oracle", "oracle.series")}
+        specs.update({
+            key: ("native", spec[2]) for key, spec in make_figures.LOGPROB_GROUPS.items()
+        })
+        for key, (report, series) in specs.items():
+            reports[report][series] = {
+                p["name"] + ".chosen_logprob": p[key] for p in original["prompts"]
+            }
+            reports[report][series]["ko_short.top1"] = [123] * 12
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {}
+            for report in reports:
+                path = Path(tmp) / (report + ".json")
+                path.write_text(
+                    json.dumps({"reports": reports[report], "discard_metadata": "not_for_export"}),
+                    encoding="utf-8-sig",
+                )
+                paths[report] = path
+            out = Path(tmp) / "series.json"
+            extracted = make_figures.extract_logprob(paths["oracle"], paths["native"], out)
+            self.assertEqual(extracted["prompts"], original["prompts"])
+            self.assertEqual(make_figures.load_logprob(out), extracted)
+            self.assertNotIn("not_for_export", out.read_text(encoding="utf-8"))
+            self.assertNotIn("top1", out.read_text(encoding="utf-8"))
+            for key, (report, _) in specs.items():
+                self.assertEqual(
+                    extracted["sources"][key]["sha256"],
+                    hashlib.sha256(paths[report].read_bytes()).hexdigest(),
+                )
+            self.assertEqual(set(extracted), {"schema_version", "sources", "prompts"})
+
+    def test_two_groups_title_caption_and_histogram(self):
+        if importlib.util.find_spec("matplotlib") is None:
+            self.skipTest("matplotlib is not importable")
+        from matplotlib import pyplot as plt
+        fig = make_figures.build_logprob_figure(make_figures.load_logprob())
+        try:
+            self.assertEqual(fig._suptitle.get_text(), make_figures.LOGPROB_TITLE)
+            self.assertEqual(fig.texts[1].get_text().replace("\n", " "), make_figures.LOGPROB_CAPTION)
+            left, right = fig.axes
+            self.assertEqual(len(left.collections), 2)
+            self.assertEqual([len(c.get_offsets()) for c in left.collections], [14618, 14618])
+            self.assertEqual(
+                [c.get_label() for c in left.collections],
+                [spec[0] for spec in make_figures.LOGPROB_GROUPS.values()],
+            )
+            self.assertIn("log-prob", left.get_xlabel())
+            self.assertIn("log-prob", left.get_ylabel())
+            self.assertIn("0.1", right.get_xlabel())
+            self.assertEqual(len(right.patches), 2)
+            for histogram in right.patches:
+                self.assertEqual(sum(histogram.get_xy()[:, 1]) / 2, 14618)
+        finally:
+            plt.close(fig)
+        with tempfile.TemporaryDirectory() as tmp:
+            make_figures.render_all(tmp, only="logprob")
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], ["logprob-two.png"])
+            self.assertGreater((Path(tmp) / "logprob-two.png").stat().st_size, 10_000)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,13 @@
+﻿구성,구간,위치 수,평균 |Δ log-prob|,top-1 일치율,출처
+dense TP8,index_topk 안쪽,7356,0.011628,0.9744,요약 JSON(summary_vs_official)
+dense TP8,index_topk 바깥쪽,7262,0.012254,0.9763,요약 JSON(summary_vs_official)
+native TP8,index_topk 안쪽,7356,0.011629,0.9743,요약 JSON(summary_vs_official)
+native TP8,index_topk 바깥쪽,7262,0.011083,0.9754,요약 JSON(summary_vs_official)
+native TP8×PP2,index_topk 안쪽,7356,0.011979,0.9755,요약 JSON(summary_vs_official)
+native TP8×PP2,index_topk 바깥쪽,7262,0.0115,0.9728,요약 JSON(summary_vs_official)
+native TP8,시계열 재계산: 전체,14618,0.011358,,a100-native-2layer-logprob-series.json 시계열에서 재계산
+native TP8,시계열 재계산: 안쪽,7356,0.011629,,a100-native-2layer-logprob-series.json 시계열에서 재계산
+native TP8,시계열 재계산: 바깥쪽,7262,0.011083,,a100-native-2layer-logprob-series.json 시계열에서 재계산
+native TP8×PP2,시계열 재계산: 전체,14618,0.011741,,a100-native-2layer-logprob-series.json 시계열에서 재계산
+native TP8×PP2,시계열 재계산: 안쪽,7356,0.011979,,a100-native-2layer-logprob-series.json 시계열에서 재계산
+native TP8×PP2,시계열 재계산: 바깥쪽,7262,0.0115,,a100-native-2layer-logprob-series.json 시계열에서 재계산
