@@ -58,7 +58,7 @@ class TargetTests(unittest.TestCase):
                 self.assertIn("aml/jobs/demo-nvfp4-nd96.yml", value.namelist())
                 self.assertIn("comparison.py", value.namelist())
                 self.assertIn("static/chat.js", value.namelist())
-                self.assertNotIn("hosted_model.py", value.namelist())
+                self.assertIn("hosted_model.py", value.namelist())
                 self.assertFalse(any(".env" in name or "__pycache__" in name for name in value.namelist()))
                 self.assertEqual(len(expected), len(value.namelist()))
 
