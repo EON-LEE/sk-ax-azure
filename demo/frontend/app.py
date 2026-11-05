@@ -29,6 +29,7 @@ from workspace import LIMIT as FILE_LIMIT, Workspaces, safe_preview
 from web_iq import WebIQ
 from comparison import install as install_comparison
 from model_api import Settings as ModelApiSettings, install as install_model_api
+from hosted_model import install as install_hosted_model
 
 HERE = Path(__file__).resolve().parent
 COOKIES = {"demo": ("axk2_demo", 24 * 3600), "admin": ("axk2_admin", 12 * 3600)}
@@ -786,6 +787,9 @@ def create_app(config=None, azure=None, start_supervisor=True, *, shared_auth=No
         except Full:
             raise Problem(503, "busy", "지금 사용자가 많아 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.")
         return relay.response()
+
+    install_hosted_model(app, config, model_id, read_json=read_json, chat_body=chat_body,
+                         is_ready=is_profile_ready, hub=hub, gate=gate, problem=Problem)
 
     def workspace_for(request, allow_busy=False):
         require_demo(request)
