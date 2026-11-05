@@ -24,10 +24,9 @@ flowchart LR
 
 ## 처음 배포
 
-For a new subscription, use the isolated Terraform and target-only deployment
-workflow in [infra/README.md](infra/README.md), not the legacy defaults below.
-It deploys the complete two-profile UI with both GPUs OFF, a single UK South
-cluster, separate locked state and explicit subscription-scoped operations.
+새 구독에는 아래의 기존 기본값 대신 [infra/README.md](infra/README.md)의 격리된 Terraform과
+대상 전용(target-only) 배포 절차를 씁니다. 이 절차는 두 프로필 화면 전체를 GPU 두 개 모두 끈 상태로
+배포하고, 영국 남부 클러스터 1개, 분리·잠금된 상태 파일, 구독 범위를 명시한 작업을 씁니다.
 
 WSL(Ubuntu)에서, `az login`이 된 상태로 실행합니다. 로컬 pip 설치는 필요 없습니다(패키지는 App Service가 서버에서 설치).
 

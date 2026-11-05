@@ -106,7 +106,7 @@ class BenchmarkTests(unittest.TestCase):
             table = (Path(tmp) / "benchmark-table.md").read_text(encoding="utf-8")
             empty = make_figures.load_benchmarks(Path(tmp) / "absent.json")
         self.assertIn("| Math | AIME26 | 97.1 | **90.0** ± 5.0 |", table)
-        self.assertIn("| Korean | CLIcK | 91.6 | pending |", table)
+        self.assertIn("| Korean | CLIcK | 91.6 | 측정 전 |", table)
         self.assertIn("| Science & Knowledge | GPQA Diamond | 85.6 | – (gated) |", table)
         self.assertIn("| Long context | NIAH | 100 | **100.0** |", table)
         self.assertTrue(all(r["a100"] is None for r in empty["rows"]))
@@ -130,8 +130,8 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIn("| Math | AIME26 | 97.1 | **100.0** (n=10/60 gen) |", table)
         self.assertIn("| Korean | CLIcK | 91.6 | **85.5** ± 6.1 (n=131/200) |", table)
         self.assertIn("| Long context | NIAH | 100 | **100.0** (9/9, 32K, 128K, 256K) |", table)
-        self.assertIn("stopped early", table)
-        self.assertIn("earlier verification run", table)
+        self.assertIn("중간에 멈췄다", table)
+        self.assertIn("먼저 돌린 검증 실행", table)
         self.assertIsNone(without["niah"]["a100"])
 
     def test_render_benchmarks(self):
